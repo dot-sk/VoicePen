@@ -132,7 +132,7 @@ Example:
 ```json
 {
   "env": {
-    "http_proxy": "http://192.168.86.2:2080/"
+    "http_proxy": "http://proxy.example.local:2080/"
   }
 }
 ```
@@ -170,3 +170,37 @@ The workflow is in:
 ```text
 .github/workflows/ci.yml
 ```
+
+## Releases
+
+Release builds are created only for GitHub releases.
+
+Prepare a release pull request:
+
+```bash
+make prepare-release VERSION=1.1.0
+```
+
+This creates a branch named `release/v1.1.0`, bumps the Xcode app version, pushes the branch, and opens a pull request.
+
+After the pull request is merged, create and push the release tag:
+
+```bash
+make publish-release VERSION=1.1.0
+```
+
+Pushing the tag starts the Release workflow:
+
+```text
+.github/workflows/release.yml
+```
+
+When the workflow finishes, download `VoicePen-macOS-unsigned.zip` from the GitHub Release page.
+
+Local package build:
+
+```bash
+make package
+```
+
+The app is unsigned. First launch still requires **right-click -> Open**.
