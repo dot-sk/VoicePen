@@ -6,6 +6,13 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		11953DAC2FA4E20000ED707B /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DAB2FA4E20000ED707B /* FluidAudio */; };
+		11953DB02FA5000000ED707B /* whisper in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DB12FA5000000ED707B /* whisper */; };
+		11953DB42FA5300000ED707B /* KeyboardShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DB62FA5300000ED707B /* KeyboardShortcuts */; };
+		11953DB82FA5E00000ED707B /* Alamofire in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DB72FA5E00000ED707B /* Alamofire */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		11953D842FA4D47E00ED707B /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +59,10 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				11953DAC2FA4E20000ED707B /* FluidAudio in Frameworks */,
+				11953DB02FA5000000ED707B /* whisper in Frameworks */,
+				11953DB42FA5300000ED707B /* KeyboardShortcuts in Frameworks */,
+				11953DB82FA5E00000ED707B /* Alamofire in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +123,10 @@
 			);
 			name = VoicePen;
 			packageProductDependencies = (
+				11953DAB2FA4E20000ED707B /* FluidAudio */,
+				11953DB12FA5000000ED707B /* whisper */,
+				11953DB62FA5300000ED707B /* KeyboardShortcuts */,
+				11953DB72FA5E00000ED707B /* Alamofire */,
 			);
 			productName = VoicePen;
 			productReference = 11953D762FA4D47A00ED707B /* VoicePen.app */;
@@ -195,6 +210,12 @@
 			);
 			mainGroup = 11953D6D2FA4D47A00ED707B;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				11953DAD2FA4E20000ED707B /* XCRemoteSwiftPackageReference "FluidAudio" */,
+				11953DB22FA5000000ED707B /* XCRemoteSwiftPackageReference "whisper.spm" */,
+				11953DB52FA5300000ED707B /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */,
+				11953DB92FA5E00000ED707B /* XCRemoteSwiftPackageReference "Alamofire" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 11953D772FA4D47A00ED707B /* Products */;
 			projectDirPath = "";
@@ -303,6 +324,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -327,6 +349,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -366,6 +389,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -383,6 +407,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 			};
 			name = Release;
@@ -395,11 +420,15 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				ENABLE_APP_SANDBOX = YES;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = PJ47M9L49X;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSUIElement = NO;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "VoicePen needs microphone access to transcribe your speech offline.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -425,11 +454,15 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				ENABLE_APP_SANDBOX = YES;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = PJ47M9L49X;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSUIElement = NO;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "VoicePen needs microphone access to transcribe your speech offline.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -453,6 +486,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
 				MARKETING_VERSION = 1.0;
@@ -473,6 +507,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
 				MARKETING_VERSION = 1.0;
@@ -492,6 +527,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.khokhlachev.VoicePenUITests;
@@ -510,6 +546,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.khokhlachev.VoicePenUITests;
@@ -563,6 +600,64 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		11953DAD2FA4E20000ED707B /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.12.4;
+			};
+		};
+		11953DB22FA5000000ED707B /* XCRemoteSwiftPackageReference "whisper.spm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ggerganov/whisper.spm.git";
+			requirement = {
+				branch = master;
+				kind = branch;
+			};
+		};
+		11953DB52FA5300000ED707B /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sindresorhus/KeyboardShortcuts";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.2.0;
+			};
+		};
+		11953DB92FA5E00000ED707B /* XCRemoteSwiftPackageReference "Alamofire" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Alamofire/Alamofire.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.11.2;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		11953DAB2FA4E20000ED707B /* FluidAudio */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 11953DAD2FA4E20000ED707B /* XCRemoteSwiftPackageReference "FluidAudio" */;
+			productName = FluidAudio;
+		};
+		11953DB12FA5000000ED707B /* whisper */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 11953DB22FA5000000ED707B /* XCRemoteSwiftPackageReference "whisper.spm" */;
+			productName = whisper;
+		};
+		11953DB62FA5300000ED707B /* KeyboardShortcuts */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 11953DB52FA5300000ED707B /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */;
+			productName = KeyboardShortcuts;
+		};
+		11953DB72FA5E00000ED707B /* Alamofire */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 11953DB92FA5E00000ED707B /* XCRemoteSwiftPackageReference "Alamofire" */;
+			productName = Alamofire;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 11953D6E2FA4D47A00ED707B /* Project object */;
 }

@@ -1,0 +1,862 @@
+import AppKit
+import Combine
+import Foundation
+
+@MainActor
+protocol UserPromptPresenter {
+    func showAlert(
+        messageText: String,
+        informativeText: String,
+        style: NSAlert.Style,
+        buttons: [String],
+        activateBeforeShowing: Bool
+    ) -> NSApplication.ModalResponse
+}
+
+@MainActor
+final class NSAlertUserPromptPresenter: UserPromptPresenter {
+    func showAlert(
+        messageText: String,
+        informativeText: String,
+        style: NSAlert.Style,
+        buttons: [String],
+        activateBeforeShowing: Bool = false
+    ) -> NSApplication.ModalResponse {
+        if activateBeforeShowing {
+            NSApplication.shared.activate(ignoringOtherApps: true)
+        }
+
+        let alert = NSAlert()
+        alert.messageText = messageText
+        alert.informativeText = informativeText
+        alert.alertStyle = style
+        buttons.forEach { alert.addButton(withTitle: $0) }
+        return alert.runModal()
+    }
+}
+
+@MainActor
+final class AppController: ObservableObject {
+    @Published var appState: AppState = .starting
+    @Published var lastRawText: String = ""
+    @Published var lastFinalText: String = ""
+    @Published var errorMessage: String?
+    @Published var modelDownloadProgress: Double?
+    @Published var modelRuntimeState: ModelRuntimeState = .notLoaded
+    @Published private(set) var modelManifest: ModelManifest
+
+    private let paths: AppPaths
+    private let pipeline: DictationPipeline
+    private let hotkey: PushToTalkHotkeyClient
+    private let permissions: PermissionsClient
+    let dictionaryStore: DictionaryStore
+    private let inserter: TextInsertionClient
+    private let overlay: OverlayPresenter
+    private let modelDownloader: ModelDownloadClient
+    private let modelWarmupClient: ModelWarmupClient?
+    private let launchAtLogin: LaunchAtLoginClient
+    private let userPrompts: UserPromptPresenter
+    private let environmentSettingsStore: AppEnvironmentSettingsStore
+    let historyStore: VoiceHistoryStore
+    let settingsStore: AppSettingsStore
+
+    private var didStart = false
+    private var activeModelDownloadID: UUID?
+    private var modelDownloadTask: Task<Void, Never>?
+    private var modelWarmupTask: Task<Void, Never>?
+    private var transcriptionTask: Task<Void, Never>?
+    private var accessibilityPermissionPollingTask: Task<Void, Never>?
+    private var appActivationObserver: NSObjectProtocol?
+
+    private static let microphonePermissionRequiredMessage = "Microphone permission is required to record dictation audio locally."
+    private static let accessibilityPermissionRequiredMessage = "Text insertion permission is required so VoicePen can paste text into the active app."
+
+    var recommendedModel: ModelManifestModel {
+        modelManifest.recommendedModel
+    }
+
+    var selectedModel: ModelManifestModel {
+        modelManifest.compatibleModels.first { $0.id == settingsStore.selectedModelId }
+            ?? recommendedModel
+    }
+
+    var dictionaryURL: URL {
+        paths.dictionaryURL
+    }
+
+    var historyURL: URL {
+        paths.historyURL
+    }
+
+    var userModelsDirectory: URL {
+        paths.userModelsDirectory
+    }
+
+    var userModelDirectory: URL {
+        paths.userModelDirectory(for: selectedModel.id)
+    }
+
+    var isModelInstalled: Bool {
+        switch selectedModel.backendKind {
+        case .whisperCpp:
+            selectedModel.isInstalled(paths: paths)
+        case .fluidAudio:
+            paths.existingModelDirectory(for: selectedModel.id) != nil
+        case .unsupported:
+            paths.existingModelDirectory(for: selectedModel.id) != nil
+        }
+    }
+
+    var modelAccelerationStatus: ModelAccelerationStatus {
+        ModelAccelerationStatus.inspect(model: selectedModel, paths: paths)
+    }
+
+    var hasDownloadedModelFiles: Bool {
+        FileManager.default.fileExists(atPath: userModelDirectory.path)
+    }
+
+    var microphonePermissionTitle: String {
+        switch permissions.microphonePermissionStatus {
+        case .authorized:
+            return "Allowed"
+        case .notDetermined:
+            return "Not requested"
+        case .denied:
+            return "Denied"
+        }
+    }
+
+    var accessibilityPermissionTitle: String {
+        permissions.hasAccessibilityPermission ? "Allowed" : "Missing"
+    }
+
+    var runningBundleIdentifier: String {
+        Bundle.main.bundleIdentifier ?? "Unknown"
+    }
+
+    var runningAppPath: String {
+        Bundle.main.bundleURL.path
+    }
+
+    var menuBarSystemImage: String {
+        switch appState {
+        case .recording:
+            "record.circle.fill"
+        case .transcribing, .downloadingModel, .preparingModel:
+            "waveform"
+        case .missingMicrophonePermission, .missingAccessibilityPermission, .missingModel, .error:
+            "exclamationmark.triangle.fill"
+        default:
+            "mic.fill"
+        }
+    }
+
+    init(
+        paths: AppPaths,
+        pipeline: DictationPipeline,
+        hotkey: PushToTalkHotkeyClient,
+        permissions: PermissionsClient,
+        dictionaryStore: DictionaryStore,
+        inserter: TextInsertionClient,
+        overlay: OverlayPresenter,
+        modelDownloader: ModelDownloadClient,
+        modelWarmupClient: ModelWarmupClient? = nil,
+        launchAtLogin: LaunchAtLoginClient? = nil,
+        userPrompts: UserPromptPresenter,
+        environmentSettingsStore: AppEnvironmentSettingsStore? = nil,
+        historyStore: VoiceHistoryStore,
+        settingsStore: AppSettingsStore,
+        modelManifest: ModelManifest
+    ) {
+        self.paths = paths
+        self.pipeline = pipeline
+        self.hotkey = hotkey
+        self.permissions = permissions
+        self.dictionaryStore = dictionaryStore
+        self.inserter = inserter
+        self.overlay = overlay
+        self.modelDownloader = modelDownloader
+        self.modelWarmupClient = modelWarmupClient
+        self.launchAtLogin = launchAtLogin ?? NoOpLaunchAtLoginClient()
+        self.userPrompts = userPrompts
+        self.environmentSettingsStore = environmentSettingsStore ?? AppEnvironmentSettingsStore()
+        self.historyStore = historyStore
+        self.settingsStore = settingsStore
+        self.modelManifest = modelManifest
+    }
+
+    static func live() -> AppController {
+        let paths = AppPaths()
+        let modelManifest = LocalModelManifestStore().loadManifestOrDefault()
+        let recommendedModel = modelManifest.recommendedModel
+        let dictionaryStore = DictionaryStore(dictionaryURL: paths.dictionaryURL)
+        let historyStore = VoiceHistoryStore(historyURL: paths.historyURL)
+        let settingsStore = AppSettingsStore(databaseURL: paths.databaseURL)
+        let overlay = BottomOverlayWindowController()
+        let recorder = LiveAudioRecordingClient(tempDirectory: paths.tempAudioDirectory)
+        let audioPreprocessor = LiveAudioPreprocessingClient(outputDirectory: paths.tempAudioDirectory)
+        let whisperCppTranscriber = WhisperCppTranscriptionClient(paths: paths)
+        let fluidAudioTranscriber = FluidAudioTranscriptionClient(paths: paths)
+        let inserter = PasteboardTextInsertionClient(restoreDelay: VoicePenConfig.clipboardRestoreDelay)
+        let transcriber = RoutingTranscriptionClient(
+            modelProvider: {
+                modelManifest.compatibleModels.first { $0.id == settingsStore.selectedModelId }
+                    ?? recommendedModel
+            },
+            whisperCppClient: whisperCppTranscriber,
+            fluidAudioClient: fluidAudioTranscriber
+        )
+        let pipeline = DictationPipeline(
+            recorder: recorder,
+            audioPreprocessor: audioPreprocessor,
+            transcriber: transcriber,
+            dictionaryStore: dictionaryStore,
+            inserter: inserter,
+            overlay: overlay,
+            languageProvider: { settingsStore.transcriptionLanguage },
+            speechPreprocessingModeProvider: { settingsStore.speechPreprocessingMode },
+            minimumRecordingDuration: VoicePenConfig.minimumRecordingDuration
+        )
+
+        let controller = AppController(
+            paths: paths,
+            pipeline: pipeline,
+            hotkey: LivePushToTalkHotkeyClient(settingsStore: settingsStore),
+            permissions: LivePermissionsClient(),
+            dictionaryStore: dictionaryStore,
+            inserter: inserter,
+            overlay: overlay,
+            modelDownloader: RoutingModelDownloadClient(
+                whisperCppDownloader: WhisperCppModelDownloadClient(
+                    paths: paths,
+                    proxyProvider: {
+                        ModelDownloadProxyConfiguration.fromEnvironment()
+                    }
+                ),
+                fluidAudioDownloader: FluidAudioModelDownloadClient(paths: paths)
+            ),
+            modelWarmupClient: transcriber,
+            launchAtLogin: LiveLaunchAtLoginClient(),
+            userPrompts: NSAlertUserPromptPresenter(),
+            historyStore: historyStore,
+            settingsStore: settingsStore,
+            modelManifest: modelManifest
+        )
+        overlay.onCancelTranscription = { [weak controller] in
+            controller?.cancelTranscription()
+        }
+        return controller
+    }
+
+    var isDownloadingModel: Bool {
+        switch appState {
+        case .downloadingModel:
+            return true
+        case .preparingModel:
+            return activeModelDownloadID != nil
+        default:
+            return false
+        }
+    }
+
+    func start() {
+        guard !didStart else { return }
+        didStart = true
+
+        do {
+            try paths.createRequiredDirectories()
+            try paths.cleanOldTemporaryAudioFiles()
+            try environmentSettingsStore.applyEnvironment()
+            try dictionaryStore.load()
+            try historyStore.load()
+            try settingsStore.load(defaultModelId: recommendedModel.id)
+            scheduleModelWarmupIfInstalled()
+        } catch {
+            setError(error)
+            return
+        }
+
+        Task {
+            await requestStartupPermissions()
+        }
+
+        appActivationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let controller = self else { return }
+            Task { @MainActor [controller] in
+                controller.refreshPermissionState()
+            }
+        }
+    }
+
+    private func requestStartupPermissions() async {
+        var microphoneGranted = permissions.microphonePermissionStatus == .authorized
+        if !microphoneGranted {
+            microphoneGranted = await permissions.requestMicrophonePermission()
+            if !microphoneGranted {
+                appState = .missingMicrophonePermission
+                errorMessage = Self.microphonePermissionRequiredMessage
+            }
+            showMicrophoneDeniedNoticeIfNeeded(granted: microphoneGranted)
+        }
+
+        if !permissions.hasAccessibilityPermission {
+            permissions.requestAccessibilityPermission()
+            startAccessibilityPermissionPolling()
+        }
+
+        guard microphoneGranted else {
+            appState = .missingMicrophonePermission
+            return
+        }
+
+        guard permissions.hasAccessibilityPermission else {
+            appState = .missingAccessibilityPermission
+            errorMessage = Self.accessibilityPermissionRequiredMessage
+            startAccessibilityPermissionPolling()
+            return
+        }
+
+        installHotkey()
+        appState = .ready
+    }
+
+    private func showMicrophoneDeniedNoticeIfNeeded(granted: Bool) {
+        guard !granted else { return }
+
+        _ = userPrompts.showAlert(
+            messageText: "Microphone permission is needed",
+            informativeText: """
+            VoicePen records only while you hold the hotkey, and transcription happens locally on this Mac.
+
+            You can enable Microphone permission later in System Settings > Privacy & Security > Microphone.
+            """,
+            style: .warning,
+            buttons: ["OK"],
+            activateBeforeShowing: true
+        )
+    }
+
+    func startRecording() {
+        guard appState != .recording, appState != .transcribing, !isDownloadingModel else { return }
+
+        cancelModelWarmup()
+        Task {
+            do {
+                appState = .recording
+                errorMessage = nil
+                try await pipeline.start()
+            } catch {
+                setError(error)
+            }
+        }
+    }
+
+    func stopRecordingAndProcess() {
+        guard appState == .recording, transcriptionTask == nil else { return }
+
+        transcriptionTask = Task { [weak self] in
+            guard let self else { return }
+            defer { transcriptionTask = nil }
+
+            do {
+                appState = .transcribing
+                let result = try await pipeline.stopAndProcess()
+                try Task.checkCancellation()
+                lastRawText = result.rawText
+                lastFinalText = result.finalText
+                recordHistory(for: result)
+                appState = .ready
+            } catch is CancellationError {
+                handleTranscriptionCancellation()
+            } catch let error as TranscriptionError {
+                handleTranscriptionError(error)
+            } catch {
+                setError(error)
+            }
+        }
+    }
+
+    func cancelTranscription() {
+        guard appState == .transcribing else { return }
+        transcriptionTask?.cancel()
+        transcriptionTask = nil
+        handleTranscriptionCancellation()
+    }
+
+    func insertTestText() {
+        inserter.insert("VoicePen test text")
+    }
+
+    func showRecordingOverlay() {
+        overlay.show(.recording(startedAt: Date(), level: nil))
+    }
+
+    func showTranscribingOverlay() {
+        overlay.show(.transcribing(stage: .transcribing, progress: nil))
+    }
+
+    func showDoneOverlay() {
+        overlay.show(.done(message: "Inserted"))
+        overlay.hide(after: 0.7)
+    }
+
+    func showErrorOverlay() {
+        overlay.show(.error(message: "Test error"))
+        overlay.hide(after: 1.2)
+    }
+
+    func openDictionaryFile() {
+        NSWorkspace.shared.activateFileViewerSelecting([paths.dictionaryURL])
+    }
+
+    func openHistoryFile() {
+        NSWorkspace.shared.activateFileViewerSelecting([paths.historyURL])
+    }
+
+    func copyToClipboard(_ text: String) {
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty else { return }
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(trimmedText, forType: .string)
+    }
+
+    func confirmAndDownloadModel() {
+        guard !isDownloadingModel else { return }
+
+        if isModelInstalled {
+            overlay.show(.done(message: "Model ready"))
+            overlay.hide(after: 1.0)
+            return
+        }
+
+        let response = userPrompts.showAlert(
+            messageText: "Download transcription model?",
+            informativeText: """
+            VoicePen will download the local transcription model:
+
+            \(selectedModel.displayName)
+            \(selectedModel.id)
+
+            The model is stored in:
+            \(userModelDirectory.path)
+            """,
+            style: .informational,
+            buttons: ["Download", "Cancel"],
+            activateBeforeShowing: false
+        )
+
+        guard response == .alertFirstButtonReturn else { return }
+        downloadModel()
+    }
+
+    func openModelFolder() {
+        do {
+            try paths.createRequiredDirectories()
+            NSWorkspace.shared.open(paths.userModelsDirectory)
+        } catch {
+            setError(error)
+        }
+    }
+
+    func requestMicrophonePermission() {
+        Task {
+            let granted = await permissions.requestMicrophonePermission()
+            guard granted else {
+                appState = .missingMicrophonePermission
+                return
+            }
+
+            updateReadyStateFromAccessibilityPermission()
+        }
+    }
+
+    func requestAccessibilityPermission() {
+        openAccessibilitySettings()
+        refreshPermissionState()
+        startAccessibilityPermissionPolling()
+    }
+
+    func openAccessibilitySettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else {
+            return
+        }
+
+        NSWorkspace.shared.open(url)
+    }
+
+    func refreshPermissionState() {
+        guard appState != .recording, appState != .transcribing, !isDownloadingModel else { return }
+
+        guard permissions.microphonePermissionStatus == .authorized else {
+            appState = .missingMicrophonePermission
+            errorMessage = Self.microphonePermissionRequiredMessage
+            return
+        }
+
+        updateReadyStateFromAccessibilityPermission()
+    }
+
+    private func startAccessibilityPermissionPolling() {
+        accessibilityPermissionPollingTask?.cancel()
+
+        accessibilityPermissionPollingTask = Task { @MainActor [weak self] in
+            for _ in 0..<30 {
+                guard let self, !Task.isCancelled else { return }
+
+                if self.permissions.hasAccessibilityPermission {
+                    self.refreshPermissionState()
+                    return
+                }
+
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+        }
+    }
+
+    private func installHotkey() {
+        do {
+            try hotkey.install(
+                onKeyDown: { [weak self] in
+                    Task { @MainActor in
+                        self?.startRecording()
+                    }
+                },
+                onKeyUp: { [weak self] in
+                    Task { @MainActor in
+                        self?.stopRecordingAndProcess()
+                    }
+                }
+            )
+        } catch {
+            setError(error)
+        }
+    }
+
+    private func reinstallHotkeyIfReady() {
+        guard appState == .ready || appState == .missingModel else { return }
+        installHotkey()
+    }
+
+    func downloadModel() {
+        guard !isDownloadingModel else { return }
+
+        let downloadID = UUID()
+        activeModelDownloadID = downloadID
+        modelDownloadProgress = nil
+        appState = .downloadingModel(progress: nil)
+        errorMessage = nil
+        overlay.show(.transcribing(stage: .loadingModel, progress: nil))
+        let model = selectedModel
+
+        modelDownloadTask = Task {
+            do {
+                let modelURL = try await modelDownloader.downloadModel(model) { [weak self] event in
+                    Task { @MainActor [weak self] in
+                        guard self?.activeModelDownloadID == downloadID else { return }
+                        self?.handleModelDownloadEvent(event)
+                    }
+                }
+
+                guard activeModelDownloadID == downloadID else { return }
+                clearActiveModelDownload()
+                AppLogger.info("Downloaded model to \(modelURL.path)")
+                overlay.show(.done(message: "Model ready"))
+                overlay.hide(after: 1.0)
+
+                updateStateAfterModelChange()
+                scheduleModelWarmupIfInstalled()
+            } catch is CancellationError {
+                guard activeModelDownloadID == downloadID else { return }
+                clearActiveModelDownload()
+                overlay.show(.done(message: "Download canceled"))
+                overlay.hide(after: 1.0)
+                updateStateAfterModelChange()
+            } catch {
+                guard activeModelDownloadID == downloadID else { return }
+                clearActiveModelDownload()
+                setError(error)
+            }
+        }
+    }
+
+    func cancelModelDownload() {
+        guard isDownloadingModel else { return }
+
+        let task = modelDownloadTask
+        clearActiveModelDownload()
+        task?.cancel()
+        overlay.show(.done(message: "Download canceled"))
+        overlay.hide(after: 1.0)
+        updateStateAfterModelChange()
+    }
+
+    private func handleModelDownloadEvent(_ event: ModelDownloadEvent) {
+        switch event {
+        case let .downloadingArtifact(_, progress):
+            modelDownloadProgress = progress
+            appState = .downloadingModel(progress: progress)
+        case let .extractingArtifact(name):
+            modelDownloadProgress = nil
+            appState = .preparingModel("Extracting \(name)")
+        case .validating:
+            modelDownloadProgress = nil
+            appState = .preparingModel("Validating model")
+        case .completed:
+            modelDownloadProgress = nil
+            appState = .preparingModel("Model ready")
+        }
+    }
+
+    private func clearActiveModelDownload() {
+        activeModelDownloadID = nil
+        modelDownloadTask = nil
+        modelDownloadProgress = nil
+    }
+
+    func deleteDownloadedModelFiles() {
+        guard !isDownloadingModel, appState != .recording, appState != .transcribing else { return }
+
+        do {
+            let modelDirectory = userModelDirectory
+            if FileManager.default.fileExists(atPath: modelDirectory.path) {
+                try FileManager.default.removeItem(at: modelDirectory)
+            }
+
+            modelDownloadProgress = nil
+            errorMessage = nil
+            overlay.show(.done(message: "Model removed"))
+            overlay.hide(after: 1.0)
+
+            updateStateAfterModelChange()
+        } catch {
+            setError(error)
+        }
+    }
+
+    func reloadDictionary() throws {
+        try dictionaryStore.load()
+    }
+
+    func clearHistory() {
+        do {
+            try historyStore.clear()
+        } catch {
+            setError(error)
+        }
+    }
+
+    func deleteHistoryEntry(id: VoiceHistoryEntry.ID) {
+        do {
+            try historyStore.delete(id: id)
+        } catch {
+            setError(error)
+        }
+    }
+
+    func updateTranscriptionLanguage(_ language: String) {
+        do {
+            try settingsStore.updateTranscriptionLanguage(language)
+        } catch {
+            setError(error)
+        }
+    }
+
+    func updateSelectedModelId(_ modelId: String) {
+        do {
+            guard modelManifest.compatibleModels.contains(where: { $0.id == modelId }) else {
+                throw TranscriptionError.unsupportedModel(modelId)
+            }
+            try settingsStore.updateSelectedModelId(modelId)
+            scheduleModelWarmupIfInstalled()
+        } catch {
+            setError(error)
+        }
+    }
+
+    private func scheduleModelWarmupIfInstalled() {
+        guard isModelInstalled, let modelWarmupClient else {
+            modelRuntimeState = .notLoaded
+            return
+        }
+
+        let model = selectedModel
+        let language = TranscriptionLanguageResolver.resolve(settingsStore.transcriptionLanguage)
+        modelWarmupTask?.cancel()
+        modelRuntimeState = .warming(modelId: model.id)
+        modelWarmupTask = Task { @MainActor [weak self, modelWarmupClient] in
+            do {
+                AppLogger.info("Warming up model \(model.id)")
+                try await modelWarmupClient.warmUp(model: model, language: language)
+                guard !Task.isCancelled else { return }
+                self?.modelRuntimeState = .ready(modelId: model.id)
+                AppLogger.info("Model warmup completed for \(model.id)")
+            } catch is CancellationError {
+                AppLogger.info("Model warmup canceled for \(model.id)")
+            } catch {
+                guard !Task.isCancelled else { return }
+                self?.modelRuntimeState = .failed(modelId: model.id, message: error.localizedDescription)
+                AppLogger.error("Model warmup failed for \(model.id): \(error.localizedDescription)")
+            }
+
+            self?.modelWarmupTask = nil
+        }
+    }
+
+    private func cancelModelWarmup() {
+        guard modelWarmupTask != nil else { return }
+        AppLogger.info("Canceling model warmup because recording started")
+        modelWarmupTask?.cancel()
+        modelWarmupTask = nil
+    }
+
+    func updateSpeechPreprocessingMode(_ mode: SpeechPreprocessingMode) {
+        do {
+            try settingsStore.updateSpeechPreprocessingMode(mode)
+        } catch {
+            setError(error)
+        }
+    }
+
+    func updateHotkeyPreference(_ preference: HotkeyPreference) {
+        do {
+            try settingsStore.updateHotkeyPreference(preference)
+            reinstallHotkeyIfReady()
+        } catch {
+            setError(error)
+        }
+    }
+
+    func updateHotkeyHoldDuration(_ duration: TimeInterval) {
+        do {
+            try settingsStore.updateHotkeyHoldDuration(duration)
+            reinstallHotkeyIfReady()
+        } catch {
+            setError(error)
+        }
+    }
+
+    func updateOpenAtLogin(_ isEnabled: Bool) {
+        do {
+            try launchAtLogin.setEnabled(isEnabled)
+            try settingsStore.updateOpenAtLogin(isEnabled)
+        } catch {
+            setError(error)
+        }
+    }
+
+    private func handleTranscriptionError(_ error: TranscriptionError) {
+        switch error {
+        case .modelMissing:
+            appState = .missingModel
+        default:
+            appState = .error(error.localizedDescription)
+        }
+
+        errorMessage = error.localizedDescription
+        recordHistory(
+            rawText: "",
+            finalText: "",
+            status: .failed,
+            errorMessage: error.localizedDescription,
+            recording: nil
+        )
+        overlay.show(.error(message: error.shortMessage))
+        overlay.hide(after: 2.0)
+    }
+
+    private func handleTranscriptionCancellation() {
+        overlay.show(.done(message: "Canceled"))
+        overlay.hide(after: 0.7)
+        updateStateAfterModelChange()
+    }
+
+    private func setError(_ error: Error) {
+        appState = .error(error.localizedDescription)
+        errorMessage = error.localizedDescription
+        overlay.show(.error(message: error.localizedDescription))
+        overlay.hide(after: 2.0)
+    }
+
+    private func recordHistory(for result: DictationPipelineResult) {
+        let status: VoiceHistoryStatus
+        if result.didAttemptInsertion {
+            status = .insertAttempted
+        } else {
+            status = .empty
+        }
+
+        recordHistory(
+            rawText: result.rawText,
+            finalText: result.finalText,
+            status: status,
+            errorMessage: nil,
+            recording: result.recording
+        )
+    }
+
+    private func recordHistory(
+        rawText: String,
+        finalText: String,
+        status: VoiceHistoryStatus,
+        errorMessage: String?,
+        recording: RecordingResult?
+    ) {
+        let trimmedRawText = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedFinalText = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasUsefulContent = !trimmedRawText.isEmpty || !trimmedFinalText.isEmpty || errorMessage != nil
+        guard hasUsefulContent else { return }
+
+        let entry = VoiceHistoryEntry(
+            id: UUID(),
+            createdAt: recording?.endedAt ?? Date(),
+            duration: recording?.duration,
+            rawText: rawText,
+            finalText: finalText,
+            status: status,
+            errorMessage: errorMessage
+        )
+
+        do {
+            try historyStore.append(entry)
+        } catch {
+            AppLogger.error("Failed to save voice history: \(error.localizedDescription)")
+        }
+    }
+
+    private func updateReadyStateFromAccessibilityPermission() {
+        guard permissions.hasAccessibilityPermission else {
+            appState = .missingAccessibilityPermission
+            errorMessage = Self.accessibilityPermissionRequiredMessage
+            return
+        }
+
+        accessibilityPermissionPollingTask?.cancel()
+        accessibilityPermissionPollingTask = nil
+        errorMessage = nil
+        installHotkey()
+        appState = .ready
+    }
+
+    private func updateStateAfterModelChange() {
+        guard permissions.microphonePermissionStatus == .authorized else {
+            appState = .missingMicrophonePermission
+            errorMessage = Self.microphonePermissionRequiredMessage
+            return
+        }
+
+        guard permissions.hasAccessibilityPermission else {
+            appState = .missingAccessibilityPermission
+            errorMessage = Self.accessibilityPermissionRequiredMessage
+            return
+        }
+
+        errorMessage = nil
+        appState = isModelInstalled ? .ready : .missingModel
+    }
+}

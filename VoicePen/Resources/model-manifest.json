@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "recommendedModel": {
+    "id": "ggml-large-v3-turbo-q5_0",
+    "displayName": "Whisper large-v3 turbo q5_0",
+    "version": "large-v3-turbo-q5_0",
+    "sizeLabel": "1.7 GB",
+    "sourceRepo": "ggerganov/whisper.cpp",
+    "sourceKind": "whisper.cpp GGML",
+    "backend": "whisperCpp",
+    "isQuantized": true,
+    "supportedLanguageCodes": ["multilingual"],
+    "description": "Quantized Whisper large-v3 turbo model for whisper.cpp. Downloads the GGML model and Core ML encoder for maximum Apple Silicon acceleration.",
+    "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+    "artifactFileName": "ggml-large-v3-turbo-q5_0.bin",
+    "companionArtifacts": [
+      {
+        "id": "coreml-encoder",
+        "displayName": "Core ML encoder",
+        "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-encoder.mlmodelc.zip",
+        "fileName": "ggml-large-v3-turbo-encoder.mlmodelc.zip",
+        "localPath": "ggml-large-v3-turbo-encoder.mlmodelc",
+        "archiveKind": "zip"
+      }
+    ]
+  },
+  "compatibleModels": [
+    {
+      "id": "ggml-large-v3-turbo-q5_0",
+      "displayName": "Whisper large-v3 turbo q5_0",
+      "version": "large-v3-turbo-q5_0",
+      "sizeLabel": "1.7 GB",
+      "sourceRepo": "ggerganov/whisper.cpp",
+      "sourceKind": "whisper.cpp GGML",
+      "backend": "whisperCpp",
+      "isQuantized": true,
+      "supportedLanguageCodes": ["multilingual"],
+      "description": "Quantized Whisper large-v3 turbo model for whisper.cpp. Downloads the GGML model and Core ML encoder for maximum Apple Silicon acceleration.",
+      "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+      "artifactFileName": "ggml-large-v3-turbo-q5_0.bin",
+      "companionArtifacts": [
+        {
+          "id": "coreml-encoder",
+          "displayName": "Core ML encoder",
+          "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-encoder.mlmodelc.zip",
+          "fileName": "ggml-large-v3-turbo-encoder.mlmodelc.zip",
+          "localPath": "ggml-large-v3-turbo-encoder.mlmodelc",
+          "archiveKind": "zip"
+        }
+      ]
+    },
+    {
+      "id": "ggml-small-q5_1",
+      "displayName": "Whisper small q5_1 Fast",
+      "version": "small-q5_1",
+      "sizeLabel": "about 220 MB",
+      "sourceRepo": "ggerganov/whisper.cpp",
+      "sourceKind": "whisper.cpp GGML",
+      "backend": "whisperCpp",
+      "isQuantized": true,
+      "supportedLanguageCodes": ["multilingual"],
+      "description": "Faster multilingual Whisper model for short dictation. Lower quality than large-v3 turbo, but much lighter and quicker to load.",
+      "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
+      "artifactFileName": "ggml-small-q5_1.bin",
+      "companionArtifacts": [
+        {
+          "id": "coreml-encoder",
+          "displayName": "Core ML encoder",
+          "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-encoder.mlmodelc.zip",
+          "fileName": "ggml-small-encoder.mlmodelc.zip",
+          "localPath": "ggml-small-encoder.mlmodelc",
+          "archiveKind": "zip"
+        }
+      ]
+    },
+    {
+      "id": "parakeet-tdt-0.6b-v3",
+      "displayName": "Parakeet TDT 0.6B v3",
+      "version": "v3-int8",
+      "sizeLabel": "about 1-3 GB",
+      "sourceRepo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+      "sourceKind": "FluidAudio Core ML",
+      "backend": "fluidAudio",
+      "isQuantized": true,
+      "supportedLanguageCodes": ["multilingual"],
+      "description": "Fast local Parakeet v3 ASR model via FluidAudio. Good speed on Apple Silicon and supports Russian."
+    },
+    {
+      "id": "parakeet-tdt-0.6b-v2",
+      "displayName": "Parakeet TDT 0.6B v2 English",
+      "version": "v2",
+      "sizeLabel": "about 1-3 GB",
+      "sourceRepo": "FluidInference/parakeet-tdt-0.6b-v2-coreml",
+      "sourceKind": "FluidAudio Core ML",
+      "backend": "fluidAudio",
+      "isQuantized": false,
+      "supportedLanguageCodes": ["en"],
+      "description": "English-only Parakeet model with higher English recall. Best kept for English dictation."
+    }
+  ]
+}

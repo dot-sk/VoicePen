@@ -1,0 +1,16 @@
+import Foundation
+
+nonisolated enum VoicePenConfig {
+    static let modelDisplayName = "Whisper large-v3 turbo q5_0"
+    static let modelId = "ggml-large-v3-turbo-q5_0"
+    static let modelVersion = "large-v3-turbo-q5_0"
+    static let modelSizeLabel = "1.7 GB"
+    static let modelSourceRepo = "ggerganov/whisper.cpp"
+    static let defaultLanguage = "auto"
+    static let minimumRecordingDuration: TimeInterval = 0.4
+    static let clipboardRestoreDelay: TimeInterval = 0.7
+    static let glossaryLimit = 40
+    static let shortRecordingPromptMaximumDuration: TimeInterval = 10
+    static let defaultHotkeyHoldDuration: TimeInterval = 0.35
+    static let appSupportFolderName = "VoicePen"
+}
