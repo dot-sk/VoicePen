@@ -3,6 +3,8 @@ import ApplicationServices
 import Foundation
 
 final class LivePermissionsClient: PermissionsClient {
+    private let accessibilityPromptOptionKey = "AXTrustedCheckOptionPrompt"
+
     var microphonePermissionStatus: MicrophonePermissionStatus {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:
@@ -17,14 +19,12 @@ final class LivePermissionsClient: PermissionsClient {
     }
 
     var hasAccessibilityPermission: Bool {
-        let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
-        let options = [promptKey: false] as CFDictionary
+        let options = [accessibilityPromptOptionKey: false] as CFDictionary
         return AXIsProcessTrustedWithOptions(options)
     }
 
     func requestAccessibilityPermission() {
-        let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
-        let options = [promptKey: true] as CFDictionary
+        let options = [accessibilityPromptOptionKey: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
     }
 

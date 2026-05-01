@@ -1,6 +1,6 @@
 import Foundation
 
-struct VoiceHistoryEntry: Codable, Identifiable, Equatable {
+nonisolated struct VoiceHistoryEntry: Codable, Identifiable, Equatable, Sendable {
     var id: UUID
     var createdAt: Date
     var duration: TimeInterval?
@@ -22,7 +22,7 @@ struct VoiceHistoryEntry: Codable, Identifiable, Equatable {
     }
 }
 
-enum VoiceHistoryStatus: String, Codable, Equatable {
+nonisolated enum VoiceHistoryStatus: String, Codable, Equatable, Sendable {
     case insertAttempted
     case empty
     case failed

@@ -1,12 +1,12 @@
 import Foundation
 
-struct AppEnvironmentSettings: Codable, Equatable {
+nonisolated struct AppEnvironmentSettings: Codable, Equatable, Sendable {
     var env: [String: String]
 
     static let empty = AppEnvironmentSettings(env: [:])
 }
 
-final class AppEnvironmentSettingsStore {
+nonisolated final class AppEnvironmentSettingsStore: @unchecked Sendable {
     private let settingsURL: URL
     private let fileManager: FileManager
 
@@ -71,6 +71,6 @@ final class AppEnvironmentSettingsStore {
     }
 }
 
-private func defaultSetEnvironmentValue(_ key: String, _ value: String) {
+nonisolated private func defaultSetEnvironmentValue(_ key: String, _ value: String) {
     setenv(key, value, 1)
 }

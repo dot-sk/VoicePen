@@ -1,6 +1,6 @@
 import Foundation
 
-struct ModelDownloadProxyConfiguration: Equatable, Sendable {
+nonisolated struct ModelDownloadProxyConfiguration: Equatable, Sendable {
     let host: String
     let port: Int
 

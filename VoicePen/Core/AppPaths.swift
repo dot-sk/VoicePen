@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated struct AppPaths {
+nonisolated struct AppPaths: @unchecked Sendable {
     private let fileManager: FileManager
     private let customApplicationSupportDirectory: URL?
     private let customTemporaryDirectory: URL?

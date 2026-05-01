@@ -1,6 +1,6 @@
 import Foundation
 
-struct PromptGlossaryBuilder {
+nonisolated struct PromptGlossaryBuilder {
     func build(entries: [TermEntry], limit: Int, language: String = "en") -> String {
         let terms = entries
             .sorted { $0.canonical.localizedCaseInsensitiveCompare($1.canonical) == .orderedAscending }

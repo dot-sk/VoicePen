@@ -4,13 +4,13 @@ import Foundation
 final class WhisperCppModelDownloadClient: ModelDownloadClient {
     private let paths: AppPaths
     private let fileManager: FileManager
-    private let proxyProvider: @MainActor @Sendable () -> ModelDownloadProxyConfiguration?
+    private let proxyProvider: @Sendable () -> ModelDownloadProxyConfiguration?
     private let maximumAttempts = 4
 
     init(
         paths: AppPaths,
         fileManager: FileManager = .default,
-        proxyProvider: @escaping @MainActor @Sendable () -> ModelDownloadProxyConfiguration? = { nil }
+        proxyProvider: @escaping @Sendable () -> ModelDownloadProxyConfiguration? = { nil }
     ) {
         self.paths = paths
         self.fileManager = fileManager
@@ -269,7 +269,7 @@ final class WhisperCppModelDownloadClient: ModelDownloadClient {
         configuration.timeoutIntervalForRequest = 120
         configuration.timeoutIntervalForResource = 60 * 60
         configuration.waitsForConnectivity = false
-        if let proxy = await proxyProvider() {
+        if let proxy = proxyProvider() {
             configuration.connectionProxyDictionary = proxy.connectionProxyDictionary
         }
         let session = Session(configuration: configuration)
@@ -434,7 +434,7 @@ nonisolated private final class CancellableProcessState: @unchecked Sendable {
 }
 
 extension Error {
-    var isCancellationError: Bool {
+    nonisolated var isCancellationError: Bool {
         if self is CancellationError {
             return true
         }
@@ -455,7 +455,7 @@ extension Error {
         return false
     }
 
-    var isRetryableModelDownloadError: Bool {
+    nonisolated var isRetryableModelDownloadError: Bool {
         if let afError = asAFError {
             if let underlyingError = afError.underlyingError {
                 return underlyingError.isRetryableModelDownloadError

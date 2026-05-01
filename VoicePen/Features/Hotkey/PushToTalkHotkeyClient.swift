@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 protocol PushToTalkHotkeyClient: AnyObject {
     func install(
         onKeyDown: @escaping () -> Void,

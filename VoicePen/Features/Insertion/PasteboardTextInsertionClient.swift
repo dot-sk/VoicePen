@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 
+@MainActor
 protocol TextPasteboard: AnyObject {
     func string(forType dataType: NSPasteboard.PasteboardType) -> String?
     @discardableResult
@@ -10,14 +11,17 @@ protocol TextPasteboard: AnyObject {
 
 extension NSPasteboard: TextPasteboard {}
 
+@MainActor
 protocol PasteCommandSender: AnyObject {
     func sendPasteCommand()
 }
 
+@MainActor
 protocol DelayedActionScheduler: AnyObject {
-    func schedule(after delay: TimeInterval, _ action: @escaping () -> Void)
+    func schedule(after delay: TimeInterval, _ action: @escaping @MainActor @Sendable () -> Void)
 }
 
+@MainActor
 final class PasteboardTextInsertionClient: TextInsertionClient {
     private let pasteboard: TextPasteboard
     private let pasteCommandSender: PasteCommandSender
@@ -46,15 +50,20 @@ final class PasteboardTextInsertionClient: TextInsertionClient {
 
         pasteCommandSender.sendPasteCommand()
 
-        scheduler.schedule(after: restoreDelay) { [pasteboard] in
-            pasteboard.clearContents()
-            if let previousString {
-                _ = pasteboard.setString(previousString, forType: .string)
-            }
+        scheduler.schedule(after: restoreDelay) { [weak self] in
+            self?.restorePreviousPlainText(previousString)
+        }
+    }
+
+    private func restorePreviousPlainText(_ previousString: String?) {
+        pasteboard.clearContents()
+        if let previousString {
+            _ = pasteboard.setString(previousString, forType: .string)
         }
     }
 }
 
+@MainActor
 final class CGEventPasteCommandSender: PasteCommandSender {
     func sendPasteCommand() {
         let source = CGEventSource(stateID: .combinedSessionState)
@@ -72,7 +81,11 @@ final class CGEventPasteCommandSender: PasteCommandSender {
 }
 
 final class MainQueueDelayedActionScheduler: DelayedActionScheduler {
-    func schedule(after delay: TimeInterval, _ action: @escaping () -> Void) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: action)
+    func schedule(after delay: TimeInterval, _ action: @escaping @MainActor @Sendable () -> Void) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            Task { @MainActor in
+                action()
+            }
+        }
     }
 }
