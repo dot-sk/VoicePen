@@ -52,6 +52,25 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
         return String(format: "%02d:%02d:%02d:%02d", days, hours, minutes, seconds)
     }
 
+    var readableDurationText: String {
+        guard totalDuration >= 60 else {
+            return totalDuration > 0 ? "Less than 1 minute" : "0 minutes"
+        }
+
+        let totalMinutes = Int(totalDuration.rounded(.down)) / 60
+        let days = totalMinutes / 1_440
+        let hours = (totalMinutes % 1_440) / 60
+        let minutes = totalMinutes % 60
+
+        let parts = [
+            Self.formattedComponent(days, singular: "day", plural: "days"),
+            Self.formattedComponent(hours, singular: "hour", plural: "hours"),
+            Self.formattedComponent(minutes, singular: "minute", plural: "minutes")
+        ].compactMap { $0 }
+
+        return parts.isEmpty ? "0 minutes" : parts.joined(separator: " ")
+    }
+
     nonisolated private static func shouldCount(_ entry: VoiceHistoryEntry) -> Bool {
         guard entry.status != .failed else { return false }
         guard let duration = entry.duration, duration > 0 else { return false }
@@ -65,5 +84,14 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
             ? String(format: "%.0f", value)
             : String(format: "%.1f", value)
         return "\(formattedValue) \(unit)"
+    }
+
+    nonisolated private static func formattedComponent(
+        _ value: Int,
+        singular: String,
+        plural: String
+    ) -> String? {
+        guard value > 0 else { return nil }
+        return "\(value) \(value == 1 ? singular : plural)"
     }
 }

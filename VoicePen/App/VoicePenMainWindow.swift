@@ -74,6 +74,8 @@ struct VoicePenMainWindow: View {
             DictionaryEditorView(controller: controller, dictionaryStore: controller.dictionaryStore)
         case .history:
             HistoryView(controller: controller, historyStore: controller.historyStore)
+        case .about:
+            AboutView()
         }
     }
 }
@@ -85,6 +87,7 @@ private enum VoicePenSettingsSection: String, CaseIterable, Identifiable, Hashab
     case shortcuts
     case dictionary
     case history
+    case about
 
     var id: String { rawValue }
 
@@ -102,6 +105,8 @@ private enum VoicePenSettingsSection: String, CaseIterable, Identifiable, Hashab
             return "Dictionary"
         case .history:
             return "History"
+        case .about:
+            return "About"
         }
     }
 
@@ -119,7 +124,55 @@ private enum VoicePenSettingsSection: String, CaseIterable, Identifiable, Hashab
             return "text.book.closed"
         case .history:
             return "clock.arrow.circlepath"
+        case .about:
+            return "info.circle"
         }
+    }
+}
+
+private struct AboutView: View {
+    private let linkedInURL = URL(string: "https://www.linkedin.com/in/khokhlachev/")!
+
+    var body: some View {
+        Form {
+            Section {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 14) {
+                        Image(systemName: "mic.fill")
+                            .font(.system(size: 30, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 58, height: 58)
+                            .background(.red.gradient, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("VoicePen")
+                                .font(.system(size: 26, weight: .semibold, design: .rounded))
+
+                            Text("Offline push-to-talk dictation for macOS")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Divider()
+
+                    Text("Made by Sergey Khokhlachev.")
+                        .font(.system(size: 14, weight: .medium))
+
+                    Text("VoicePen is free. It works locally on your Mac, does not send your voice or text to cloud services, and has 0 analytics.")
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Link(destination: linkedInURL) {
+                        Label("Sergey Khokhlachev on LinkedIn", systemImage: "link")
+                    }
+                }
+                .padding(.vertical, 10)
+            } footer: {
+                Text("Model downloads happen only after confirmation. Transcription runs locally with installed models.")
+            }
+        }
+        .formStyle(.grouped)
+        .padding(18)
     }
 }
 
@@ -131,17 +184,21 @@ private struct GeneralSettingsView: View {
         historyStore.usageStats
     }
 
+    private var transcribedAudioCaption: String {
+        let sessionWord = stats.transcribedSessionCount == 1 ? "session" : "sessions"
+        return "Transcribed audio time in \(stats.transcribedSessionCount) \(sessionWord)"
+    }
+
     var body: some View {
         Form {
             Section {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(stats.clockText)
-                        .font(.system(size: 52, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
+                    Text(stats.readableDurationText)
+                        .font(.system(size: 42, weight: .semibold, design: .rounded))
                         .lineLimit(1)
-                        .minimumScaleFactor(0.75)
+                        .minimumScaleFactor(0.55)
 
-                    Text("Transcribed audio time")
+                    Text(transcribedAudioCaption)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
@@ -161,14 +218,6 @@ private struct GeneralSettingsView: View {
                 Text("App")
             } footer: {
                 Text("VoicePen records only while the push-to-talk shortcut is held. Audio and text stay on this Mac.")
-            }
-
-            Section {
-                LabeledContent("Sessions counted", value: "\(stats.transcribedSessionCount)")
-            } header: {
-                Text("Usage")
-            } footer: {
-                Text("Only completed transcriptions with non-empty text are counted. Failed and empty sessions are ignored.")
             }
         }
         .formStyle(.grouped)
@@ -356,6 +405,12 @@ private struct ModelSettingsView: View {
                         Label("Open Folder", systemImage: "folder")
                     }
 
+                    Button {
+                        controller.copyModelDiagnostics()
+                    } label: {
+                        Label("Copy Diagnostics", systemImage: "stethoscope")
+                    }
+
                     Button(role: .destructive) {
                         showingDeleteConfirmation = true
                     } label: {
@@ -431,10 +486,16 @@ private struct DictionaryEditorView: View {
     @State private var draft = TermEntryDraft()
     @State private var message: String?
     @State private var showingDeleteConfirmation = false
+    @State private var searchText = ""
 
     private var selectedEntry: TermEntry? {
-        guard let selectedID else { return dictionaryStore.entries.first }
-        return dictionaryStore.entries.first { $0.id == selectedID } ?? dictionaryStore.entries.first
+        guard let selectedID else { return filteredEntries.first }
+        return filteredEntries.first { $0.id == selectedID } ?? filteredEntries.first
+    }
+
+    private var filteredEntries: [TermEntry] {
+        DictionaryEntryFilter(query: searchText)
+            .filteredEntries(from: dictionaryStore.entries)
     }
 
     var body: some View {
@@ -461,22 +522,51 @@ private struct DictionaryEditorView: View {
                 .padding([.horizontal, .top], 16)
                 .padding(.bottom, 10)
 
-                List(selection: $selectedID) {
-                    ForEach(dictionaryStore.entries) { entry in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(entry.canonical)
-                                .font(.system(size: 13, weight: .semibold))
-                                .lineLimit(1)
+                if !dictionaryStore.entries.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        TextField("Search terms", text: $searchText)
+                            .textFieldStyle(.roundedBorder)
 
-                            Text("\(entry.variants.count) variants")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                        .tag(entry.id)
+                        Text(dictionaryCountText)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 10)
                 }
-                .listStyle(.sidebar)
+
+                if dictionaryStore.entries.isEmpty {
+                    ContentUnavailableView(
+                        "No dictionary terms",
+                        systemImage: "text.book.closed",
+                        description: Text("Add terms or import a CSV file.")
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if filteredEntries.isEmpty {
+                    ContentUnavailableView(
+                        "No matching terms",
+                        systemImage: "magnifyingglass",
+                        description: Text("Try another search.")
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List(selection: $selectedID) {
+                        ForEach(filteredEntries) { entry in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(entry.canonical)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .lineLimit(1)
+
+                                Text("\(entry.variants.count) variants")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                            .tag(entry.id)
+                        }
+                    }
+                    .listStyle(.sidebar)
+                }
             }
             .frame(minWidth: 240, idealWidth: 280, maxWidth: 320)
 
@@ -558,7 +648,7 @@ private struct DictionaryEditorView: View {
         }
         .onAppear {
             if selectedID == nil {
-                selectedID = dictionaryStore.entries.first?.id
+                selectedID = filteredEntries.first?.id
             }
             loadSelectedEntry()
         }
@@ -566,9 +656,15 @@ private struct DictionaryEditorView: View {
             loadSelectedEntry()
         }
         .onChange(of: dictionaryStore.entries) { _, entries in
-            guard !entries.contains(where: { $0.id == selectedID }) else { return }
-            selectedID = entries.first?.id
+            guard !entries.contains(where: { $0.id == selectedID }) else {
+                ensureSelectedEntryIsVisible()
+                return
+            }
+            selectedID = filteredEntries.first?.id
             loadSelectedEntry()
+        }
+        .onChange(of: searchText) { _, _ in
+            ensureSelectedEntryIsVisible()
         }
         .alert("Delete dictionary term?", isPresented: $showingDeleteConfirmation) {
             Button("Delete", role: .destructive) {
@@ -586,6 +682,20 @@ private struct DictionaryEditorView: View {
             return
         }
         draft = TermEntryDraft(entry: selectedEntry)
+    }
+
+    private var dictionaryCountText: String {
+        if searchText.trimmed.isEmpty {
+            return "\(dictionaryStore.entries.count) terms"
+        }
+
+        return "\(filteredEntries.count) of \(dictionaryStore.entries.count) terms"
+    }
+
+    private func ensureSelectedEntryIsVisible() {
+        guard !filteredEntries.contains(where: { $0.id == selectedID }) else { return }
+        selectedID = filteredEntries.first?.id
+        loadSelectedEntry()
     }
 
     private func createNewEntry() {
@@ -710,12 +820,22 @@ private struct HistoryView: View {
     @State private var selectedID: VoiceHistoryEntry.ID?
     @State private var showingClearConfirmation = false
     @State private var entryPendingDeletion: VoiceHistoryEntry?
+    @State private var searchText = ""
+    @State private var statusFilter = HistoryStatusFilter.all
 
     private var selectedEntry: VoiceHistoryEntry? {
         guard let selectedID else {
-            return historyStore.entries.first
+            return filteredEntries.first
         }
-        return historyStore.entries.first { $0.id == selectedID } ?? historyStore.entries.first
+        return filteredEntries.first { $0.id == selectedID } ?? filteredEntries.first
+    }
+
+    private var filteredEntries: [VoiceHistoryEntry] {
+        VoiceHistoryFilter(
+            query: searchText,
+            status: statusFilter.status
+        )
+        .filteredEntries(from: historyStore.entries)
     }
 
     var body: some View {
@@ -743,6 +863,23 @@ private struct HistoryView: View {
                 .padding([.horizontal, .top], 16)
                 .padding(.bottom, 10)
 
+                if !historyStore.entries.isEmpty {
+                    VStack(spacing: 8) {
+                        TextField("Search history", text: $searchText)
+                            .textFieldStyle(.roundedBorder)
+
+                        Picker("Status", selection: $statusFilter) {
+                            ForEach(HistoryStatusFilter.allCases) { filter in
+                                Text(filter.title).tag(filter)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 10)
+                }
+
                 if historyStore.entries.isEmpty {
                     ContentUnavailableView(
                         "No voice sessions yet",
@@ -750,11 +887,21 @@ private struct HistoryView: View {
                         description: Text("Finished dictations will appear here.")
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if filteredEntries.isEmpty {
+                    ContentUnavailableView(
+                        "No matching sessions",
+                        systemImage: "magnifyingglass",
+                        description: Text("Try another search or status filter.")
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     List(selection: $selectedID) {
-                        ForEach(historyStore.entries) { entry in
+                        ForEach(filteredEntries) { entry in
                             HistoryRowView(
                                 entry: entry,
+                                copyAction: {
+                                    controller.copyToClipboard(entry.bestText)
+                                },
                                 deleteAction: {
                                     entryPendingDeletion = entry
                                 }
@@ -779,11 +926,16 @@ private struct HistoryView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onAppear {
-            selectedID = selectedID ?? historyStore.entries.first?.id
+            selectedID = selectedID ?? filteredEntries.first?.id
         }
-        .onChange(of: historyStore.entries) { _, entries in
-            guard !entries.contains(where: { $0.id == selectedID }) else { return }
-            selectedID = entries.first?.id
+        .onChange(of: historyStore.entries) { _, _ in
+            ensureSelectedEntryIsVisible()
+        }
+        .onChange(of: searchText) { _, _ in
+            ensureSelectedEntryIsVisible()
+        }
+        .onChange(of: statusFilter) { _, _ in
+            ensureSelectedEntryIsVisible()
         }
         .alert("Clear voice history?", isPresented: $showingClearConfirmation) {
             Button("Clear", role: .destructive) {
@@ -820,15 +972,57 @@ private struct HistoryView: View {
     }
 
     private func deleteEntries(at offsets: IndexSet) {
+        let entries = filteredEntries
         for index in offsets {
-            guard historyStore.entries.indices.contains(index) else { continue }
-            controller.deleteHistoryEntry(id: historyStore.entries[index].id)
+            guard entries.indices.contains(index) else { continue }
+            controller.deleteHistoryEntry(id: entries[index].id)
+        }
+    }
+
+    private func ensureSelectedEntryIsVisible() {
+        guard !filteredEntries.contains(where: { $0.id == selectedID }) else { return }
+        selectedID = filteredEntries.first?.id
+    }
+}
+
+private enum HistoryStatusFilter: String, CaseIterable, Identifiable {
+    case all
+    case insertAttempted
+    case empty
+    case failed
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all:
+            return "All"
+        case .insertAttempted:
+            return VoiceHistoryStatus.insertAttempted.title
+        case .empty:
+            return VoiceHistoryStatus.empty.title
+        case .failed:
+            return VoiceHistoryStatus.failed.title
+        }
+    }
+
+    var status: VoiceHistoryStatus? {
+        switch self {
+        case .all:
+            return nil
+        case .insertAttempted:
+            return .insertAttempted
+        case .empty:
+            return .empty
+        case .failed:
+            return .failed
         }
     }
 }
 
 private struct HistoryRowView: View {
     let entry: VoiceHistoryEntry
+    let copyAction: () -> Void
     let deleteAction: () -> Void
     @State private var isHovered = false
 
@@ -844,6 +1038,18 @@ private struct HistoryRowView: View {
                 Text(entry.createdAt, style: .time)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+
+                Button(action: copyAction) {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .opacity(isHovered && !entry.bestText.trimmed.isEmpty ? 1 : 0)
+                .disabled(!isHovered || entry.bestText.trimmed.isEmpty)
+                .help("Copy text")
 
                 Button(role: .destructive, action: deleteAction) {
                     Image(systemName: "trash")
@@ -875,6 +1081,10 @@ private struct HistoryRowView: View {
         }
         .padding(.vertical, 5)
         .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            guard !entry.bestText.trimmed.isEmpty else { return }
+            copyAction()
+        }
         .onHover { isHovered = $0 }
     }
 
@@ -926,6 +1136,13 @@ private struct HistoryDetailView: View {
                         Spacer()
 
                         Button {
+                            controller.insertText(entry.bestText)
+                        } label: {
+                            Label("Insert Again", systemImage: "arrowshape.turn.up.forward")
+                        }
+                        .disabled(entry.bestText.trimmed.isEmpty)
+
+                        Button {
                             controller.copyToClipboard(entry.bestText)
                         } label: {
                             Label("Copy Best Text", systemImage: "doc.on.doc")
@@ -959,6 +1176,8 @@ private struct HistoryDetailView: View {
                         }
                     )
 
+                    HistoryTimingsSection(timings: entry.timings)
+
                     Spacer(minLength: 0)
                 }
                 .padding(20)
@@ -977,6 +1196,53 @@ private struct HistoryDetailView: View {
             return "\(entry.status.title) · \(String(format: "%.1fs", duration))"
         }
         return entry.status.title
+    }
+}
+
+private struct HistoryTimingsSection: View {
+    let timings: VoicePipelineTimings?
+
+    var body: some View {
+        if timings != nil, !rows.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Timings")
+                    .font(.subheadline.weight(.semibold))
+
+                Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
+                    ForEach(rows, id: \.name) { row in
+                        GridRow {
+                            Text(row.name)
+                                .foregroundStyle(.secondary)
+                            Text(format(row.duration))
+                                .monospacedDigit()
+                        }
+                    }
+                }
+                .font(.system(size: 12))
+            }
+        }
+    }
+
+    private var rows: [(name: String, duration: TimeInterval)] {
+        [
+            ("Recording", timings?.recording),
+            ("Preprocessing", timings?.preprocessing),
+            ("Transcription", timings?.transcription),
+            ("Normalization", timings?.normalization),
+            ("Insertion", timings?.insertion)
+        ]
+        .compactMap { row in
+            guard let duration = row.1 else { return nil }
+            return (row.0, duration)
+        }
+    }
+
+    private func format(_ duration: TimeInterval) -> String {
+        if duration < 1 {
+            return "\(Int((duration * 1_000).rounded())) ms"
+        }
+
+        return String(format: "%.2f s", duration)
     }
 }
 

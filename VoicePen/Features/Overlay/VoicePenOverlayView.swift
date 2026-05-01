@@ -7,8 +7,11 @@ struct VoicePenOverlayView: View {
         TimelineView(.periodic(from: .now, by: 0.1)) { _ in
             ZStack {
                 switch viewModel.state {
-                case let .recording(startedAt, _):
-                    ListeningOverlayContent(elapsedText: elapsedTimeText(since: startedAt))
+                case let .recording(startedAt, level):
+                    ListeningOverlayContent(
+                        elapsedText: elapsedTimeText(since: startedAt),
+                        level: level
+                    )
                 case let .transcribing(stage, progress):
                     TextStatusOverlayContent(
                         title: stage.rawValue,
@@ -37,22 +40,26 @@ struct VoicePenOverlayView: View {
                     EmptyView()
                 }
             }
-            .frame(width: 360, height: 104)
+            .frame(width: 360, height: 128)
         }
     }
 }
 
 private struct ListeningOverlayContent: View {
     let elapsedText: String
+    let level: Double?
 
     var body: some View {
         VStack(spacing: 7) {
-            ListeningMicrophoneIndicatorView()
+            ListeningMicrophoneIndicatorView(level: level)
 
             Text(elapsedText)
-                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
                 .monospacedDigit()
-                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: true)
+                .foregroundStyle(Color(white: 0.58, opacity: 0.92))
+                .offset(y: -8)
         }
     }
 }
@@ -64,23 +71,32 @@ private struct TextStatusOverlayContent: View {
     let symbolName: String
     let cancelAction: (() -> Void)?
 
+    private var showsSubtitle: Bool {
+        title == "VoicePen needs attention"
+    }
+
+    private var chipMaxWidth: CGFloat {
+        showsSubtitle ? 320 : (cancelAction == nil ? 210 : 252)
+    }
+
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 9) {
             statusSymbol
-                .frame(width: 30, height: 30)
+                .frame(width: 22, height: 22)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .lineLimit(1)
+                    .foregroundStyle(.primary)
 
-                Text(subtitle)
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                if showsSubtitle {
+                    Text(subtitle)
+                        .font(.system(size: 11, weight: .regular, design: .rounded))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
-
-            Spacer(minLength: 0)
 
             if let cancelAction {
                 Button {
@@ -88,33 +104,40 @@ private struct TextStatusOverlayContent: View {
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 12, weight: .bold))
-                        .frame(width: 24, height: 24)
+                        .frame(width: 23, height: 23)
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.borderless)
                 .help("Cancel transcription")
             }
         }
-        .padding(.horizontal, 18)
-        .frame(width: 340, height: 68)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(
+        .padding(.horizontal, 13)
+        .padding(.vertical, showsSubtitle ? 9 : 8)
+        .frame(maxWidth: chipMaxWidth)
+        .background {
             Capsule()
-                .strokeBorder(.white.opacity(0.16), lineWidth: 1)
-        )
+                .fill(.black.opacity(0.16))
+                .background(.ultraThinMaterial, in: Capsule())
+        }
+        .overlay {
+            Capsule()
+                .strokeBorder(.white.opacity(0.18), lineWidth: 0.8)
+        }
+        .shadow(color: .black.opacity(0.08), radius: 10, x: 0, y: 6)
     }
 
     @ViewBuilder
     private var statusSymbol: some View {
         if title == "VoicePen needs attention" {
             Image(systemName: symbolName)
-                .font(.system(size: 20, weight: .semibold))
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.yellow)
         } else if progress != nil {
             ProgressView(value: progress, total: 1.0)
                 .controlSize(.small)
         } else if title == "Inserted" || symbolName == "checkmark" {
             Image(systemName: symbolName)
-                .font(.system(size: 20, weight: .bold))
+                .font(.system(size: 15, weight: .bold))
                 .foregroundStyle(.green)
         } else {
             ProgressView()

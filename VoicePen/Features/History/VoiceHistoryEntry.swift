@@ -8,6 +8,7 @@ nonisolated struct VoiceHistoryEntry: Codable, Identifiable, Equatable, Sendable
     var finalText: String
     var status: VoiceHistoryStatus
     var errorMessage: String?
+    var timings: VoicePipelineTimings?
 
     var bestText: String {
         finalText.isEmpty ? rawText : finalText
@@ -22,7 +23,7 @@ nonisolated struct VoiceHistoryEntry: Codable, Identifiable, Equatable, Sendable
     }
 }
 
-nonisolated enum VoiceHistoryStatus: String, Codable, Equatable, Sendable {
+nonisolated enum VoiceHistoryStatus: String, CaseIterable, Codable, Equatable, Sendable {
     case insertAttempted
     case empty
     case failed

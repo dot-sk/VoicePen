@@ -50,30 +50,6 @@
       ]
     },
     {
-      "id": "ggml-small-q5_1",
-      "displayName": "Whisper small q5_1 Fast",
-      "version": "small-q5_1",
-      "sizeLabel": "about 220 MB",
-      "sourceRepo": "ggerganov/whisper.cpp",
-      "sourceKind": "whisper.cpp GGML",
-      "backend": "whisperCpp",
-      "isQuantized": true,
-      "supportedLanguageCodes": ["multilingual"],
-      "description": "Faster multilingual Whisper model for short dictation. Lower quality than large-v3 turbo, but much lighter and quicker to load.",
-      "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
-      "artifactFileName": "ggml-small-q5_1.bin",
-      "companionArtifacts": [
-        {
-          "id": "coreml-encoder",
-          "displayName": "Core ML encoder",
-          "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-encoder.mlmodelc.zip",
-          "fileName": "ggml-small-encoder.mlmodelc.zip",
-          "localPath": "ggml-small-encoder.mlmodelc",
-          "archiveKind": "zip"
-        }
-      ]
-    },
-    {
       "id": "parakeet-tdt-0.6b-v3",
       "displayName": "Parakeet TDT 0.6B v3",
       "version": "v3-int8",

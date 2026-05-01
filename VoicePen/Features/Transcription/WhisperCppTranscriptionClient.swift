@@ -64,6 +64,20 @@ actor WhisperCppTranscriptionClient {
         runtimeState.markWarmed(modelId: model.id)
     }
 
+    func benchmark(
+        audioURL: URL,
+        model: ModelManifestModel,
+        glossaryPrompt: String,
+        language: String
+    ) async throws -> [WhisperCppBenchmarkResult] {
+        let context = try await loadContextIfNeeded(for: model)
+        return try await context.benchmark(
+            audioURL: audioURL,
+            prompt: glossaryPrompt,
+            language: language
+        )
+    }
+
     private func loadContextIfNeeded(for model: ModelManifestModel) async throws -> WhisperCppContext {
         if runtimeState.loadedModelId == model.id, let context {
             return context

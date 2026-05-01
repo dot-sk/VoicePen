@@ -212,7 +212,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				11953DAD2FA4E20000ED707B /* XCRemoteSwiftPackageReference "FluidAudio" */,
-				11953DB22FA5000000ED707B /* XCRemoteSwiftPackageReference "whisper.spm" */,
+				11953DB22FA5000000ED707B /* XCLocalSwiftPackageReference "whisper.spm" */,
 				11953DB52FA5300000ED707B /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */,
 				11953DB92FA5E00000ED707B /* XCRemoteSwiftPackageReference "Alamofire" */,
 			);
@@ -434,11 +434,11 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -Xfrontend -warn-concurrency -Xfrontend -strict-concurrency=complete";
 				PRODUCT_BUNDLE_IDENTIFIER = com.khokhlachev.VoicePen;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				OTHER_SWIFT_FLAGS = "$(inherited) -Xfrontend -warn-concurrency -Xfrontend -strict-concurrency=complete";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -470,11 +470,11 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -Xfrontend -warn-concurrency -Xfrontend -strict-concurrency=complete";
 				PRODUCT_BUNDLE_IDENTIFIER = com.khokhlachev.VoicePen;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				OTHER_SWIFT_FLAGS = "$(inherited) -Xfrontend -warn-concurrency -Xfrontend -strict-concurrency=complete";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -494,10 +494,10 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -Xfrontend -warn-concurrency -Xfrontend -strict-concurrency=complete";
 				PRODUCT_BUNDLE_IDENTIFIER = com.khokhlachev.VoicePenTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				OTHER_SWIFT_FLAGS = "$(inherited) -Xfrontend -warn-concurrency -Xfrontend -strict-concurrency=complete";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
@@ -517,10 +517,10 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -Xfrontend -warn-concurrency -Xfrontend -strict-concurrency=complete";
 				PRODUCT_BUNDLE_IDENTIFIER = com.khokhlachev.VoicePenTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				OTHER_SWIFT_FLAGS = "$(inherited) -Xfrontend -warn-concurrency -Xfrontend -strict-concurrency=complete";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
@@ -538,10 +538,10 @@
 				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -Xfrontend -warn-concurrency -Xfrontend -strict-concurrency=complete";
 				PRODUCT_BUNDLE_IDENTIFIER = com.khokhlachev.VoicePenUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				OTHER_SWIFT_FLAGS = "$(inherited) -Xfrontend -warn-concurrency -Xfrontend -strict-concurrency=complete";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
@@ -559,10 +559,10 @@
 				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -Xfrontend -warn-concurrency -Xfrontend -strict-concurrency=complete";
 				PRODUCT_BUNDLE_IDENTIFIER = com.khokhlachev.VoicePenUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				OTHER_SWIFT_FLAGS = "$(inherited) -Xfrontend -warn-concurrency -Xfrontend -strict-concurrency=complete";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
@@ -613,6 +613,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		11953DB22FA5000000ED707B /* XCLocalSwiftPackageReference "whisper.spm" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Vendor/whisper.spm;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		11953DAD2FA4E20000ED707B /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -620,14 +627,6 @@
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 0.12.4;
-			};
-		};
-		11953DB22FA5000000ED707B /* XCRemoteSwiftPackageReference "whisper.spm" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/ggerganov/whisper.spm.git";
-			requirement = {
-				branch = master;
-				kind = branch;
 			};
 		};
 		11953DB52FA5300000ED707B /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */ = {
@@ -656,7 +655,7 @@
 		};
 		11953DB12FA5000000ED707B /* whisper */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 11953DB22FA5000000ED707B /* XCRemoteSwiftPackageReference "whisper.spm" */;
+			package = 11953DB22FA5000000ED707B /* XCLocalSwiftPackageReference "whisper.spm" */;
 			productName = whisper;
 		};
 		11953DB62FA5300000ED707B /* KeyboardShortcuts */ = {

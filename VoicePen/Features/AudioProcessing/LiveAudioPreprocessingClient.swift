@@ -53,13 +53,18 @@ nonisolated private func trimSilence(
     guard frameLength > 0 else { return nil }
 
     let samples = try monoSamples(from: buffer, frameLength: frameLength)
-    guard AudioSilenceTrimmer.containsSpeech(samples: samples) else {
+    guard AudioSilenceTrimmer.containsSpeech(
+        samples: samples,
+        sampleRate: inputFormat.sampleRate,
+        minimumSpeechDuration: VoicePenConfig.minimumSpeechSignalDuration
+    ) else {
         throw AudioPreprocessingError.noSpeechDetected
     }
 
     guard let trimRange = AudioSilenceTrimmer.trimRange(
         samples: samples,
-        sampleRate: inputFormat.sampleRate
+        sampleRate: inputFormat.sampleRate,
+        minimumSpeechDuration: VoicePenConfig.minimumSpeechSignalDuration
     ) else {
         return nil
     }
