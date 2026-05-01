@@ -18,13 +18,17 @@ final class BottomOverlayWindowController: OverlayPresenter {
 
     func update(_ state: OverlayState) {
         hideToken = UUID()
+        let shouldAnimateIn = panel?.isVisible != true || panel?.alphaValue == 0
+
         ensurePanel()
         viewModel.state = state
         positionPanel()
         panel?.ignoresMouseEvents = !state.isInteractive
+
+        guard shouldAnimateIn else { return }
+
         panel?.alphaValue = 0
         panel?.orderFrontRegardless()
-
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.12
             panel?.animator().alphaValue = 1
@@ -56,6 +60,8 @@ final class BottomOverlayWindowController: OverlayPresenter {
 
         let hostingController = NSHostingController(rootView: VoicePenOverlayView(viewModel: viewModel))
         hostingController.view.frame = NSRect(origin: .zero, size: Self.panelSize)
+        hostingController.view.wantsLayer = true
+        hostingController.view.layer?.backgroundColor = NSColor.clear.cgColor
 
         let panel = NSPanel(
             contentRect: hostingController.view.frame,
@@ -66,7 +72,7 @@ final class BottomOverlayWindowController: OverlayPresenter {
         panel.contentViewController = hostingController
         panel.backgroundColor = .clear
         panel.isOpaque = false
-        panel.hasShadow = true
+        panel.hasShadow = false
         panel.ignoresMouseEvents = true
         panel.hidesOnDeactivate = false
         panel.level = .floating
@@ -94,5 +100,5 @@ final class BottomOverlayWindowController: OverlayPresenter {
         return NSScreen.screens.first { $0.frame.contains(mouseLocation) } ?? NSScreen.main ?? NSScreen.screens[0]
     }
 
-    private static let panelSize = NSSize(width: 360, height: 104)
+    private static let panelSize = NSSize(width: 360, height: 128)
 }

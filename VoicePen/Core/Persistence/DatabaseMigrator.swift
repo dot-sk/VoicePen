@@ -2,7 +2,7 @@ import Foundation
 import SQLite3
 
 nonisolated enum DatabaseMigrator {
-    static let currentSchemaVersion = 2
+    static let currentSchemaVersion = 3
 
     private static let migrations: [DatabaseMigration] = [
         DatabaseMigration(
@@ -58,6 +58,16 @@ nonisolated enum DatabaseMigrator {
                 """
                 CREATE INDEX IF NOT EXISTS idx_dictionary_entries_canonical
                 ON dictionary_entries(canonical COLLATE NOCASE ASC);
+                """
+            ]
+        ),
+        DatabaseMigration(
+            version: 3,
+            name: "Add voice pipeline timings",
+            statements: [
+                """
+                ALTER TABLE voice_history
+                ADD COLUMN timings_json TEXT;
                 """
             ]
         )

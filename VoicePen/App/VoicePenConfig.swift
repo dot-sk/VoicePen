@@ -13,4 +13,5 @@ nonisolated enum VoicePenConfig {
     static let shortRecordingPromptMaximumDuration: TimeInterval = 10
     static let defaultHotkeyHoldDuration: TimeInterval = 0.35
     static let appSupportFolderName = "VoicePen"
+    static let minimumSpeechSignalDuration: TimeInterval = 0.16
 }

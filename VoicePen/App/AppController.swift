@@ -52,6 +52,7 @@ final class AppController: ObservableObject {
     let dictionaryStore: DictionaryStore
     private let inserter: TextInsertionClient
     private let overlay: OverlayPresenter
+    private let transcriptionCancellationKeyMonitor: TranscriptionCancellationKeyMonitor
     private let modelDownloader: ModelDownloadClient
     private let modelWarmupClient: ModelWarmupClient?
     private let launchAtLogin: LaunchAtLoginClient
@@ -65,6 +66,7 @@ final class AppController: ObservableObject {
     private var modelDownloadTask: Task<Void, Never>?
     private var modelWarmupTask: Task<Void, Never>?
     private var transcriptionTask: Task<Void, Never>?
+    private var didHandleCurrentTranscriptionCancellation = false
     private var accessibilityPermissionPollingTask: Task<Void, Never>?
     private var appActivationObserver: NSObjectProtocol?
 
@@ -88,6 +90,22 @@ final class AppController: ObservableObject {
         paths.historyURL
     }
 
+    var latestTranscriptionText: String {
+        let candidates = [
+            lastFinalText,
+            lastRawText,
+            historyStore.entries.first?.bestText ?? ""
+        ]
+
+        return candidates
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? ""
+    }
+
+    var hasLatestTranscriptionText: Bool {
+        !latestTranscriptionText.isEmpty
+    }
+
     var userModelsDirectory: URL {
         paths.userModelsDirectory
     }
@@ -109,6 +127,32 @@ final class AppController: ObservableObject {
 
     var modelAccelerationStatus: ModelAccelerationStatus {
         ModelAccelerationStatus.inspect(model: selectedModel, paths: paths)
+    }
+
+    var modelDiagnosticsText: String {
+        let status = modelAccelerationStatus
+        var lines = [
+            "VoicePen Model Diagnostics",
+            "Model: \(selectedModel.displayName)",
+            "Model ID: \(selectedModel.id)",
+            "Backend: \(selectedModel.sourceKind)",
+            "Version: \(selectedModel.version)",
+            "Size: \(selectedModel.sizeLabel)",
+            "Installed: \(isModelInstalled ? "yes" : "no")",
+            "Acceleration: \(status.accelerationSummary)",
+            "\(status.model.displayName): \(artifactDiagnostics(status.model))"
+        ]
+
+        lines += status.companionArtifacts.map { artifact in
+            "\(artifact.displayName): \(artifactDiagnostics(artifact))"
+        }
+
+        if let timings = historyStore.entries.first?.timings {
+            lines.append("Latest session timings:")
+            lines += timingDiagnostics(timings)
+        }
+
+        return lines.joined(separator: "\n")
     }
 
     var hasDownloadedModelFiles: Bool {
@@ -159,6 +203,7 @@ final class AppController: ObservableObject {
         dictionaryStore: DictionaryStore,
         inserter: TextInsertionClient,
         overlay: OverlayPresenter,
+        transcriptionCancellationKeyMonitor: TranscriptionCancellationKeyMonitor,
         modelDownloader: ModelDownloadClient,
         modelWarmupClient: ModelWarmupClient? = nil,
         launchAtLogin: LaunchAtLoginClient? = nil,
@@ -175,6 +220,7 @@ final class AppController: ObservableObject {
         self.dictionaryStore = dictionaryStore
         self.inserter = inserter
         self.overlay = overlay
+        self.transcriptionCancellationKeyMonitor = transcriptionCancellationKeyMonitor
         self.modelDownloader = modelDownloader
         self.modelWarmupClient = modelWarmupClient
         self.launchAtLogin = launchAtLogin ?? NoOpLaunchAtLoginClient()
@@ -226,6 +272,7 @@ final class AppController: ObservableObject {
             dictionaryStore: dictionaryStore,
             inserter: inserter,
             overlay: overlay,
+            transcriptionCancellationKeyMonitor: LiveTranscriptionCancellationKeyMonitor(),
             modelDownloader: RoutingModelDownloadClient(
                 whisperCppDownloader: WhisperCppModelDownloadClient(
                     paths: paths,
@@ -358,12 +405,19 @@ final class AppController: ObservableObject {
     func stopRecordingAndProcess() {
         guard appState == .recording, transcriptionTask == nil else { return }
 
+        didHandleCurrentTranscriptionCancellation = false
         transcriptionTask = Task { [weak self] in
             guard let self else { return }
-            defer { transcriptionTask = nil }
+            defer {
+                transcriptionCancellationKeyMonitor.uninstall()
+                transcriptionTask = nil
+            }
 
             do {
                 appState = .transcribing
+                transcriptionCancellationKeyMonitor.install { [weak self] in
+                    self?.cancelTranscription()
+                }
                 let result = try await pipeline.stopAndProcess()
                 try Task.checkCancellation()
                 lastRawText = result.rawText
@@ -424,6 +478,24 @@ final class AppController: ObservableObject {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(trimmedText, forType: .string)
+    }
+
+    func copyLastTranscription() {
+        copyToClipboard(latestTranscriptionText)
+    }
+
+    func copyModelDiagnostics() {
+        copyToClipboard(modelDiagnosticsText)
+    }
+
+    func insertText(_ text: String) {
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty else { return }
+        inserter.insert(trimmedText)
+    }
+
+    func retryInsertLastTranscription() {
+        insertText(latestTranscriptionText)
     }
 
     func confirmAndDownloadModel() {
@@ -764,13 +836,17 @@ final class AppController: ObservableObject {
             finalText: "",
             status: .failed,
             errorMessage: error.localizedDescription,
-            recording: nil
+            recording: nil,
+            timings: nil
         )
         overlay.show(.error(message: error.shortMessage))
         overlay.hide(after: 2.0)
     }
 
     private func handleTranscriptionCancellation() {
+        guard !didHandleCurrentTranscriptionCancellation else { return }
+
+        didHandleCurrentTranscriptionCancellation = true
         overlay.show(.done(message: "Canceled"))
         overlay.hide(after: 0.7)
         updateStateAfterModelChange()
@@ -796,7 +872,8 @@ final class AppController: ObservableObject {
             finalText: result.finalText,
             status: status,
             errorMessage: nil,
-            recording: result.recording
+            recording: result.recording,
+            timings: result.timings
         )
     }
 
@@ -805,7 +882,8 @@ final class AppController: ObservableObject {
         finalText: String,
         status: VoiceHistoryStatus,
         errorMessage: String?,
-        recording: RecordingResult?
+        recording: RecordingResult?,
+        timings: VoicePipelineTimings?
     ) {
         let trimmedRawText = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedFinalText = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -819,7 +897,8 @@ final class AppController: ObservableObject {
             rawText: rawText,
             finalText: finalText,
             status: status,
-            errorMessage: errorMessage
+            errorMessage: errorMessage,
+            timings: timings
         )
 
         do {
@@ -841,6 +920,28 @@ final class AppController: ObservableObject {
         errorMessage = nil
         installHotkey()
         appState = .ready
+    }
+
+    private func artifactDiagnostics(_ artifact: ModelArtifactStatus) -> String {
+        let state = artifact.isPresent ? "OK" : "missing"
+        guard let expectedURL = artifact.expectedURL else {
+            return state
+        }
+        return "\(state) at \(expectedURL.path)"
+    }
+
+    private func timingDiagnostics(_ timings: VoicePipelineTimings) -> [String] {
+        [
+            ("Recording", timings.recording),
+            ("Preprocessing", timings.preprocessing),
+            ("Transcription", timings.transcription),
+            ("Normalization", timings.normalization),
+            ("Insertion", timings.insertion)
+        ]
+        .compactMap { row in
+            guard let duration = row.1 else { return nil }
+            return "\(row.0): \(String(format: "%.3f", duration))s"
+        }
     }
 
     private func updateStateAfterModelChange() {

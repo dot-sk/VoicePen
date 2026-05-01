@@ -57,12 +57,12 @@ private struct VoicePenMenuView: View {
 
         Divider()
 
-        Button("Start Test Recording") {
+        Button("Start Dictation") {
             controller.startRecording()
         }
-        .disabled(controller.appState == .recording || controller.appState == .transcribing)
+        .disabled(controller.appState != .ready)
 
-        Button("Stop Test Recording") {
+        Button("Stop Dictation") {
             controller.stopRecordingAndProcess()
         }
         .disabled(controller.appState != .recording)
@@ -73,51 +73,23 @@ private struct VoicePenMenuView: View {
             }
         }
 
-        Button("Insert Test Text") {
-            controller.insertTestText()
-        }
-
         Divider()
 
-        Button("Show Recording Overlay") {
-            controller.showRecordingOverlay()
+        Button("Copy Last Transcription") {
+            controller.copyLastTranscription()
         }
+        .disabled(!controller.hasLatestTranscriptionText)
 
-        Button("Show Transcribing Overlay") {
-            controller.showTranscribingOverlay()
+        Button("Retry Insert Last Text") {
+            controller.retryInsertLastTranscription()
         }
-
-        Button("Show Done Overlay") {
-            controller.showDoneOverlay()
-        }
-
-        Button("Show Error Overlay") {
-            controller.showErrorOverlay()
-        }
+        .disabled(!controller.hasLatestTranscriptionText)
 
         Divider()
 
         Button("Open VoicePen Window") {
             NSApplication.shared.activate(ignoringOtherApps: true)
             openWindow(id: "voicepen-main")
-        }
-
-        Button("Open Model Folder") {
-            controller.openModelFolder()
-        }
-
-        Divider()
-
-        Button("Request Microphone Permission") {
-            controller.requestMicrophonePermission()
-        }
-
-        Button("Open Accessibility Settings") {
-            controller.requestAccessibilityPermission()
-        }
-
-        Button("Refresh Permissions") {
-            controller.refreshPermissionState()
         }
 
         Divider()

@@ -1,74 +1,72 @@
 import SwiftUI
 
 struct ListeningMicrophoneIndicatorView: View {
-    @State private var isListening = false
+    let level: Double?
+
+    private var normalizedLevel: Double {
+        min(1, max(0, level ?? 0.18))
+    }
+
+    private var stripeHeight: CGFloat {
+        CGFloat(12 + normalizedLevel * 36)
+    }
+
+    private var trembleIntensity: Double {
+        min(1, max(0, (normalizedLevel - 0.12) / 0.88))
+    }
 
     var body: some View {
         ZStack {
-            ForEach(0..<3, id: \.self) { index in
-                Capsule()
-                    .strokeBorder(.white.opacity(isListening ? 0 : 0.42), lineWidth: 1.6)
-                    .frame(
-                        width: isListening ? CGFloat(70 + index * 18) : 28,
-                        height: isListening ? CGFloat(82 + index * 18) : 52
-                    )
-                    .scaleEffect(isListening ? 1.0 : 0.7)
-                    .animation(
-                        .easeOut(duration: 1.45)
-                            .repeatForever(autoreverses: false)
-                            .delay(Double(index) * 0.28),
-                        value: isListening
-                    )
-            }
-
             Capsule()
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color(nsColor: .systemRed).opacity(0.95),
-                            Color(nsColor: .systemPink).opacity(0.82)
+                            Color(nsColor: .systemPink).opacity(0.64),
+                            Color(nsColor: .systemRed).opacity(0.96),
+                            Color(nsColor: .systemPink).opacity(0.78)
                         ],
                         startPoint: .top,
                         endPoint: .bottom
                     )
                 )
                 .frame(width: 26, height: 54)
-                .shadow(color: Color(nsColor: .systemRed).opacity(0.34), radius: 14, y: 4)
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(alignment: .topLeading) {
+                    Capsule()
+                        .fill(Color(nsColor: .systemPink).opacity(0.34))
+                        .frame(width: 7, height: 28)
+                        .blur(radius: 3)
+                        .offset(x: 6, y: 6)
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    Capsule()
+                        .fill(Color(nsColor: .systemPink).opacity(0.35))
+                        .frame(width: 12, height: 22)
+                        .blur(radius: 5)
+                        .offset(x: -4, y: -5)
+                }
                 .overlay {
                     Capsule()
-                        .strokeBorder(.white.opacity(0.34), lineWidth: 1)
-                        .padding(1)
+                        .strokeBorder(.white.opacity(0.22), lineWidth: 0.8)
+                        .padding(0.5)
                 }
-                .overlay(alignment: .top) {
-                    Capsule()
-                        .fill(.white.opacity(0.82))
-                        .frame(width: 3, height: 17)
-                        .padding(.top, 10)
+                .overlay {
+                    TimelineView(.animation(minimumInterval: 1.0 / 45.0)) { timeline in
+                        let time = timeline.date.timeIntervalSinceReferenceDate
+                        let tremble = sin(time * 48) * 2.2 + sin(time * 83) * 1.1
+                        let xJitter = sin(time * 71) * 0.45
+                        let liveHeight = stripeHeight + CGFloat(tremble * trembleIntensity)
+
+                        RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                            .fill(.white.opacity(0.9))
+                            .frame(width: 3.2, height: liveHeight)
+                            .offset(x: CGFloat(xJitter * trembleIntensity))
+                            .shadow(color: .white.opacity(0.24), radius: 3, x: 0, y: 0)
+                            .animation(.easeOut(duration: 0.06), value: stripeHeight)
+                    }
                 }
-
-            Capsule()
-                .fill(.white.opacity(0.78))
-                .frame(width: 12, height: 3)
-                .offset(y: 15)
-
-            Capsule()
-                .fill(.white.opacity(0.7))
-                .frame(width: 3, height: 10)
-                .offset(y: 23)
         }
         .frame(width: 112, height: 88)
-        .background {
-            Circle()
-                .fill(.ultraThinMaterial)
-                .frame(width: 58, height: 58)
-                .shadow(color: .black.opacity(0.18), radius: 14, y: 8)
-        }
-        .onAppear {
-            isListening = true
-        }
-        .onDisappear {
-            isListening = false
-        }
         .accessibilityLabel("VoicePen is listening")
     }
 }

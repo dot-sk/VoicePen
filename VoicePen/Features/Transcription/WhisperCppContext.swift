@@ -16,6 +16,20 @@ nonisolated struct WhisperCppLanguageConfiguration: Equatable {
     }
 }
 
+nonisolated struct WhisperCppTimings: Equatable {
+    let elapsedMilliseconds: Double
+    let sampleCount: Int
+    let threadCount: Int32
+    let audioContext: Int32
+    let singleSegment: Bool
+    let noTimestamps: Bool
+}
+
+nonisolated private struct WhisperCppRunResult {
+    let text: String
+    let timings: WhisperCppTimings
+}
+
 actor WhisperCppContext {
     private let handle: WhisperCppContextHandle
 
@@ -24,6 +38,7 @@ actor WhisperCppContext {
         #if targetEnvironment(simulator)
         contextParameters.use_gpu = false
         #else
+        contextParameters.use_gpu = true
         contextParameters.flash_attn = true
         #endif
 
@@ -38,15 +53,15 @@ actor WhisperCppContext {
 
         let samples = try Self.readAudioSamples(audioURL)
         let options = WhisperCppDecodingOptions.resolve(sampleCount: samples.count)
-        let text = try runWhisper(
+        let result = try runWhisper(
             context: context,
             samples: samples,
             prompt: prompt,
             language: language,
-            singleSegment: options.singleSegment
+            options: options
         )
 
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else {
             throw TranscriptionError.emptyResult
         }
@@ -63,8 +78,42 @@ actor WhisperCppContext {
             samples: samples,
             prompt: "",
             language: language,
-            singleSegment: options.singleSegment
+            options: options
         )
+    }
+
+    func benchmark(audioURL: URL, prompt: String, language: String) throws -> [WhisperCppBenchmarkResult] {
+        let context = handle.pointer
+        let samples = try Self.readAudioSamples(audioURL)
+        let configurations = WhisperCppBenchmarkPlan.configurations(preferredLanguage: language)
+
+        return try configurations.map { configuration in
+            let options = WhisperCppDecodingOptions.resolve(
+                sampleCount: samples.count,
+                processorCount: Int(configuration.threadCount) + 2,
+                audioContext: configuration.audioContext
+            )
+            let configuredOptions = WhisperCppDecodingOptions(
+                singleSegment: options.singleSegment,
+                noTimestamps: options.noTimestamps,
+                audioContext: options.audioContext,
+                threadCount: configuration.threadCount
+            )
+            let start = Date()
+            let result = try runWhisper(
+                context: context,
+                samples: samples,
+                prompt: prompt,
+                language: configuration.language,
+                options: configuredOptions
+            )
+            return WhisperCppBenchmarkResult(
+                configuration: configuration,
+                elapsedSeconds: Date().timeIntervalSince(start),
+                timings: result.timings,
+                textLength: result.text.count
+            )
+        }
     }
 
     private func runWhisper(
@@ -72,8 +121,8 @@ actor WhisperCppContext {
         samples: [Float],
         prompt: String,
         language: String,
-        singleSegment: Bool
-    ) throws -> String {
+        options: WhisperCppDecodingOptions
+    ) throws -> WhisperCppRunResult {
         var parameters = whisper_full_default_params(WHISPER_SAMPLING_GREEDY)
 
         let languageConfiguration = WhisperCppLanguageConfiguration.resolve(language: language)
@@ -93,12 +142,16 @@ actor WhisperCppContext {
         parameters.print_special = false
         parameters.translate = false
         parameters.detect_language = languageConfiguration.detectLanguageOnly
+        parameters.no_timestamps = options.noTimestamps
         parameters.no_context = true
-        parameters.single_segment = singleSegment
+        parameters.single_segment = options.singleSegment
+        parameters.suppress_non_speech_tokens = true
         parameters.temperature = 0.0
-        parameters.n_threads = Int32(max(1, min(8, ProcessInfo.processInfo.processorCount - 2)))
+        parameters.audio_ctx = options.audioContext
+        parameters.n_threads = options.threadCount
 
         whisper_reset_timings(context)
+        let start = Date()
 
         let status: Int32
         if let languageCString, let promptCString {
@@ -142,7 +195,16 @@ actor WhisperCppContext {
             }
         }
 
-        return text
+        let timings = WhisperCppTimings(
+            elapsedMilliseconds: Date().timeIntervalSince(start) * 1_000,
+            sampleCount: samples.count,
+            threadCount: options.threadCount,
+            audioContext: options.audioContext,
+            singleSegment: options.singleSegment,
+            noTimestamps: options.noTimestamps
+        )
+
+        return WhisperCppRunResult(text: text, timings: timings)
     }
 
     private static func readAudioSamples(_ url: URL) throws -> [Float] {

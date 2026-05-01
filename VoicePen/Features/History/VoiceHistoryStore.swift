@@ -86,8 +86,9 @@ final class VoiceHistoryStore: ObservableObject {
                 raw_text,
                 final_text,
                 status,
-                error_message
-            ) VALUES (?, ?, ?, ?, ?, ?, ?);
+                error_message,
+                timings_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
             """,
             in: database
         )
@@ -110,6 +111,12 @@ final class VoiceHistoryStore: ObservableObject {
             sqlite3_bind_text(statement, 7, errorMessage, -1, SQLITE_TRANSIENT)
         } else {
             sqlite3_bind_null(statement, 7)
+        }
+
+        if let timingsJSON = try timingsJSON(from: entry.timings) {
+            sqlite3_bind_text(statement, 8, timingsJSON, -1, SQLITE_TRANSIENT)
+        } else {
+            sqlite3_bind_null(statement, 8)
         }
 
         try stepDone(statement, database: database)
@@ -147,7 +154,7 @@ final class VoiceHistoryStore: ObservableObject {
     private func fetchEntries(from database: OpaquePointer) throws -> [VoiceHistoryEntry] {
         let statement = try prepare(
             """
-            SELECT id, created_at, duration, raw_text, final_text, status, error_message
+            SELECT id, created_at, duration, raw_text, final_text, status, error_message, timings_json
             FROM voice_history
             ORDER BY created_at DESC
             LIMIT ?;
@@ -188,8 +195,21 @@ final class VoiceHistoryStore: ObservableObject {
             rawText: stringColumn(statement, index: 3),
             finalText: stringColumn(statement, index: 4),
             status: status,
-            errorMessage: optionalStringColumn(statement, index: 6)
+            errorMessage: optionalStringColumn(statement, index: 6),
+            timings: try timings(from: optionalStringColumn(statement, index: 7))
         )
+    }
+
+    private func timingsJSON(from timings: VoicePipelineTimings?) throws -> String? {
+        guard let timings else { return nil }
+
+        let data = try JSONEncoder().encode(timings)
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func timings(from json: String?) throws -> VoicePipelineTimings? {
+        guard let json, let data = json.data(using: .utf8) else { return nil }
+        return try JSONDecoder().decode(VoicePipelineTimings.self, from: data)
     }
 
     private func execute(_ sql: String, in database: OpaquePointer) throws {

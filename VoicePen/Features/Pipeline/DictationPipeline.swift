@@ -5,17 +5,20 @@ struct DictationPipelineResult: Equatable {
     let finalText: String
     let recording: RecordingResult?
     let didAttemptInsertion: Bool
+    let timings: VoicePipelineTimings?
 
     init(
         rawText: String,
         finalText: String,
         recording: RecordingResult? = nil,
-        didAttemptInsertion: Bool = false
+        didAttemptInsertion: Bool = false,
+        timings: VoicePipelineTimings? = nil
     ) {
         self.rawText = rawText
         self.finalText = finalText
         self.recording = recording
         self.didAttemptInsertion = didAttemptInsertion
+        self.timings = timings
     }
 }
 
@@ -29,6 +32,7 @@ final class DictationPipeline {
     private let languageProvider: () -> String
     private let speechPreprocessingModeProvider: () -> SpeechPreprocessingMode
     private let minimumRecordingDuration: TimeInterval
+    private var recordingLevelTask: Task<Void, Never>?
 
     init(
         recorder: AudioRecordingClient,
@@ -54,14 +58,19 @@ final class DictationPipeline {
 
     func start() async throws {
         try recorder.startRecording()
-        await overlay.show(.recording(startedAt: Date(), level: nil))
+        let startedAt = Date()
+        await overlay.show(.recording(startedAt: startedAt, level: nil))
+        startRecordingLevelUpdates(startedAt: startedAt)
     }
 
     func stopAndProcess() async throws -> DictationPipelineResult {
+        stopRecordingLevelUpdates()
+
         guard let recording = try recorder.stopRecording() else {
             overlay.hide(after: 0.1)
             return DictationPipelineResult(rawText: "", finalText: "")
         }
+        var timings = VoicePipelineTimings(recording: recording.duration)
 
         guard recording.duration >= minimumRecordingDuration else {
             overlay.hide(after: 0.1)
@@ -71,10 +80,14 @@ final class DictationPipeline {
         await overlay.update(.transcribing(stage: .preparingAudio, progress: nil))
         let transcriptionAudioURL: URL
         do {
-            transcriptionAudioURL = try await audioPreprocessor.preprocess(
-                audioURL: recording.url,
-                mode: speechPreprocessingModeProvider()
-            )
+            let measured = try await measure {
+                try await audioPreprocessor.preprocess(
+                    audioURL: recording.url,
+                    mode: speechPreprocessingModeProvider()
+                )
+            }
+            transcriptionAudioURL = measured.value
+            timings.preprocessing = measured.elapsed
         } catch AudioPreprocessingError.noSpeechDetected {
             overlay.hide(after: 0.1)
             return DictationPipelineResult(rawText: "", finalText: "", recording: nil)
@@ -90,11 +103,15 @@ final class DictationPipeline {
         await overlay.update(.transcribing(stage: .transcribing, progress: nil))
         let rawText: String
         do {
-            rawText = try await transcriber.transcribe(
-                audioURL: transcriptionAudioURL,
-                glossaryPrompt: glossary,
-                language: language
-            )
+            let measured = try await measure {
+                try await transcriber.transcribe(
+                    audioURL: transcriptionAudioURL,
+                    glossaryPrompt: glossary,
+                    language: language
+                )
+            }
+            rawText = measured.value
+            timings.transcription = measured.elapsed
         } catch TranscriptionError.emptyResult {
             overlay.hide(after: 0.1)
             return DictationPipelineResult(rawText: "", finalText: "", recording: nil)
@@ -102,9 +119,13 @@ final class DictationPipeline {
         try Task.checkCancellation()
 
         await overlay.update(.transcribing(stage: .normalizing, progress: nil))
-        let finalText = try dictionaryStore.makeNormalizer()
-            .normalize(rawText)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = try measure {
+            try dictionaryStore.makeNormalizer()
+                .normalize(rawText)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let finalText = normalized.value
+        timings.normalization = normalized.elapsed
         try Task.checkCancellation()
 
         guard !finalText.isEmpty else {
@@ -119,7 +140,10 @@ final class DictationPipeline {
 
         await overlay.update(.transcribing(stage: .pasting, progress: nil))
         try Task.checkCancellation()
-        inserter.insert(finalText)
+        let insertion = measure {
+            inserter.insert(finalText)
+        }
+        timings.insertion = insertion.elapsed
 
         overlay.update(.done(message: "Inserted"))
         overlay.hide(after: 0.7)
@@ -128,8 +152,44 @@ final class DictationPipeline {
             rawText: rawText,
             finalText: finalText,
             recording: recording,
-            didAttemptInsertion: true
+            didAttemptInsertion: true,
+            timings: timings
         )
+    }
+
+    private func measure<T>(_ operation: () throws -> T) rethrows -> (value: T, elapsed: TimeInterval) {
+        let start = DispatchTime.now().uptimeNanoseconds
+        let value = try operation()
+        let end = DispatchTime.now().uptimeNanoseconds
+        return (value, TimeInterval(end - start) / 1_000_000_000)
+    }
+
+    private func measure<T>(_ operation: () async throws -> T) async rethrows -> (value: T, elapsed: TimeInterval) {
+        let start = DispatchTime.now().uptimeNanoseconds
+        let value = try await operation()
+        let end = DispatchTime.now().uptimeNanoseconds
+        return (value, TimeInterval(end - start) / 1_000_000_000)
+    }
+
+    private func startRecordingLevelUpdates(startedAt: Date) {
+        recordingLevelTask?.cancel()
+        recordingLevelTask = Task { [recorder, overlay] in
+            while !Task.isCancelled {
+                let level = recorder.currentLevel()
+                await overlay.update(.recording(startedAt: startedAt, level: level))
+
+                do {
+                    try await Task.sleep(for: .milliseconds(80))
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+    private func stopRecordingLevelUpdates() {
+        recordingLevelTask?.cancel()
+        recordingLevelTask = nil
     }
 
     private func glossaryPrompt(recording: RecordingResult, language: String) throws -> String {
