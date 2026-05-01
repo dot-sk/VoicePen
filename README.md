@@ -17,7 +17,7 @@ VoicePen is an early Friends & Family build.
 
 ## Requirements
 
-- macOS on Apple Silicon.
+- macOS 15 or newer on Apple Silicon.
 - Xcode installed for local development.
 - Microphone permission.
 - Accessibility permission for text insertion and global hotkeys.

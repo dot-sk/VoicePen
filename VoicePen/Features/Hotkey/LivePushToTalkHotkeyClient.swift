@@ -17,6 +17,7 @@ extension KeyboardShortcuts.Name {
     static let voicePenPushToTalk = Self("voicePenPushToTalk")
 }
 
+@MainActor
 final class LivePushToTalkHotkeyClient: PushToTalkHotkeyClient {
     private let settingsStore: AppSettingsStore
     private var globalEventMonitor: Any?
@@ -82,22 +83,30 @@ final class LivePushToTalkHotkeyClient: PushToTalkHotkeyClient {
         }
 
         KeyboardShortcuts.enable(.voicePenPushToTalk)
-        KeyboardShortcuts.onKeyDown(for: .voicePenPushToTalk) {
-            self.beginHold(onKeyDown: onKeyDown)
+        KeyboardShortcuts.onKeyDown(for: .voicePenPushToTalk) { [weak self] in
+            Task { @MainActor in
+                self?.beginHold(onKeyDown: onKeyDown)
+            }
         }
 
-        KeyboardShortcuts.onKeyUp(for: .voicePenPushToTalk) {
-            self.endHold(onKeyUp: onKeyUp)
+        KeyboardShortcuts.onKeyUp(for: .voicePenPushToTalk) { [weak self] in
+            Task { @MainActor in
+                self?.endHold(onKeyUp: onKeyUp)
+            }
         }
     }
 
     private func installModifierMonitoring() {
         globalEventMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            self?.handleModifierEvent(event)
+            Task { @MainActor in
+                self?.handleModifierEvent(event)
+            }
         }
 
         localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            self?.handleModifierEvent(event)
+            Task { @MainActor in
+                self?.handleModifierEvent(event)
+            }
             return event
         }
     }

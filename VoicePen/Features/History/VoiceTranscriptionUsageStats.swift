@@ -1,6 +1,6 @@
 import Foundation
 
-struct VoiceTranscriptionUsageStats: Equatable {
+nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
     let totalDuration: TimeInterval
     let transcribedSessionCount: Int
 

@@ -1,6 +1,6 @@
 import Foundation
 
-struct TermNormalizer {
+nonisolated struct TermNormalizer {
     private let entries: [TermEntry]
 
     init(entries: [TermEntry]) {

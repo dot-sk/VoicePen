@@ -1,10 +1,10 @@
 import Foundation
 
-struct DictionaryFile: Codable, Equatable {
+nonisolated struct DictionaryFile: Codable, Equatable, Sendable {
     var entries: [TermEntry]
 }
 
-struct TermEntry: Codable, Identifiable, Equatable {
+nonisolated struct TermEntry: Codable, Identifiable, Equatable, Sendable {
     var id: String
     var canonical: String
     var variants: [String]

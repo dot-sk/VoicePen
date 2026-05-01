@@ -17,7 +17,7 @@ nonisolated struct WhisperCppLanguageConfiguration: Equatable {
 }
 
 actor WhisperCppContext {
-    private var context: OpaquePointer?
+    private let handle: WhisperCppContextHandle
 
     init(modelPath: String) throws {
         var contextParameters = whisper_context_default_params()
@@ -30,19 +30,11 @@ actor WhisperCppContext {
         guard let context = whisper_init_from_file_with_params(modelPath, contextParameters) else {
             throw TranscriptionError.modelLoadFailed("whisper.cpp could not load model at \(modelPath)")
         }
-        self.context = context
-    }
-
-    deinit {
-        if let context {
-            whisper_free(context)
-        }
+        self.handle = WhisperCppContextHandle(context)
     }
 
     func transcribe(audioURL: URL, prompt: String, language: String) throws -> String {
-        guard let context else {
-            throw TranscriptionError.modelLoadFailed("whisper.cpp context is not loaded.")
-        }
+        let context = handle.pointer
 
         let samples = try Self.readAudioSamples(audioURL)
         let options = WhisperCppDecodingOptions.resolve(sampleCount: samples.count)
@@ -62,9 +54,7 @@ actor WhisperCppContext {
     }
 
     func warmUp(language: String) throws {
-        guard let context else {
-            throw TranscriptionError.modelLoadFailed("whisper.cpp context is not loaded.")
-        }
+        let context = handle.pointer
 
         let samples = [Float](repeating: 0, count: 16_000)
         let options = WhisperCppDecodingOptions.resolve(sampleCount: samples.count, isWarmup: true)
@@ -189,5 +179,17 @@ actor WhisperCppContext {
             samples.append(mixedSample / Float(channelCount))
         }
         return samples
+    }
+}
+
+nonisolated private final class WhisperCppContextHandle: @unchecked Sendable {
+    let pointer: OpaquePointer
+
+    init(_ pointer: OpaquePointer) {
+        self.pointer = pointer
+    }
+
+    deinit {
+        whisper_free(pointer)
     }
 }
