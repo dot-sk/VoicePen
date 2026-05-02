@@ -53,6 +53,9 @@ update-signing material.
 - When release publishing runs for a tagged release, it shall publish or update
   the GitHub Pages appcast/feed metadata that points to the GitHub Release
   archive.
+- When release publishing builds a tagged release, it shall avoid a standalone
+  package-resolution step because the test and package builds already resolve
+  Swift packages as needed.
 - When an archive is missing a valid updater signature, VoicePen shall not offer
   it as an installable update.
 
