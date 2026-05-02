@@ -64,7 +64,7 @@ jobs:
           security unlock-keychain -p "$keychain_password" "$keychain_path"
           security import "$certificate_path" -k "$keychain_path" -P "$MACOS_SIGNING_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           security find-certificate -c "$MACOS_SIGNING_IDENTITY" -p "$keychain_path" > "$trusted_certificate_path"
-          security add-trusted-cert -d -r trustRoot -p codeSign -k "$keychain_path" "$trusted_certificate_path"
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$trusted_certificate_path"
           original_keychains="$(security list-keychains -d user | tr -d '"')"
           security list-keychains -d user -s "$keychain_path" $original_keychains
           security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain_path"
