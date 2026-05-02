@@ -212,7 +212,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				11953DAD2FA4E20000ED707B /* XCRemoteSwiftPackageReference "FluidAudio" */,
-				11953DB22FA5000000ED707B /* XCLocalSwiftPackageReference "whisper.spm" */,
+				11953DB22FA5000000ED707B /* XCLocalSwiftPackageReference "Vendor/whisper.spm" */,
 				11953DB52FA5300000ED707B /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */,
 				11953DB92FA5E00000ED707B /* XCRemoteSwiftPackageReference "Alamofire" */,
 			);
@@ -614,7 +614,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		11953DB22FA5000000ED707B /* XCLocalSwiftPackageReference "whisper.spm" */ = {
+		11953DB22FA5000000ED707B /* XCLocalSwiftPackageReference "Vendor/whisper.spm" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Vendor/whisper.spm;
 		};
@@ -655,7 +655,7 @@
 		};
 		11953DB12FA5000000ED707B /* whisper */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 11953DB22FA5000000ED707B /* XCLocalSwiftPackageReference "whisper.spm" */;
+			package = 11953DB22FA5000000ED707B /* XCLocalSwiftPackageReference "Vendor/whisper.spm" */;
 			productName = whisper;
 		};
 		11953DB62FA5300000ED707B /* KeyboardShortcuts */ = {

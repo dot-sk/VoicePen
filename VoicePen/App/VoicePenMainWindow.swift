@@ -189,6 +189,10 @@ private struct GeneralSettingsView: View {
         return "Transcribed audio time in \(stats.transcribedSessionCount) \(sessionWord)"
     }
 
+    private var estimatedTimeSavedCaption: String {
+        "Estimated versus typing the recognized text at \(Int(VoiceTranscriptionUsageStats.manualTypingWordsPerMinute)) WPM"
+    }
+
     var body: some View {
         Form {
             Section {
@@ -200,6 +204,16 @@ private struct GeneralSettingsView: View {
 
                     Text(transcribedAudioCaption)
                         .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.secondary)
+
+                    Text("≈ \(stats.readableEstimatedTimeSavedText) saved")
+                        .font(.system(size: 24, weight: .semibold, design: .rounded))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .padding(.top, 6)
+
+                    Text(estimatedTimeSavedCaption)
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -487,6 +501,9 @@ private struct DictionaryEditorView: View {
     @State private var message: String?
     @State private var showingDeleteConfirmation = false
     @State private var searchText = ""
+    @State private var reviewPreset = DictionaryReviewPromptPreset.dictionaryImprovement
+    @State private var historyReviewLimit = HistoryReviewLimit.defaultValue
+    @State private var pendingImportPreview: PendingDictionaryImportPreview?
 
     private var selectedEntry: TermEntry? {
         guard let selectedID else { return filteredEntries.first }
@@ -499,152 +516,156 @@ private struct DictionaryEditorView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            VStack(spacing: 0) {
-                HStack {
-                    Text("Terms")
-                        .font(.headline)
-
-                    Spacer()
-
-                    Button {
-                        createNewEntry()
-                    } label: {
-                        Label("Add", systemImage: "plus")
-                    }
-
-                    Button {
-                        importDictionaryCSV()
-                    } label: {
-                        Label("Import CSV", systemImage: "square.and.arrow.down")
-                    }
-                }
-                .padding([.horizontal, .top], 16)
-                .padding(.bottom, 10)
-
-                if !dictionaryStore.entries.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        TextField("Search terms", text: $searchText)
-                            .textFieldStyle(.roundedBorder)
-
-                        Text(dictionaryCountText)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 10)
-                }
-
-                if dictionaryStore.entries.isEmpty {
-                    ContentUnavailableView(
-                        "No dictionary terms",
-                        systemImage: "text.book.closed",
-                        description: Text("Add terms or import a CSV file.")
-                    )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if filteredEntries.isEmpty {
-                    ContentUnavailableView(
-                        "No matching terms",
-                        systemImage: "magnifyingglass",
-                        description: Text("Try another search.")
-                    )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    List(selection: $selectedID) {
-                        ForEach(filteredEntries) { entry in
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(entry.canonical)
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .lineLimit(1)
-
-                                Text("\(entry.variants.count) variants")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                            .tag(entry.id)
-                        }
-                    }
-                    .listStyle(.sidebar)
-                }
-            }
-            .frame(minWidth: 240, idealWidth: 280, maxWidth: 320)
+        VStack(spacing: 0) {
+            DictionaryReviewPanel(
+                reviewPreset: $reviewPreset,
+                historyReviewLimit: $historyReviewLimit,
+                message: message,
+                copyReviewPrompt: copyReviewPrompt,
+                importFromClipboard: importDictionaryCSVFromClipboard,
+                importFromFile: importDictionaryCSV
+            )
 
             Divider()
 
-            Form {
-                Section {
-                    TextField("Canonical", text: $draft.canonical)
-                } header: {
-                    Text("Term")
-                }
-
-                Section {
-                    DictionaryListEditor(title: "Variants", text: $draft.variantsText)
-                } footer: {
-                    Text("Use one value per line. These are all forms VoicePen should replace with the canonical term.")
-                }
-
-                Section {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label("Large dictionaries can slow down every transcription.", systemImage: "exclamationmark.triangle")
-                            .font(.subheadline.weight(.semibold))
-
-                        Text("As a rule of thumb: up to 100 terms is small, 100-500 is usually fine, 500+ can become noticeable, and 1,000+ should be split or trimmed.")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-
-                        Text("Current dictionary: \(dictionaryStore.entries.count) terms.")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                } header: {
-                    Text("Performance")
-                }
-
-                Section {
-                    Button {
-                        importDictionaryCSV()
-                    } label: {
-                        Label("Import CSV or Text File", systemImage: "square.and.arrow.down")
-                    }
-                } footer: {
-                    Text("CSV format: canonical, variants. Separate variants with semicolons, or put each variant in its own column.")
-                }
-
-                Section {
+            HStack(spacing: 0) {
+                VStack(spacing: 0) {
                     HStack {
-                        Button {
-                            saveDraft()
-                        } label: {
-                            Label("Save Term", systemImage: "square.and.arrow.down")
-                        }
-                        .disabled(!draft.isValid)
-
-                        Button(role: .destructive) {
-                            showingDeleteConfirmation = true
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                        .disabled(draft.id.isEmpty || !dictionaryStore.entries.contains { $0.id == draft.id })
+                        Text("Terms")
+                            .font(.headline)
 
                         Spacer()
 
                         Button {
-                            controller.openDictionaryFile()
+                            createNewEntry()
                         } label: {
-                            Label("Reveal Database", systemImage: "folder")
+                            Label("Add", systemImage: "plus")
+                        }
+
+                        Button {
+                            importDictionaryCSV()
+                        } label: {
+                            Label("Import CSV", systemImage: "square.and.arrow.down")
                         }
                     }
+                    .padding([.horizontal, .top], 16)
+                    .padding(.bottom, 10)
 
-                    if let message {
-                        Text(message)
-                            .foregroundStyle(.secondary)
+                    if !dictionaryStore.entries.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            TextField("Search terms", text: $searchText)
+                                .textFieldStyle(.roundedBorder)
+
+                            Text(dictionaryCountText)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 10)
+                    }
+
+                    if dictionaryStore.entries.isEmpty {
+                        ContentUnavailableView(
+                            "No dictionary terms",
+                            systemImage: "text.book.closed",
+                            description: Text("Add terms or import a CSV file.")
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if filteredEntries.isEmpty {
+                        ContentUnavailableView(
+                            "No matching terms",
+                            systemImage: "magnifyingglass",
+                            description: Text("Try another search.")
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        List(selection: $selectedID) {
+                            ForEach(filteredEntries) { entry in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(entry.canonical)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .lineLimit(1)
+
+                                    Text("\(entry.variants.count) variants")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                .tag(entry.id)
+                            }
+                        }
+                        .listStyle(.sidebar)
                     }
                 }
+                .frame(minWidth: 240, idealWidth: 280, maxWidth: 320)
+
+                Divider()
+
+                Form {
+                    Section {
+                        TextField("Canonical", text: $draft.canonical)
+                    } header: {
+                        Text("Term")
+                    }
+
+                    Section {
+                        DictionaryListEditor(title: "Variants", text: $draft.variantsText)
+                    } footer: {
+                        Text("Use one value per line. These are all forms VoicePen should replace with the canonical term.")
+                    }
+
+                    Section {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label("Large dictionaries can slow down every transcription.", systemImage: "exclamationmark.triangle")
+                                .font(.subheadline.weight(.semibold))
+
+                            Text("As a rule of thumb: up to 100 terms is small, 100-500 is usually fine, 500+ can become noticeable, and 1,000+ should be split or trimmed.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+
+                            Text("Current dictionary: \(dictionaryStore.entries.count) terms.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
+                    } header: {
+                        Text("Performance")
+                    }
+
+                    Section {
+                        HStack {
+                            Button {
+                                saveDraft()
+                            } label: {
+                                Label("Save Term", systemImage: "square.and.arrow.down")
+                            }
+                            .disabled(!draft.isValid)
+
+                            Button(role: .destructive) {
+                                showingDeleteConfirmation = true
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                            .disabled(draft.id.isEmpty || !dictionaryStore.entries.contains { $0.id == draft.id })
+
+                            Spacer()
+
+                            Button {
+                                controller.openDictionaryFile()
+                            } label: {
+                                Label("Reveal Database", systemImage: "folder")
+                            }
+                        }
+
+                        if let message {
+                            Text(message)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .formStyle(.grouped)
+                .padding(18)
+                .frame(minWidth: 340, idealWidth: 420)
             }
-            .formStyle(.grouped)
-            .padding(18)
         }
         .onAppear {
             if selectedID == nil {
@@ -673,6 +694,18 @@ private struct DictionaryEditorView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This removes \(draft.canonical.isEmpty ? "this term" : draft.canonical) from the local dictionary.")
+        }
+        .sheet(item: $pendingImportPreview) { pending in
+            DictionaryImportPreviewSheet(
+                preview: pending.preview,
+                confirmAction: {
+                    confirmImportPreview(pending.preview)
+                },
+                cancelAction: {
+                    pendingImportPreview = nil
+                    message = "Import canceled"
+                }
+            )
         }
     }
 
@@ -738,12 +771,314 @@ private struct DictionaryEditorView: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
         do {
-            let entries = try DictionaryCSVImporter.parse(fileURL: url)
-            try dictionaryStore.importEntries(entries)
-            selectedID = entries.first?.id ?? dictionaryStore.entries.first?.id
-            message = "Imported \(entries.count) terms"
+            pendingImportPreview = PendingDictionaryImportPreview(
+                preview: try controller.prepareDictionaryImportPreview(
+                    fileURL: url,
+                    historyLimit: historyReviewLimit
+                )
+            )
         } catch {
             message = error.localizedDescription
+        }
+    }
+
+    private func importDictionaryCSVFromClipboard() {
+        do {
+            pendingImportPreview = PendingDictionaryImportPreview(
+                preview: try controller.prepareDictionaryImportPreviewFromClipboard(
+                    historyLimit: historyReviewLimit
+                )
+            )
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+
+    private func copyReviewPrompt() {
+        controller.copyDictionaryReviewPrompt(
+            preset: reviewPreset,
+            historyLimit: historyReviewLimit
+        )
+        message = "Review prompt copied"
+    }
+
+    private func confirmImportPreview(_ preview: DictionaryImportPreview) {
+        do {
+            try controller.confirmDictionaryImportPreview(preview)
+            selectedID = preview.postImportEntries.first?.id ?? dictionaryStore.entries.first?.id
+            pendingImportPreview = nil
+            message = "Imported \(preview.importedEntryCount) terms"
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+}
+
+private struct DictionaryReviewPanel: View {
+    @Binding var reviewPreset: DictionaryReviewPromptPreset
+    @Binding var historyReviewLimit: HistoryReviewLimit
+    let message: String?
+    let copyReviewPrompt: () -> Void
+    let importFromClipboard: () -> Void
+    let importFromFile: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Label("Review with GPT", systemImage: "sparkles")
+                        .font(.headline)
+
+                    Text("Use recent history and the current dictionary to ask for better CSV entries.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(minWidth: 220, idealWidth: 260, maxWidth: 320, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Preset")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+
+                    Picker("Prompt preset", selection: $reviewPreset) {
+                        ForEach(DictionaryReviewPromptPreset.allCases) { preset in
+                            Text(preset.title)
+                                .tag(preset)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                }
+                .frame(minWidth: 170, idealWidth: 190, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("History entries")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+
+                    Picker("History entries", selection: $historyReviewLimit) {
+                        ForEach(HistoryReviewLimit.allCases) { limit in
+                            Text("\(limit.rawValue)")
+                                .tag(limit)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                }
+                .frame(width: 170, alignment: .leading)
+
+                Spacer(minLength: 0)
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    copyReviewPrompt()
+                } label: {
+                    Label("Copy Review Prompt", systemImage: "doc.on.doc")
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button {
+                    importFromClipboard()
+                } label: {
+                    Label("Clipboard", systemImage: "clipboard")
+                }
+
+                Button {
+                    importFromFile()
+                } label: {
+                    Label("File", systemImage: "square.and.arrow.down")
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("The prompt is copied locally and may include recent transcription history. VoicePen does not send it anywhere.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+
+                Text("CSV format: canonical, variants. Separate variants with semicolons, or put each variant in its own column.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            if let message {
+                Text(message)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(18)
+    }
+}
+
+private struct PendingDictionaryImportPreview: Identifiable {
+    let id = UUID()
+    let preview: DictionaryImportPreview
+}
+
+private struct DictionaryImportPreviewSheet: View {
+    let preview: DictionaryImportPreview
+    let confirmAction: () -> Void
+    let cancelAction: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Review Dictionary Import")
+                        .font(.title3.weight(.semibold))
+
+                    Text(summaryText)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button {
+                    cancelAction()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Close without importing")
+            }
+
+            ImportedTermsPreview(entries: preview.importedEntries)
+
+            if preview.examples.isEmpty {
+                ContentUnavailableView(
+                    "No recent sessions would change",
+                    systemImage: "checkmark.circle",
+                    description: Text("These terms are valid. Importing will update the dictionary, but the reviewed history does not show any text changes.")
+                )
+                .frame(minHeight: 180)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        ForEach(preview.examples, id: \.historyEntryID) { example in
+                            DictionaryImportPreviewExampleView(example: example)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(minHeight: 260)
+            }
+
+            HStack {
+                Button {
+                    cancelAction()
+                } label: {
+                    Label("Back to Dictionary", systemImage: "chevron.left")
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                Button {
+                    confirmAction()
+                } label: {
+                    Label(importButtonTitle, systemImage: "checkmark.circle")
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 640, minHeight: 420)
+    }
+
+    private var summaryText: String {
+        "\(preview.importedEntryCount) terms ready. \(preview.affectedEntryCount) reviewed sessions would change."
+    }
+
+    private var importButtonTitle: String {
+        preview.importedEntryCount == 1 ? "Import 1 Term" : "Import \(preview.importedEntryCount) Terms"
+    }
+}
+
+private struct ImportedTermsPreview: View {
+    let entries: [TermEntry]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Terms to import")
+                .font(.subheadline.weight(.semibold))
+
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
+                ForEach(entries.prefix(5)) { entry in
+                    GridRow {
+                        Text(entry.canonical)
+                            .font(.system(size: 12, weight: .semibold))
+                        Text(entry.variants.joined(separator: "; "))
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+            }
+
+            if entries.count > 5 {
+                Text("+ \(entries.count - 5) more")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+private struct DictionaryImportPreviewExampleView: View {
+    let example: DictionaryImportPreviewExample
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(example.createdAt, format: .dateTime.year().month().day().hour().minute().second())
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            diffText
+                .font(.system(.body, design: .default))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            DisclosureGroup("Raw transcript") {
+                Text(example.rawText)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 4)
+            }
+        }
+        .padding(12)
+        .background(.background)
+        .overlay {
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(.secondary.opacity(0.22), lineWidth: 1)
+        }
+    }
+
+    private var diffText: Text {
+        example.diff.enumerated().reduce(Text("")) { partial, element in
+            let suffix = element.offset == example.diff.count - 1 ? "" : " "
+            let token = element.element
+            let text = Text(token.text + suffix)
+
+            switch token.change {
+            case .unchanged:
+                return partial + text.foregroundStyle(.primary)
+            case .removed:
+                return partial + text.foregroundStyle(.red).strikethrough()
+            case .inserted:
+                return partial + text.foregroundStyle(.green)
+            }
         }
     }
 }
@@ -899,6 +1234,9 @@ private struct HistoryView: View {
                         ForEach(filteredEntries) { entry in
                             HistoryRowView(
                                 entry: entry,
+                                selectAction: {
+                                    selectedID = entry.id
+                                },
                                 copyAction: {
                                     controller.copyToClipboard(entry.bestText)
                                 },
@@ -1022,6 +1360,7 @@ private enum HistoryStatusFilter: String, CaseIterable, Identifiable {
 
 private struct HistoryRowView: View {
     let entry: VoiceHistoryEntry
+    let selectAction: () -> Void
     let copyAction: () -> Void
     let deleteAction: () -> Void
     @State private var isHovered = false
@@ -1029,9 +1368,7 @@ private struct HistoryRowView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 8) {
-                Label(entry.status.title, systemImage: iconName)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(statusColor)
+                statusIndicator
 
                 Spacer()
 
@@ -1081,10 +1418,19 @@ private struct HistoryRowView: View {
         }
         .padding(.vertical, 5)
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
-            guard !entry.bestText.trimmed.isEmpty else { return }
-            copyAction()
-        }
+        .simultaneousGesture(
+            TapGesture()
+                .onEnded { _ in
+                    selectAction()
+                }
+        )
+        .simultaneousGesture(
+            TapGesture(count: 2)
+                .onEnded {
+                    guard !entry.bestText.trimmed.isEmpty else { return }
+                    copyAction()
+                }
+        )
         .onHover { isHovered = $0 }
     }
 
@@ -1108,6 +1454,31 @@ private struct HistoryRowView: View {
         case .failed:
             return .yellow
         }
+    }
+
+    @ViewBuilder
+    private var statusIndicator: some View {
+        switch entry.status {
+        case .insertAttempted:
+            Image(systemName: iconName)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(statusColor)
+                .help(entry.status.title)
+        case .empty, .failed:
+            Label(statusReason, systemImage: iconName)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(statusColor)
+                .lineLimit(1)
+        }
+    }
+
+    private var statusReason: String {
+        guard entry.status == .failed else {
+            return entry.status.title
+        }
+
+        let errorMessage = entry.errorMessage?.trimmed ?? ""
+        return errorMessage.isEmpty ? entry.status.title : errorMessage
     }
 
     private func formatDuration(_ duration: TimeInterval) -> String {
@@ -1168,8 +1539,7 @@ private struct HistoryDetailView: View {
                         }
                     )
 
-                    HistoryTextSection(
-                        title: "Raw transcript",
+                    HistoryRawTranscriptDisclosure(
                         text: entry.rawText,
                         copyAction: {
                             controller.copyToClipboard(entry.rawText)
@@ -1281,6 +1651,55 @@ private struct HistoryTextSection: View {
                 RoundedRectangle(cornerRadius: 6)
                     .stroke(.secondary.opacity(0.22), lineWidth: 1)
             }
+        }
+    }
+
+    private var displayText: String {
+        trimmedText.isEmpty ? "No text" : text
+    }
+
+    private var trimmedText: String {
+        text.trimmed
+    }
+}
+
+private struct HistoryRawTranscriptDisclosure: View {
+    let text: String
+    let copyAction: () -> Void
+
+    var body: some View {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Spacer()
+
+                    Button {
+                        copyAction()
+                    } label: {
+                        Label("Copy", systemImage: "doc.on.doc")
+                    }
+                    .disabled(trimmedText.isEmpty)
+                }
+
+                ScrollView {
+                    Text(displayText)
+                        .font(.system(.body, design: .default))
+                        .foregroundStyle(trimmedText.isEmpty ? .secondary : .primary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                }
+                .frame(minHeight: 96, maxHeight: 160)
+                .background(.background)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(.secondary.opacity(0.22), lineWidth: 1)
+                }
+            }
+            .padding(.top, 8)
+        } label: {
+            Text("Raw transcript")
+                .font(.subheadline.weight(.semibold))
         }
     }
 

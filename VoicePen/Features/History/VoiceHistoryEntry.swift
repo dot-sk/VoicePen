@@ -9,6 +9,7 @@ nonisolated struct VoiceHistoryEntry: Codable, Identifiable, Equatable, Sendable
     var status: VoiceHistoryStatus
     var errorMessage: String?
     var timings: VoicePipelineTimings?
+    var modelMetadata: VoiceTranscriptionModelMetadata? = nil
 
     var bestText: String {
         finalText.isEmpty ? rawText : finalText
@@ -20,6 +21,10 @@ nonisolated struct VoiceHistoryEntry: Codable, Identifiable, Equatable, Sendable
             return errorMessage ?? status.title
         }
         return text
+    }
+
+    var modelMetadataForExport: VoiceTranscriptionModelMetadata {
+        modelMetadata ?? .unknown
     }
 }
 

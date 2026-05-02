@@ -37,7 +37,7 @@ final class DictionaryStore: ObservableObject {
     }
 
     func replaceDictionary(_ newDictionary: DictionaryFile) throws {
-        let normalizedDictionary = DictionaryFile(entries: Self.normalizedEntries(newDictionary.entries))
+        let normalizedDictionary = DictionaryFile(entries: DictionaryMerger.normalizedEntries(newDictionary.entries))
         try withDatabase { database in
             try DatabaseMigrator.migrate(database)
             try execute("BEGIN IMMEDIATE TRANSACTION;", in: database)
@@ -60,7 +60,11 @@ final class DictionaryStore: ObservableObject {
     }
 
     func importEntries(_ importedEntries: [TermEntry]) throws {
-        try replaceDictionary(DictionaryFile(entries: dictionary.entries + importedEntries))
+        let mergedEntries = try DictionaryMerger.mergedEntries(
+            existingEntries: dictionary.entries,
+            importedEntries: importedEntries
+        )
+        try replaceDictionary(DictionaryFile(entries: mergedEntries))
     }
 
     func deleteEntry(id: String) throws {
@@ -179,70 +183,6 @@ final class DictionaryStore: ObservableObject {
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-    }
-
-    private static func normalizedEntries(_ entries: [TermEntry]) -> [TermEntry] {
-        var order: [String] = []
-        var entriesByCanonicalKey: [String: TermEntry] = [:]
-
-        for entry in entries {
-            let canonical = entry.canonical.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !canonical.isEmpty else { continue }
-
-            let key = normalizedKey(canonical)
-            if entriesByCanonicalKey[key] == nil {
-                order.append(key)
-            }
-
-            entriesByCanonicalKey[key] = TermEntry(
-                id: entry.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? UUID().uuidString : entry.id.trimmingCharacters(in: .whitespacesAndNewlines),
-                canonical: canonical,
-                variants: uniquedVariants(entry.variants)
-            )
-        }
-
-        var normalizedEntries = order.compactMap { entriesByCanonicalKey[$0] }
-        var ownerByVariantKey: [String: Int] = [:]
-
-        for entryIndex in normalizedEntries.indices {
-            var keptVariants: [String] = []
-            for variant in normalizedEntries[entryIndex].variants {
-                let key = normalizedKey(variant)
-                if let previousOwner = ownerByVariantKey[key] {
-                    normalizedEntries[previousOwner].variants.removeAll {
-                        normalizedKey($0) == key
-                    }
-                }
-
-                ownerByVariantKey[key] = entryIndex
-                keptVariants.append(variant)
-            }
-            normalizedEntries[entryIndex].variants = keptVariants
-        }
-
-        return normalizedEntries.sorted {
-            $0.canonical.localizedCaseInsensitiveCompare($1.canonical) == .orderedAscending
-        }
-    }
-
-    private static func uniquedVariants(_ variants: [String]) -> [String] {
-        var seenKeys: Set<String> = []
-        var result: [String] = []
-
-        for variant in variants {
-            let trimmedVariant = variant.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmedVariant.isEmpty else { continue }
-
-            let key = normalizedKey(trimmedVariant)
-            guard seenKeys.insert(key).inserted else { continue }
-            result.append(trimmedVariant)
-        }
-
-        return result
-    }
-
-    private static func normalizedKey(_ value: String) -> String {
-        value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     private func execute(_ sql: String, in database: OpaquePointer) throws {

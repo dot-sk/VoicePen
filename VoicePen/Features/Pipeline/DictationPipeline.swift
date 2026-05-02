@@ -6,19 +6,22 @@ struct DictationPipelineResult: Equatable {
     let recording: RecordingResult?
     let didAttemptInsertion: Bool
     let timings: VoicePipelineTimings?
+    let modelMetadata: VoiceTranscriptionModelMetadata?
 
     init(
         rawText: String,
         finalText: String,
         recording: RecordingResult? = nil,
         didAttemptInsertion: Bool = false,
-        timings: VoicePipelineTimings? = nil
+        timings: VoicePipelineTimings? = nil,
+        modelMetadata: VoiceTranscriptionModelMetadata? = nil
     ) {
         self.rawText = rawText
         self.finalText = finalText
         self.recording = recording
         self.didAttemptInsertion = didAttemptInsertion
         self.timings = timings
+        self.modelMetadata = modelMetadata
     }
 }
 
@@ -101,7 +104,7 @@ final class DictationPipeline {
         )
 
         await overlay.update(.transcribing(stage: .transcribing, progress: nil))
-        let rawText: String
+        let transcriptionResult: TranscriptionClientResult
         do {
             let measured = try await measure {
                 try await transcriber.transcribe(
@@ -110,12 +113,13 @@ final class DictationPipeline {
                     language: language
                 )
             }
-            rawText = measured.value
+            transcriptionResult = measured.value
             timings.transcription = measured.elapsed
         } catch TranscriptionError.emptyResult {
             overlay.hide(after: 0.1)
             return DictationPipelineResult(rawText: "", finalText: "", recording: nil)
         }
+        let rawText = transcriptionResult.text
         try Task.checkCancellation()
 
         await overlay.update(.transcribing(stage: .normalizing, progress: nil))
@@ -134,7 +138,8 @@ final class DictationPipeline {
                 rawText: rawText,
                 finalText: finalText,
                 recording: nil,
-                didAttemptInsertion: false
+                didAttemptInsertion: false,
+                modelMetadata: transcriptionResult.modelMetadata
             )
         }
 
@@ -153,7 +158,8 @@ final class DictationPipeline {
             finalText: finalText,
             recording: recording,
             didAttemptInsertion: true,
-            timings: timings
+            timings: timings,
+            modelMetadata: transcriptionResult.modelMetadata
         )
     }
 
