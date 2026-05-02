@@ -11,6 +11,8 @@ PACKAGE_ZIP := $(PACKAGE_DIR)/VoicePen-macOS-unsigned.zip
 APPCAST_DIR := $(DERIVED_DATA)/Appcast
 APPCAST_FILE := $(APPCAST_DIR)/appcast.xml
 XCODEBUILD_CI_SIGNING := CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+CODESIGN_IDENTITY ?= -
+CODESIGN_FLAGS ?= --force --deep
 
 .PHONY: help build package appcast prepare-release publish-release test test-strict validate-specs run clean-derived resolve-packages
 
@@ -39,7 +41,7 @@ build:
 
 package:
 	$(MAKE) build CONFIGURATION="$(PACKAGE_CONFIGURATION)"
-	codesign --force --deep --sign - "$(DERIVED_DATA)/Build/Products/$(PACKAGE_CONFIGURATION)/VoicePen.app"
+	codesign $(CODESIGN_FLAGS) --sign "$(CODESIGN_IDENTITY)" "$(DERIVED_DATA)/Build/Products/$(PACKAGE_CONFIGURATION)/VoicePen.app"
 	rm -rf "$(PACKAGE_DIR)"
 	mkdir -p "$(PACKAGE_DIR)"
 	ditto -c -k --sequesterRsrc --keepParent "$(DERIVED_DATA)/Build/Products/$(PACKAGE_CONFIGURATION)/VoicePen.app" "$(PACKAGE_ZIP)"

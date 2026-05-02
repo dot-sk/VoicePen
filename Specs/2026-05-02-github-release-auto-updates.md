@@ -58,6 +58,9 @@ update-signing material.
   Swift packages as needed.
 - When release publishing packages an app archive, the app bundle shall not
   contain a corrupted or stale code signature that prevents Sparkle validation.
+- When release publishing packages app archives across versions, it shall sign
+  the app bundle with a stable macOS code signing identity so macOS privacy
+  permissions can remain associated with VoicePen across updater installs.
 - When an archive is missing a valid updater signature, VoicePen shall not offer
   it as an installable update.
 
@@ -81,8 +84,8 @@ update-signing material.
   release feed generation emits an item for the tagged version with the expected
   archive URL, version/build metadata, length, and updater signature.
 - Automated: `VoicePenTests/Updates/SoftwareUpdateConfigurationTests.swift`
-  verifies the package target ad-hoc signs the app bundle before archiving it for
-  release distribution.
+  verifies the package target signs the app bundle before archiving it and the
+  release workflow imports a stable macOS signing identity from GitHub Secrets.
 - Manual: install an older update-enabled build into `/Applications`, publish or
   locally host a newer feed item, choose check for updates, approve the prompt,
   and confirm the app updates and launches as the newer version.
