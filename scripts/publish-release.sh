@@ -14,6 +14,9 @@ The script:
   - verifies the release tag does not exist;
   - creates and pushes v<version>;
   - prints the GitHub Actions release workflow URL.
+
+The release workflow expects:
+  - repository secret SPARKLE_PRIVATE_KEY.
 USAGE
 }
 
@@ -67,5 +70,6 @@ git push origin "$tag"
 
 echo
 echo "Pushed $tag."
+echo "The Release workflow will attach the zip and publish the Sparkle appcast to GitHub Pages."
 echo "Release workflow:"
 echo "https://github.com/$(gh repo view --json nameWithOwner --jq .nameWithOwner)/actions/workflows/release.yml"

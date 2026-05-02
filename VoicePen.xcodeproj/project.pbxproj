@@ -11,6 +11,7 @@
 		11953DB02FA5000000ED707B /* whisper in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DB12FA5000000ED707B /* whisper */; };
 		11953DB42FA5300000ED707B /* KeyboardShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DB62FA5300000ED707B /* KeyboardShortcuts */; };
 		11953DB82FA5E00000ED707B /* Alamofire in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DB72FA5E00000ED707B /* Alamofire */; };
+		11953DBC2FA7000000ED707B /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DBB2FA7000000ED707B /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -63,6 +64,7 @@
 				11953DB02FA5000000ED707B /* whisper in Frameworks */,
 				11953DB42FA5300000ED707B /* KeyboardShortcuts in Frameworks */,
 				11953DB82FA5E00000ED707B /* Alamofire in Frameworks */,
+				11953DBC2FA7000000ED707B /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -127,6 +129,7 @@
 				11953DB12FA5000000ED707B /* whisper */,
 				11953DB62FA5300000ED707B /* KeyboardShortcuts */,
 				11953DB72FA5E00000ED707B /* Alamofire */,
+				11953DBB2FA7000000ED707B /* Sparkle */,
 			);
 			productName = VoicePen;
 			productReference = 11953D762FA4D47A00ED707B /* VoicePen.app */;
@@ -215,6 +218,7 @@
 				11953DB22FA5000000ED707B /* XCLocalSwiftPackageReference "Vendor/whisper.spm" */,
 				11953DB52FA5300000ED707B /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */,
 				11953DB92FA5E00000ED707B /* XCRemoteSwiftPackageReference "Alamofire" */,
+				11953DBA2FA7000000ED707B /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 11953D772FA4D47A00ED707B /* Products */;
@@ -429,6 +433,10 @@
 				INFOPLIST_KEY_LSUIElement = NO;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "VoicePen needs microphone access to transcribe your speech offline.";
+				INFOPLIST_KEY_SUAutomaticallyUpdate = YES;
+				INFOPLIST_KEY_SUEnableAutomaticChecks = YES;
+				INFOPLIST_KEY_SUFeedURL = "https://dot-sk.github.io/VoicePen/appcast.xml";
+				INFOPLIST_KEY_SUPublicEDKey = "rN+1ra0hPvraHjMo7fKOWWHlnoaCPMeASVCoaPEoNJU=";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -465,6 +473,10 @@
 				INFOPLIST_KEY_LSUIElement = NO;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "VoicePen needs microphone access to transcribe your speech offline.";
+				INFOPLIST_KEY_SUAutomaticallyUpdate = YES;
+				INFOPLIST_KEY_SUEnableAutomaticChecks = YES;
+				INFOPLIST_KEY_SUFeedURL = "https://dot-sk.github.io/VoicePen/appcast.xml";
+				INFOPLIST_KEY_SUPublicEDKey = "rN+1ra0hPvraHjMo7fKOWWHlnoaCPMeASVCoaPEoNJU=";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -645,6 +657,14 @@
 				minimumVersion = 5.11.2;
 			};
 		};
+		11953DBA2FA7000000ED707B /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.9.1;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -667,6 +687,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 11953DB92FA5E00000ED707B /* XCRemoteSwiftPackageReference "Alamofire" */;
 			productName = Alamofire;
+		};
+		11953DBB2FA7000000ED707B /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 11953DBA2FA7000000ED707B /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

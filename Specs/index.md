@@ -7,6 +7,7 @@
 - [SPEC-003 Custom Dictionary Normalization](2026-05-02-custom-dictionary-normalization.md)
 - [SPEC-004 History And Settings Persistence](2026-05-02-history-settings-persistence.md)
 - [SPEC-005 GPT-Assisted Dictionary Review](2026-05-02-gpt-assisted-dictionary-review.md)
+- [SPEC-006 GitHub Release Auto Updates](2026-05-02-github-release-auto-updates.md)
 
 ## Templates
 
