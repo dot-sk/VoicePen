@@ -1157,6 +1157,10 @@ private struct HistoryView: View {
     @State private var entryPendingDeletion: VoiceHistoryEntry?
     @State private var searchText = ""
     @State private var statusFilter = HistoryStatusFilter.all
+    @State private var copiedEntryID: VoiceHistoryEntry.ID?
+    @State private var copyFeedbackResetTask: Task<Void, Never>?
+
+    private let copyFeedbackDuration: Duration = .seconds(1.4)
 
     private var selectedEntry: VoiceHistoryEntry? {
         guard let selectedID else {
@@ -1234,11 +1238,12 @@ private struct HistoryView: View {
                         ForEach(filteredEntries) { entry in
                             HistoryRowView(
                                 entry: entry,
+                                isCopyConfirmed: copiedEntryID == entry.id,
                                 selectAction: {
                                     selectedID = entry.id
                                 },
                                 copyAction: {
-                                    controller.copyToClipboard(entry.bestText)
+                                    copyHistoryEntry(entry)
                                 },
                                 deleteAction: {
                                     entryPendingDeletion = entry
@@ -1274,6 +1279,9 @@ private struct HistoryView: View {
         }
         .onChange(of: statusFilter) { _, _ in
             ensureSelectedEntryIsVisible()
+        }
+        .onDisappear {
+            copyFeedbackResetTask?.cancel()
         }
         .alert("Clear voice history?", isPresented: $showingClearConfirmation) {
             Button("Clear", role: .destructive) {
@@ -1314,6 +1322,23 @@ private struct HistoryView: View {
         for index in offsets {
             guard entries.indices.contains(index) else { continue }
             controller.deleteHistoryEntry(id: entries[index].id)
+        }
+    }
+
+    private func copyHistoryEntry(_ entry: VoiceHistoryEntry) {
+        guard !entry.bestText.trimmed.isEmpty else { return }
+        controller.copyToClipboard(entry.bestText)
+        copiedEntryID = entry.id
+
+        copyFeedbackResetTask?.cancel()
+        copyFeedbackResetTask = Task {
+            try? await Task.sleep(for: copyFeedbackDuration)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                if copiedEntryID == entry.id {
+                    copiedEntryID = nil
+                }
+            }
         }
     }
 
@@ -1360,6 +1385,7 @@ private enum HistoryStatusFilter: String, CaseIterable, Identifiable {
 
 private struct HistoryRowView: View {
     let entry: VoiceHistoryEntry
+    let isCopyConfirmed: Bool
     let selectAction: () -> Void
     let copyAction: () -> Void
     let deleteAction: () -> Void
@@ -1377,16 +1403,17 @@ private struct HistoryRowView: View {
                     .foregroundStyle(.secondary)
 
                 Button(action: copyAction) {
-                    Image(systemName: "doc.on.doc")
+                    Image(systemName: isCopyConfirmed ? "checkmark" : "doc.on.doc")
                         .font(.system(size: 12, weight: .semibold))
                         .frame(width: 22, height: 22)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .opacity(isHovered && !entry.bestText.trimmed.isEmpty ? 1 : 0)
-                .disabled(!isHovered || entry.bestText.trimmed.isEmpty)
-                .help("Copy text")
+                .foregroundStyle(isCopyConfirmed ? .green : .secondary)
+                .opacity((isHovered || isCopyConfirmed) && !entry.bestText.trimmed.isEmpty ? 1 : 0)
+                .disabled((!isHovered && !isCopyConfirmed) || entry.bestText.trimmed.isEmpty)
+                .help(isCopyConfirmed ? "Copied" : "Copy text")
+                .animation(.snappy(duration: 0.15), value: isCopyConfirmed)
 
                 Button(role: .destructive, action: deleteAction) {
                     Image(systemName: "trash")
