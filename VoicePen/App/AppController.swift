@@ -320,6 +320,7 @@ final class AppController: ObservableObject {
             try dictionaryStore.load()
             try historyStore.load()
             try settingsStore.load(defaultModelId: recommendedModel.id)
+            try syncOpenAtLoginState()
             scheduleModelWarmupIfInstalled()
         } catch {
             setError(error)
@@ -338,6 +339,7 @@ final class AppController: ObservableObject {
             guard let controller = self else { return }
             Task { @MainActor [controller] in
                 controller.refreshPermissionState()
+                controller.refreshOpenAtLoginState()
             }
         }
     }
@@ -882,10 +884,24 @@ final class AppController: ObservableObject {
     func updateOpenAtLogin(_ isEnabled: Bool) {
         do {
             try launchAtLogin.setEnabled(isEnabled)
-            try settingsStore.updateOpenAtLogin(isEnabled)
+            try settingsStore.updateOpenAtLogin(launchAtLogin.isEnabled)
         } catch {
             setError(error)
         }
+    }
+
+    func refreshOpenAtLoginState() {
+        do {
+            try syncOpenAtLoginState()
+        } catch {
+            setError(error)
+        }
+    }
+
+    private func syncOpenAtLoginState() throws {
+        let systemIsEnabled = launchAtLogin.isEnabled
+        guard settingsStore.openAtLogin != systemIsEnabled else { return }
+        try settingsStore.updateOpenAtLogin(systemIsEnabled)
     }
 
     private func handleTranscriptionError(_ error: TranscriptionError) {

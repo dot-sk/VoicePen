@@ -32,6 +32,7 @@ VoicePen stores app data in a local SQLite database under Application Support, m
 - When the user copies text from a visible history row, VoicePen shall temporarily replace that row's copy icon with a checkmark so the completed copy action is visible.
 - When the history list shows a successful entry, VoicePen shall use a green checkmark without repeating a success label; non-success entries shall show a status or error reason.
 - When the user opens a history entry detail, VoicePen shall show the final text immediately and keep the raw transcript in an expandable section.
+- When the Open VoicePen at login setting is displayed, VoicePen shall reflect the current macOS login item status instead of only the last saved preference.
 - When tests touch persistence, they shall use temporary data paths rather than real user data directories.
 
 ## Examples
@@ -47,12 +48,14 @@ VoicePen stores app data in a local SQLite database under Application Support, m
 | History success status | Entry inserted successfully | Row shows a green checkmark without `Insert attempted` text |
 | History problem status | Entry is empty or failed | Row shows the status or error reason next to the status icon |
 | History detail text | Selected entry has final and raw text | Final text is visible; raw transcript is available under a disclosure |
+| Open at login external change | macOS Login Items status changes outside VoicePen | VoicePen refreshes the toggle to the current system status |
 | Test storage | Persistence test run | Temporary directory is used |
 
 ## Test Mapping
 
 - Automated: `VoicePenTests/Persistence/DatabaseMigratorTests.swift` covers schema migration.
 - Automated: `VoicePenTests/Settings/AppSettingsStoreTests.swift` and `VoicePenTests/Settings/AppEnvironmentSettingsStoreTests.swift` cover settings persistence and normalization.
+- Automated: `VoicePenTests/App/AppControllerTests.swift` covers launch-at-login updates and synchronization with current macOS login item status.
 - Automated: `VoicePenTests/History/VoiceHistoryStoreTests.swift`, `VoicePenTests/History/VoiceHistoryFilterTests.swift`, and `VoicePenTests/History/VoiceTranscriptionUsageStatsTests.swift` cover history behavior and estimated time-saved usage stats.
 - Manual: open History with at least two entries, click a non-selected entry, and verify the row becomes active and the detail pane changes to that entry.
 - Manual: hover a completed History row, copy it with the row copy button or double-click, and verify the row copy icon temporarily changes to a checkmark while the clipboard receives the row text.
