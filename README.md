@@ -198,10 +198,33 @@ Release builds are created only for GitHub releases.
 Auto-update releases require the Sparkle private key in GitHub:
 
 - repository secret `SPARKLE_PRIVATE_KEY`.
+- repository secret `MACOS_SIGNING_CERTIFICATE_BASE64`.
+- repository secret `MACOS_SIGNING_CERTIFICATE_PASSWORD`.
+- repository secret `MACOS_SIGNING_IDENTITY`.
 
 Generate the keypair with Sparkle's `generate_keys` tool. The public key is
 stored in the app's `SUPublicEDKey`; keep the private key in GitHub Actions
 secrets.
+
+Generate or export a stable macOS code signing certificate as a password-protected
+`.p12` file and store its base64 content in `MACOS_SIGNING_CERTIFICATE_BASE64`.
+Use the same certificate for every release so macOS privacy permissions, such as
+Microphone and Accessibility, can stay associated with VoicePen across Sparkle
+updates. A self-signed Code Signing certificate is enough for this identity
+stability; a Developer ID certificate and notarization are recommended for public
+distribution.
+
+Encode the exported `.p12` file on macOS with:
+
+```bash
+base64 -i VoicePenReleaseSigning.p12 | pbcopy
+```
+
+Set `MACOS_SIGNING_IDENTITY` to the certificate identity shown by:
+
+```bash
+security find-identity -v -p codesigning
+```
 
 Prepare a release pull request:
 
