@@ -423,7 +423,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 202605021806;
+				CURRENT_PROJECT_VERSION = 202605021823;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = PJ47M9L49X;
 				ENABLE_APP_SANDBOX = NO;
@@ -435,7 +435,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.2;
+				MARKETING_VERSION = 1.1.3;
 				OTHER_SWIFT_FLAGS = "$(inherited) -Xfrontend -warn-concurrency -Xfrontend -strict-concurrency=complete";
 				PRODUCT_BUNDLE_IDENTIFIER = com.khokhlachev.VoicePen;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -457,7 +457,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 202605021806;
+				CURRENT_PROJECT_VERSION = 202605021823;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = PJ47M9L49X;
 				ENABLE_APP_SANDBOX = NO;
@@ -469,7 +469,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.2;
+				MARKETING_VERSION = 1.1.3;
 				OTHER_SWIFT_FLAGS = "$(inherited) -Xfrontend -warn-concurrency -Xfrontend -strict-concurrency=complete";
 				PRODUCT_BUNDLE_IDENTIFIER = com.khokhlachev.VoicePen;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -489,11 +489,11 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 202605021806;
+				CURRENT_PROJECT_VERSION = 202605021823;
 				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 1.1.2;
+				MARKETING_VERSION = 1.1.3;
 				OTHER_SWIFT_FLAGS = "$(inherited) -Xfrontend -warn-concurrency -Xfrontend -strict-concurrency=complete";
 				PRODUCT_BUNDLE_IDENTIFIER = com.khokhlachev.VoicePenTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -512,11 +512,11 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 202605021806;
+				CURRENT_PROJECT_VERSION = 202605021823;
 				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 1.1.2;
+				MARKETING_VERSION = 1.1.3;
 				OTHER_SWIFT_FLAGS = "$(inherited) -Xfrontend -warn-concurrency -Xfrontend -strict-concurrency=complete";
 				PRODUCT_BUNDLE_IDENTIFIER = com.khokhlachev.VoicePenTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -534,10 +534,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 202605021806;
+				CURRENT_PROJECT_VERSION = 202605021823;
 				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.1.2;
+				MARKETING_VERSION = 1.1.3;
 				OTHER_SWIFT_FLAGS = "$(inherited) -Xfrontend -warn-concurrency -Xfrontend -strict-concurrency=complete";
 				PRODUCT_BUNDLE_IDENTIFIER = com.khokhlachev.VoicePenUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -555,10 +555,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 202605021806;
+				CURRENT_PROJECT_VERSION = 202605021823;
 				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.1.2;
+				MARKETING_VERSION = 1.1.3;
 				OTHER_SWIFT_FLAGS = "$(inherited) -Xfrontend -warn-concurrency -Xfrontend -strict-concurrency=complete";
 				PRODUCT_BUNDLE_IDENTIFIER = com.khokhlachev.VoicePenUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
