@@ -39,6 +39,7 @@ build:
 
 package:
 	$(MAKE) build CONFIGURATION="$(PACKAGE_CONFIGURATION)"
+	codesign --force --deep --sign - "$(DERIVED_DATA)/Build/Products/$(PACKAGE_CONFIGURATION)/VoicePen.app"
 	rm -rf "$(PACKAGE_DIR)"
 	mkdir -p "$(PACKAGE_DIR)"
 	ditto -c -k --sequesterRsrc --keepParent "$(DERIVED_DATA)/Build/Products/$(PACKAGE_CONFIGURATION)/VoicePen.app" "$(PACKAGE_ZIP)"
