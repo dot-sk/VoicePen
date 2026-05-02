@@ -429,14 +429,8 @@
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_LSUIElement = NO;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "VoicePen needs microphone access to transcribe your speech offline.";
-				INFOPLIST_KEY_SUAutomaticallyUpdate = YES;
-				INFOPLIST_KEY_SUEnableAutomaticChecks = YES;
-				INFOPLIST_KEY_SUFeedURL = "https://dot-sk.github.io/VoicePen/appcast.xml";
-				INFOPLIST_KEY_SUPublicEDKey = "rN+1ra0hPvraHjMo7fKOWWHlnoaCPMeASVCoaPEoNJU=";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Config/VoicePen-Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -469,14 +463,8 @@
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_LSUIElement = NO;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "VoicePen needs microphone access to transcribe your speech offline.";
-				INFOPLIST_KEY_SUAutomaticallyUpdate = YES;
-				INFOPLIST_KEY_SUEnableAutomaticChecks = YES;
-				INFOPLIST_KEY_SUFeedURL = "https://dot-sk.github.io/VoicePen/appcast.xml";
-				INFOPLIST_KEY_SUPublicEDKey = "rN+1ra0hPvraHjMo7fKOWWHlnoaCPMeASVCoaPEoNJU=";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Config/VoicePen-Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

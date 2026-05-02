@@ -68,10 +68,10 @@ update-signing material.
 ## Test Mapping
 
 - Automated: `VoicePenTests/Updates/SoftwareUpdateConfigurationTests.swift`
-  verifies the app target has a stable update feed URL, an updater public key
-  build setting, automatic Sparkle update checks/download preparation, Sparkle
-  package wiring, and a check-for-updates command/menu entry wired to the
-  updater.
+  verifies the app target uses an explicit `Config/VoicePen-Info.plist` that
+  contains a stable update feed URL, an updater public key, automatic Sparkle update
+  checks/download preparation, Sparkle package wiring, and a check-for-updates
+  command/menu entry wired to the updater.
 - Automated: `VoicePenTests/Updates/AppcastGenerationTests.swift` verifies
   release feed generation emits an item for the tagged version with the expected
   archive URL, version/build metadata, length, and updater signature.
