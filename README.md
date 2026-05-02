@@ -115,6 +115,29 @@ To grant Accessibility manually:
 
 If Accessibility still looks stuck, remove VoicePen from the list, quit the app, open it from `/Applications`, and grant the permission again.
 
+### Reset macOS Permissions
+
+If macOS keeps stale permissions after a signing identity change or a manual
+install, quit VoicePen and reset its TCC permissions:
+
+```bash
+tccutil reset Microphone com.khokhlachev.VoicePen
+tccutil reset Accessibility com.khokhlachev.VoicePen
+```
+
+Then open VoicePen from `/Applications` and grant Microphone and Accessibility
+again when macOS asks.
+
+To reset every stored privacy permission for VoicePen in one go:
+
+```bash
+tccutil reset All com.khokhlachev.VoicePen
+```
+
+If Accessibility still shows the old entry in System Settings, remove VoicePen
+from Privacy & Security -> Accessibility, quit VoicePen, open it again from
+`/Applications`, and enable it again.
+
 ## Models
 
 VoicePen stores downloaded models here:
