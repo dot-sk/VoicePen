@@ -8,14 +8,17 @@ APP := $(DERIVED_DATA)/Build/Products/Debug/VoicePen.app
 PACKAGE_CONFIGURATION := Release
 PACKAGE_DIR := $(DERIVED_DATA)/Package
 PACKAGE_ZIP := $(PACKAGE_DIR)/VoicePen-macOS-unsigned.zip
+APPCAST_DIR := $(DERIVED_DATA)/Appcast
+APPCAST_FILE := $(APPCAST_DIR)/appcast.xml
 XCODEBUILD_CI_SIGNING := CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
 
-.PHONY: help build package prepare-release publish-release test test-strict validate-specs run clean-derived resolve-packages
+.PHONY: help build package appcast prepare-release publish-release test test-strict validate-specs run clean-derived resolve-packages
 
 help:
 	@printf "VoicePen commands:\n"
 	@printf "  make build            Build the macOS app\n"
 	@printf "  make package          Build a downloadable unsigned app zip\n"
+	@printf "  make appcast          Generate a Sparkle appcast for PACKAGE_ZIP\n"
 	@printf "  make prepare-release VERSION=1.1.0 [BUILD=42]\n"
 	@printf "  make publish-release VERSION=1.1.0\n"
 	@printf "  make test             Run unit tests\n"
@@ -38,8 +41,12 @@ package:
 	$(MAKE) build CONFIGURATION="$(PACKAGE_CONFIGURATION)"
 	rm -rf "$(PACKAGE_DIR)"
 	mkdir -p "$(PACKAGE_DIR)"
-	ditto -c -k --keepParent "$(DERIVED_DATA)/Build/Products/$(PACKAGE_CONFIGURATION)/VoicePen.app" "$(PACKAGE_ZIP)"
+	ditto -c -k --sequesterRsrc --keepParent "$(DERIVED_DATA)/Build/Products/$(PACKAGE_CONFIGURATION)/VoicePen.app" "$(PACKAGE_ZIP)"
 	@printf "Created %s\n" "$(PACKAGE_ZIP)"
+
+appcast:
+	@test -n "$(DOWNLOAD_URL)" || (printf "Usage: make appcast DOWNLOAD_URL=https://github.com/.../VoicePen-macOS-unsigned.zip\n" >&2; exit 64)
+	scripts/generate-appcast.sh "$(PACKAGE_ZIP)" "$(DOWNLOAD_URL)" "$(APPCAST_FILE)"
 
 prepare-release:
 	@test -n "$(VERSION)" || (printf "Usage: make prepare-release VERSION=1.1.0 [BUILD=42]\n" >&2; exit 64)

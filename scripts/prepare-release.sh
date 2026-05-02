@@ -102,8 +102,8 @@ git tag $tag
 git push origin $tag
 \`\`\`
 
-Pushing the tag starts the Release workflow and attaches the downloadable unsigned macOS zip."
+Pushing the tag starts the Release workflow, attaches the downloadable unsigned macOS zip, and publishes the Sparkle appcast to GitHub Pages."
 
 echo
 echo "Release PR created for $tag."
-echo "After it is merged, push tag $tag to create the GitHub Release package."
+echo "After it is merged, push tag $tag to create the GitHub Release package and update appcast."

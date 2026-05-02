@@ -4,11 +4,13 @@ import SwiftUI
 @main
 struct VoicePenApp: App {
     @StateObject private var controller: AppController
+    @StateObject private var softwareUpdateController: SoftwareUpdateController
     @Environment(\.openWindow) private var openWindow
 
     init() {
         let controller = AppController.live()
         _controller = StateObject(wrappedValue: controller)
+        _softwareUpdateController = StateObject(wrappedValue: SoftwareUpdateController())
 
         if !Self.isRunningTests {
             controller.start()
@@ -17,7 +19,7 @@ struct VoicePenApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            VoicePenMenuView(controller: controller)
+            VoicePenMenuView(controller: controller, softwareUpdateController: softwareUpdateController)
         } label: {
             Label("VoicePen", systemImage: controller.menuBarSystemImage)
         }
@@ -35,6 +37,10 @@ struct VoicePenApp: App {
                     openWindow(id: "voicepen-main")
                 }
                 .keyboardShortcut(",", modifiers: [.command])
+
+                Button("Check for Updates...") {
+                    softwareUpdateController.checkForUpdates()
+                }
             }
         }
     }
@@ -46,6 +52,7 @@ struct VoicePenApp: App {
 
 private struct VoicePenMenuView: View {
     @ObservedObject var controller: AppController
+    @ObservedObject var softwareUpdateController: SoftwareUpdateController
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -90,6 +97,10 @@ private struct VoicePenMenuView: View {
         Button("Open VoicePen Window") {
             NSApplication.shared.activate(ignoringOtherApps: true)
             openWindow(id: "voicepen-main")
+        }
+
+        Button("Check for Updates...") {
+            softwareUpdateController.checkForUpdates()
         }
 
         Divider()

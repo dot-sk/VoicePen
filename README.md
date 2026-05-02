@@ -195,6 +195,14 @@ The workflow is in:
 
 Release builds are created only for GitHub releases.
 
+Auto-update releases require the Sparkle private key in GitHub:
+
+- repository secret `SPARKLE_PRIVATE_KEY`.
+
+Generate the keypair with Sparkle's `generate_keys` tool. The public key is
+stored in the app's `SUPublicEDKey`; keep the private key in GitHub Actions
+secrets.
+
 Prepare a release pull request:
 
 ```bash
@@ -216,6 +224,8 @@ Pushing the tag starts the Release workflow:
 ```
 
 When the workflow finishes, download `VoicePen-macOS-unsigned.zip` from the GitHub Release page.
+The same workflow signs the archive for Sparkle and publishes
+`https://dot-sk.github.io/VoicePen/appcast.xml` through GitHub Pages.
 
 Local package build:
 
