@@ -51,6 +51,7 @@ final class AppController: ObservableObject {
     private let permissions: PermissionsClient
     let dictionaryStore: DictionaryStore
     private let inserter: TextInsertionClient
+    private let clipboard: TextPasteboard
     private let overlay: OverlayPresenter
     private let transcriptionCancellationKeyMonitor: TranscriptionCancellationKeyMonitor
     private let modelDownloader: ModelDownloadClient
@@ -202,6 +203,7 @@ final class AppController: ObservableObject {
         permissions: PermissionsClient,
         dictionaryStore: DictionaryStore,
         inserter: TextInsertionClient,
+        clipboard: TextPasteboard = NSPasteboard.general,
         overlay: OverlayPresenter,
         transcriptionCancellationKeyMonitor: TranscriptionCancellationKeyMonitor,
         modelDownloader: ModelDownloadClient,
@@ -219,6 +221,7 @@ final class AppController: ObservableObject {
         self.permissions = permissions
         self.dictionaryStore = dictionaryStore
         self.inserter = inserter
+        self.clipboard = clipboard
         self.overlay = overlay
         self.transcriptionCancellationKeyMonitor = transcriptionCancellationKeyMonitor
         self.modelDownloader = modelDownloader
@@ -475,9 +478,8 @@ final class AppController: ObservableObject {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
 
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(trimmedText, forType: .string)
+        clipboard.clearContents()
+        _ = clipboard.setString(trimmedText, forType: .string)
     }
 
     func copyLastTranscription() {
@@ -486,6 +488,70 @@ final class AppController: ObservableObject {
 
     func copyModelDiagnostics() {
         copyToClipboard(modelDiagnosticsText)
+    }
+
+    func copyDictionaryReviewPrompt(
+        preset: DictionaryReviewPromptPreset,
+        historyLimit: HistoryReviewLimit
+    ) {
+        let prompt = DictionaryReviewPromptBuilder().build(
+            preset: preset,
+            dictionaryEntries: dictionaryStore.entries,
+            historyEntries: historyStore.entries,
+            historyLimit: historyLimit
+        )
+        copyToClipboard(prompt)
+    }
+
+    func prepareDictionaryImportPreview(
+        csvText: String,
+        historyLimit: HistoryReviewLimit
+    ) throws -> DictionaryImportPreview {
+        let entries = try DictionaryCSVImporter.parse(csvText)
+        return try DictionaryImportPreviewBuilder().build(
+            currentEntries: dictionaryStore.entries,
+            pendingEntries: entries,
+            historyEntries: historyStore.entries,
+            limit: historyLimit.rawValue
+        )
+    }
+
+    func prepareDictionaryImportPreview(
+        fileURL: URL,
+        historyLimit: HistoryReviewLimit
+    ) throws -> DictionaryImportPreview {
+        let entries = try DictionaryCSVImporter.parse(fileURL: fileURL)
+        return try DictionaryImportPreviewBuilder().build(
+            currentEntries: dictionaryStore.entries,
+            pendingEntries: entries,
+            historyEntries: historyStore.entries,
+            limit: historyLimit.rawValue
+        )
+    }
+
+    func prepareDictionaryImportPreviewFromClipboard(
+        historyLimit: HistoryReviewLimit
+    ) throws -> DictionaryImportPreview {
+        guard let text = clipboard.string(forType: .string) else {
+            throw DictionaryCSVImporterError.emptyFile
+        }
+
+        return try prepareDictionaryImportPreview(
+            csvText: text,
+            historyLimit: historyLimit
+        )
+    }
+
+    func confirmDictionaryImportPreview(_ preview: DictionaryImportPreview) throws {
+        let expectedPostImportEntries = try DictionaryMerger.mergedEntries(
+            existingEntries: dictionaryStore.entries,
+            importedEntries: preview.importedEntries
+        )
+        guard expectedPostImportEntries == preview.postImportEntries else {
+            throw AppControllerDictionaryImportError.stalePreview
+        }
+
+        try dictionaryStore.importEntries(preview.importedEntries)
     }
 
     func insertText(_ text: String) {
@@ -873,7 +939,8 @@ final class AppController: ObservableObject {
             status: status,
             errorMessage: nil,
             recording: result.recording,
-            timings: result.timings
+            timings: result.timings,
+            modelMetadata: result.modelMetadata
         )
     }
 
@@ -883,7 +950,8 @@ final class AppController: ObservableObject {
         status: VoiceHistoryStatus,
         errorMessage: String?,
         recording: RecordingResult?,
-        timings: VoicePipelineTimings?
+        timings: VoicePipelineTimings?,
+        modelMetadata: VoiceTranscriptionModelMetadata? = nil
     ) {
         let trimmedRawText = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedFinalText = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -898,7 +966,8 @@ final class AppController: ObservableObject {
             finalText: finalText,
             status: status,
             errorMessage: errorMessage,
-            timings: timings
+            timings: timings,
+            modelMetadata: modelMetadata ?? VoiceTranscriptionModelMetadata(model: selectedModel)
         )
 
         do {
@@ -959,5 +1028,16 @@ final class AppController: ObservableObject {
 
         errorMessage = nil
         appState = isModelInstalled ? .ready : .missingModel
+    }
+}
+
+nonisolated enum AppControllerDictionaryImportError: LocalizedError, Equatable, Sendable {
+    case stalePreview
+
+    var errorDescription: String? {
+        switch self {
+        case .stalePreview:
+            return "The dictionary changed after the import preview was created. Preview the import again before applying it."
+        }
     }
 }

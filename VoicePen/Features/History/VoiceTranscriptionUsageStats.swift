@@ -1,12 +1,20 @@
 import Foundation
 
 nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
+    static let manualTypingWordsPerMinute = 65.0
+
     let totalDuration: TimeInterval
     let transcribedSessionCount: Int
+    let totalWordCount: Int
 
-    init(totalDuration: TimeInterval = 0, transcribedSessionCount: Int = 0) {
+    init(
+        totalDuration: TimeInterval = 0,
+        transcribedSessionCount: Int = 0,
+        totalWordCount: Int = 0
+    ) {
         self.totalDuration = max(0, totalDuration)
         self.transcribedSessionCount = max(0, transcribedSessionCount)
+        self.totalWordCount = max(0, totalWordCount)
     }
 
     init(entries: [VoiceHistoryEntry]) {
@@ -15,6 +23,9 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
             total + (entry.duration ?? 0)
         }
         transcribedSessionCount = countedEntries.count
+        totalWordCount = countedEntries.reduce(0) { total, entry in
+            total + Self.wordCount(in: entry.bestText)
+        }
     }
 
     var totalMinutes: Double {
@@ -53,11 +64,35 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
     }
 
     var readableDurationText: String {
-        guard totalDuration >= 60 else {
-            return totalDuration > 0 ? "Less than 1 minute" : "0 minutes"
+        Self.readableDurationText(for: totalDuration)
+    }
+
+    var estimatedManualTypingDuration: TimeInterval {
+        (Double(totalWordCount) / Self.manualTypingWordsPerMinute) * 60
+    }
+
+    var estimatedTimeSavedDuration: TimeInterval {
+        max(0, estimatedManualTypingDuration - totalDuration)
+    }
+
+    var readableEstimatedTimeSavedText: String {
+        Self.readableDurationText(for: estimatedTimeSavedDuration)
+    }
+
+    nonisolated private static func shouldCount(_ entry: VoiceHistoryEntry) -> Bool {
+        guard entry.status != .failed else { return false }
+        guard let duration = entry.duration, duration > 0 else { return false }
+
+        let bestText = entry.bestText
+        return !bestText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    nonisolated private static func readableDurationText(for duration: TimeInterval) -> String {
+        guard duration >= 60 else {
+            return duration > 0 ? "Less than 1 minute" : "0 minutes"
         }
 
-        let totalMinutes = Int(totalDuration.rounded(.down)) / 60
+        let totalMinutes = Int(duration.rounded(.down)) / 60
         let days = totalMinutes / 1_440
         let hours = (totalMinutes % 1_440) / 60
         let minutes = totalMinutes % 60
@@ -71,12 +106,8 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
         return parts.isEmpty ? "0 minutes" : parts.joined(separator: " ")
     }
 
-    nonisolated private static func shouldCount(_ entry: VoiceHistoryEntry) -> Bool {
-        guard entry.status != .failed else { return false }
-        guard let duration = entry.duration, duration > 0 else { return false }
-
-        let bestText = entry.finalText.isEmpty ? entry.rawText : entry.finalText
-        return !bestText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    nonisolated private static func wordCount(in text: String) -> Int {
+        text.split(whereSeparator: \.isWhitespace).count
     }
 
     nonisolated private static func format(_ value: Double, unit: String) -> String {

@@ -10,7 +10,7 @@ PACKAGE_DIR := $(DERIVED_DATA)/Package
 PACKAGE_ZIP := $(PACKAGE_DIR)/VoicePen-macOS-unsigned.zip
 XCODEBUILD_CI_SIGNING := CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
 
-.PHONY: help build package prepare-release publish-release test test-strict run clean-derived resolve-packages
+.PHONY: help build package prepare-release publish-release test test-strict validate-specs run clean-derived resolve-packages
 
 help:
 	@printf "VoicePen commands:\n"
@@ -19,7 +19,8 @@ help:
 	@printf "  make prepare-release VERSION=1.1.0 [BUILD=42]\n"
 	@printf "  make publish-release VERSION=1.1.0\n"
 	@printf "  make test             Run unit tests\n"
-	@printf "  make test-strict      Alias for unit tests; strict checks are enabled by default\n"
+	@printf "  make test-strict      Validate specs and run unit tests\n"
+	@printf "  make validate-specs   Validate spec files and index links\n"
 	@printf "  make run              Build and launch the app\n"
 	@printf "  make resolve-packages Resolve Swift package dependencies\n"
 	@printf "  make clean-derived    Remove derived data used by these commands\n"
@@ -61,7 +62,11 @@ test:
 		-only-testing:VoicePenTests \
 		$(XCODEBUILD_CI_SIGNING)
 
-test-strict: test
+validate-specs:
+	bash scripts/validate-specs.sh
+
+test-strict: validate-specs
+	$(MAKE) test
 
 run: build
 	open "$(APP)"

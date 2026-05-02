@@ -144,8 +144,7 @@ nonisolated private struct DictionaryCSVImportBuilder {
     mutating func append(_ rawRow: [String]) throws {
         let row = rawRow
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        guard !row.isEmpty else { return }
+        guard row.contains(where: { !$0.isEmpty }) else { return }
 
         if !hasProcessedHeaderDecision {
             hasProcessedHeaderDecision = true
@@ -154,7 +153,7 @@ nonisolated private struct DictionaryCSVImportBuilder {
             }
         }
 
-        guard let canonical = row.first, !canonical.isEmpty else { return }
+        let canonical = row.first ?? ""
         let variants = Self.uniquedCaseInsensitive(
             row.dropFirst()
                 .flatMap(Self.splitVariants)
@@ -172,8 +171,12 @@ nonisolated private struct DictionaryCSVImportBuilder {
     }
 
     func validatedEntries() throws -> [TermEntry] {
-        guard !parsedEntries.isEmpty else {
+        do {
+            try DictionaryMerger.validateImportedEntries(parsedEntries)
+        } catch DictionaryImportValidationError.emptyImport {
             throw DictionaryCSVImporterError.emptyFile
+        } catch DictionaryImportValidationError.missingRequiredFields {
+            throw DictionaryCSVImporterError.missingRequiredFields
         }
 
         return parsedEntries
@@ -230,6 +233,7 @@ nonisolated private struct DictionaryCSVImportBuilder {
 enum DictionaryCSVImporterError: LocalizedError, Equatable {
     case emptyFile
     case invalidUTF8
+    case missingRequiredFields
     case readFailed
     case unableToOpenFile
     case unclosedQuote
@@ -240,6 +244,8 @@ enum DictionaryCSVImporterError: LocalizedError, Equatable {
             return "The CSV file does not contain dictionary terms."
         case .invalidUTF8:
             return "The CSV file must be saved as UTF-8."
+        case .missingRequiredFields:
+            return "Every imported dictionary term must include a canonical value and at least one variant."
         case .readFailed:
             return "VoicePen could not read the CSV file."
         case .unableToOpenFile:

@@ -35,5 +35,5 @@ jobs:
       - name: Resolve Swift packages
         run: make resolve-packages
 
-      - name: Run unit tests
-        run: make test
+      - name: Run strict checks
+        run: make test-strict

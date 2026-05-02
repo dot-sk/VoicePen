@@ -22,6 +22,26 @@ VoicePen is an early Friends & Family build.
 - Microphone permission.
 - Accessibility permission for text insertion and global hotkeys.
 
+## Spec-Driven Development
+
+VoicePen uses a strict AI spec-driven workflow. Product behavior should be described in `Specs/` before code changes are made.
+
+For any feature or behavior change:
+
+1. Find the relevant spec in `Specs/index.md`.
+2. If there is no spec, create one from `Specs/templates/feature-spec.md`.
+3. Fill in the frontmatter, problem, behavior, acceptance criteria, examples, and test mapping before implementation.
+4. Add or update tests that prove the acceptance criteria.
+5. Implement the smallest code change that satisfies the spec.
+6. Update the spec in the same change if the final behavior or test mapping changes.
+7. Run `make test-strict` before opening or merging the pull request.
+
+For bug fixes, use `Specs/templates/bug-spec.md` when the bug is not already covered by an existing spec. The bug spec should include the current broken behavior, desired behavior, regression test, and any required manual verification.
+
+`make test-strict` validates the specs and then runs the unit test suite. The spec validator checks frontmatter, required sections, acceptance criteria, test mapping, and links from `Specs/index.md`.
+
+Use ADRs in `Docs/adr/` for significant technical decisions and tradeoffs. Specs describe what VoicePen should do; ADRs explain why a durable architecture or process decision was chosen. Routine bug fixes and small implementation details do not need ADRs.
+
 ## Build Locally
 
 ```bash

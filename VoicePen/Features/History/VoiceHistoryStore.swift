@@ -87,8 +87,9 @@ final class VoiceHistoryStore: ObservableObject {
                 final_text,
                 status,
                 error_message,
-                timings_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                timings_json,
+                model_metadata_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
             """,
             in: database
         )
@@ -117,6 +118,12 @@ final class VoiceHistoryStore: ObservableObject {
             sqlite3_bind_text(statement, 8, timingsJSON, -1, SQLITE_TRANSIENT)
         } else {
             sqlite3_bind_null(statement, 8)
+        }
+
+        if let modelMetadataJSON = try modelMetadataJSON(from: entry.modelMetadata) {
+            sqlite3_bind_text(statement, 9, modelMetadataJSON, -1, SQLITE_TRANSIENT)
+        } else {
+            sqlite3_bind_null(statement, 9)
         }
 
         try stepDone(statement, database: database)
@@ -154,7 +161,7 @@ final class VoiceHistoryStore: ObservableObject {
     private func fetchEntries(from database: OpaquePointer) throws -> [VoiceHistoryEntry] {
         let statement = try prepare(
             """
-            SELECT id, created_at, duration, raw_text, final_text, status, error_message, timings_json
+            SELECT id, created_at, duration, raw_text, final_text, status, error_message, timings_json, model_metadata_json
             FROM voice_history
             ORDER BY created_at DESC
             LIMIT ?;
@@ -196,7 +203,8 @@ final class VoiceHistoryStore: ObservableObject {
             finalText: stringColumn(statement, index: 4),
             status: status,
             errorMessage: optionalStringColumn(statement, index: 6),
-            timings: try timings(from: optionalStringColumn(statement, index: 7))
+            timings: try timings(from: optionalStringColumn(statement, index: 7)),
+            modelMetadata: try modelMetadata(from: optionalStringColumn(statement, index: 8))
         )
     }
 
@@ -210,6 +218,18 @@ final class VoiceHistoryStore: ObservableObject {
     private func timings(from json: String?) throws -> VoicePipelineTimings? {
         guard let json, let data = json.data(using: .utf8) else { return nil }
         return try JSONDecoder().decode(VoicePipelineTimings.self, from: data)
+    }
+
+    private func modelMetadataJSON(from modelMetadata: VoiceTranscriptionModelMetadata?) throws -> String? {
+        guard let modelMetadata else { return nil }
+
+        let data = try JSONEncoder().encode(modelMetadata)
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func modelMetadata(from json: String?) throws -> VoiceTranscriptionModelMetadata? {
+        guard let json, let data = json.data(using: .utf8) else { return nil }
+        return try JSONDecoder().decode(VoiceTranscriptionModelMetadata.self, from: data)
     }
 
     private func execute(_ sql: String, in database: OpaquePointer) throws {
