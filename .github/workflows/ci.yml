@@ -70,7 +70,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: changes
-    if: needs.changes.outputs.code != 'true' && needs.changes.outputs.specs == 'true'
+    if: needs.changes.outputs.specs == 'true'
 
     steps:
       - name: Checkout

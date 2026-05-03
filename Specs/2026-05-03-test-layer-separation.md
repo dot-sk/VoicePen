@@ -32,6 +32,8 @@ available through an explicit command.
 - When a pull request or main-branch push changes only documentation, specs, or
   repository instructions, VoicePen CI shall skip code-quality checks, unit
   tests, and dead-code analysis.
+- When a pull request or main-branch push changes specs, VoicePen CI shall run
+  the dedicated spec-validation job even if the same change also affects code.
 - When a pull request or main-branch push changes code-impacting files, VoicePen
   CI shall run code-quality checks, unit tests, and dead-code analysis.
 - When a developer installs Git hooks, VoicePen shall use Lefthook as the hook
@@ -54,6 +56,7 @@ available through an explicit command.
 | Default local check | `make test` | Specs validate and SwiftPM unit tests run without `VoicePen.app` opening |
 | Inherited SDKROOT | `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk make test` | Tests still run with the macOS SDK selected from `DEVELOPER_DIR` |
 | Docs-only PR | Change only `README.md`, `Docs/`, `Specs/`, or `AGENTS.md` | CI skips code-quality checks, unit tests, and dead-code analysis |
+| Spec and code PR | Change both `Specs/` and code-impacting files | CI runs the dedicated spec-validation job and the code-quality jobs |
 | Code PR | Change `VoicePen/`, `VoicePenTests/`, package files, scripts, or CI workflow | CI runs code-quality checks, unit tests, and dead-code analysis |
 | Hook install | `make install-hooks` | Lefthook installs the configured Git hooks |
 | Docs-only push | Push commits that only touch docs or specs | Pre-push skips `make test` |
@@ -69,7 +72,8 @@ available through an explicit command.
   from Git hook environments.
 - Automated: `make integration-test` verifies the hosted app integration target.
 - Automated: `.github/workflows/ci.yml` gates code-quality checks, unit tests,
-  and dead-code analysis on code-impacting changed paths.
+  and dead-code analysis on code-impacting changed paths while running the
+  dedicated spec-validation job for spec changes.
 - Automated: `scripts/code-impacting-changes.sh` is shared by CI and local
   hooks to classify changed paths.
 - Manual: run `make install-hooks` in a checkout with Lefthook installed and
