@@ -23,6 +23,17 @@ Write an ADR in `Docs/adr/` only for technical decisions that are expensive to
 reverse: architecture, persistence shape, model/backend strategy,
 privacy/security posture, distribution, or dependencies.
 
+## Branch And Commit Conventions
+
+Use short, descriptive branch names in lowercase `kebab-case`. Prefer a common
+work-type prefix when it makes the change clearer, such as `feature/`, `fix/`,
+`chore/`, `docs/`, `refactor/`, or `test/`; if slash-separated branch names are
+not practical in the local checkout, use the same type as a kebab-case prefix.
+
+Write commit messages using Conventional Commits: `type(scope): summary` or
+`type: summary`. Use common types such as `feat`, `fix`, `docs`, `test`,
+`refactor`, `chore`, or `ci`, and keep the summary concise and imperative.
+
 ## Guardrails
 
 - Do not treat code as the only source of truth for product behavior. Specs describe intended behavior; tests and code implement it.
