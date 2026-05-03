@@ -5,6 +5,7 @@ SCHEME := VoicePen
 DESTINATION := platform=macOS
 DERIVED_DATA := /private/tmp/VoicePenDerivedData
 DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
+MACOS_SDKROOT ?= $(shell DEVELOPER_DIR="$(DEVELOPER_DIR)" xcrun --sdk macosx --show-sdk-path)
 CONFIGURATION ?= Debug
 APP := $(DERIVED_DATA)/Build/Products/Debug/VoicePen.app
 PACKAGE_CONFIGURATION := Release
@@ -17,6 +18,7 @@ CODESIGN_IDENTITY ?= -
 CODESIGN_FLAGS ?= --force --deep
 FORMAT_PATHS := Package.swift VoicePen VoicePenTests VoicePenIntegrationTests VoicePenUITests
 SWIFT_FORMAT := xcrun swift-format
+LEFTHOOK ?= lefthook
 SWIFTLINT ?= swiftlint
 SWIFTLINT_CACHE := .swiftlint-cache
 PERIPHERY ?= periphery
@@ -36,7 +38,7 @@ help:
 	@printf "  make lint             Run SwiftLint checks\n"
 	@printf "  make lint-fix         Auto-fix Swift formatting and SwiftLint issues\n"
 	@printf "  make dead-code        Run Periphery unused-code analysis\n"
-	@printf "  make install-hooks    Enable repository pre-commit hooks\n"
+	@printf "  make install-hooks    Install Lefthook Git hooks\n"
 	@printf "  make check            Run lint and unit tests\n"
 	@printf "  make test             Validate specs and run non-hosted unit tests\n"
 	@printf "  make integration-test Run hosted app integration tests\n"
@@ -106,14 +108,15 @@ dead-code:
 		$(XCODEBUILD_CI_SIGNING)
 
 install-hooks:
+	@command -v "$(LEFTHOOK)" >/dev/null 2>&1 || (printf "Lefthook is required. Install it with: brew install lefthook\n" >&2; exit 127)
 	git config core.hooksPath .githooks
-	chmod +x .githooks/pre-commit
-	@printf "Git hooks enabled from .githooks\n"
+	$(LEFTHOOK) install --force
+	@printf "Git hooks installed with Lefthook\n"
 
 check: lint test
 
 test: validate-specs
-	DEVELOPER_DIR="$(DEVELOPER_DIR)" swift test
+	DEVELOPER_DIR="$(DEVELOPER_DIR)" SDKROOT="$(MACOS_SDKROOT)" xcrun swift test
 
 integration-test:
 	@set -o pipefail; \

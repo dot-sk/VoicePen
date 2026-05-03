@@ -10,7 +10,7 @@ into explicit commands.
 - `make lint` checks `swift-format` formatting and runs SwiftLint.
 - `make lint-fix` runs `swift-format` and SwiftLint auto-fix.
 - `make dead-code` runs Periphery unused-code analysis.
-- `make install-hooks` enables repository Git hooks.
+- `make install-hooks` installs repository Git hooks through Lefthook.
 - `make check` runs linting and the unit test loop.
 - `make test` validates specs and runs SwiftPM unit tests.
 
@@ -19,7 +19,7 @@ into explicit commands.
 Periphery is separate because it builds the Xcode project and performs
 index-based analysis.
 
-## Pre-Commit Hook
+## Git Hooks
 
 Run this once per checkout:
 
@@ -27,18 +27,23 @@ Run this once per checkout:
 make install-hooks
 ```
 
-The pre-commit hook formats staged Swift files with `swift-format`, runs
-SwiftLint auto-fix, stages the formatting changes, and then runs SwiftLint on
-those staged Swift files.
+Lefthook reads `lefthook.yml` and installs generated hook wrappers into the
+ignored local `.githooks/` directory. The pre-commit hook formats staged Swift
+files with `swift-format`, runs SwiftLint auto-fix, stages the formatting
+changes, and then runs SwiftLint on those staged Swift files.
+
+The pre-push hook runs `make test` only when the pushed commits contain
+code-impacting changes. Documentation-only pushes skip the local unit-test loop.
 
 ## Tools
 
 - `swift-format` is resolved from the active Xcode toolchain with `xcrun`.
+- `lefthook` can be installed with `brew install lefthook`.
 - `swiftlint` can be installed with `brew install swiftlint`.
 - `periphery` can be installed with
   `brew install peripheryapp/periphery/periphery`.
 - `xcbeautify` is optional for local `xcodebuild` output:
   `brew install xcbeautify`.
 
-CI runs SwiftLint, unit tests, and unused-code analysis as separate jobs on pull
-requests, manual runs, and every push.
+CI runs SwiftLint, unit tests, and unused-code analysis for code-impacting pull
+requests and pushes. Documentation-only pull requests skip those code checks.

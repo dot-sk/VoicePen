@@ -1,0 +1,15 @@
+output:
+  - meta
+  - execution
+  - failure
+  - summary
+
+pre-commit:
+  commands:
+    swift-staged-format-lint:
+      run: scripts/hooks/pre-commit.sh
+
+pre-push:
+  commands:
+    unit-tests:
+      run: scripts/hooks/pre-push.sh

@@ -6,6 +6,7 @@ xcuserdata/
 DerivedData/
 .build/
 build/
+.githooks/
 .swiftlint-cache/
 
 # Swift Package Manager

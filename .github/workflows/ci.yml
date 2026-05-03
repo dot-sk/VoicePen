@@ -15,10 +15,76 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Changed Files
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.detect.outputs.code }}
+      specs: ${{ steps.detect.outputs.specs }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect code-impacting changes
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            base="${{ github.event.before }}"
+            head="${{ github.sha }}"
+          else
+            printf "code=true\n" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$base" =~ ^0+$ ]]; then
+            printf "code=true\n" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git diff --name-only "$base" "$head" > changed-files.txt
+
+          if scripts/code-impacting-changes.sh changed-files.txt; then
+            printf "code=true\n" >> "$GITHUB_OUTPUT"
+          else
+            printf "code=false\n" >> "$GITHUB_OUTPUT"
+          fi
+
+          if grep -Eq '^(Specs/|scripts/validate-specs\.sh$)' changed-files.txt; then
+            printf "specs=true\n" >> "$GITHUB_OUTPUT"
+          else
+            printf "specs=false\n" >> "$GITHUB_OUTPUT"
+          fi
+
+  spec-validation:
+    name: Spec Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: changes
+    if: needs.changes.outputs.specs == 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate specs
+        run: make validate-specs
+
   quality-test:
     name: Quality and Unit Tests
     runs-on: macos-26
     timeout-minutes: 30
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
 
     steps:
       - name: Checkout
@@ -46,6 +112,8 @@ jobs:
     name: Dead Code
     runs-on: macos-26
     timeout-minutes: 30
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
 
     steps:
       - name: Checkout
