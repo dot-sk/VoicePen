@@ -185,7 +185,7 @@ final class DictationPipeline {
                 await overlay.update(.recording(startedAt: startedAt, level: level))
 
                 do {
-                    try await Task.sleep(for: .milliseconds(80))
+                    try await Task.sleep(for: VoicePenConfig.recordingLevelRefreshInterval)
                 } catch {
                     return
                 }
