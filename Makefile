@@ -87,7 +87,7 @@ format-check:
 	@xcrun --find swift-format >/dev/null || (printf "swift-format is required. Install Xcode 16+ or run brew install swift-format.\n" >&2; exit 127)
 	$(SWIFT_FORMAT) lint --configuration .swift-format --recursive --parallel --strict $(FORMAT_PATHS)
 
-lint: swiftlint
+lint: format-check swiftlint
 
 lint-fix: format swiftlint-fix
 

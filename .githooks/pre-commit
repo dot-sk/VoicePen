@@ -11,6 +11,15 @@ if [[ -z "${swift_files}" ]]; then
     exit 0
 fi
 
+while IFS= read -r file; do
+    [[ -z "${file}" ]] && continue
+    [[ -f "${file}" ]] || continue
+    if ! git diff --quiet -- "${file}"; then
+        printf "pre-commit: %s has unstaged changes. Stage or stash them before committing.\n" "${file}" >&2
+        exit 1
+    fi
+done <<< "${swift_files}"
+
 if ! xcrun --find swift-format >/dev/null 2>&1; then
     printf "swift-format is required. Install Xcode 16+ or run brew install swift-format.\n" >&2
     exit 127

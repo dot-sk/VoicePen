@@ -7,18 +7,17 @@ into explicit commands.
 
 - `make format` formats Swift source with `swift-format`.
 - `make format-check` strictly checks Swift formatting without changing files.
-- `make lint` runs SwiftLint.
+- `make lint` checks `swift-format` formatting and runs SwiftLint.
 - `make lint-fix` runs `swift-format` and SwiftLint auto-fix.
 - `make dead-code` runs Periphery unused-code analysis.
 - `make install-hooks` enables repository Git hooks.
 - `make check` runs linting and the unit test loop.
 - `make test` validates specs and runs SwiftPM unit tests.
 
-`make test` stays focused on fast unit feedback. `swift-format` is intentionally
-available as an explicit formatting command instead of being enforced in CI
-until the existing source tree gets one mechanical formatting pass. Periphery is
-also separate because it builds the Xcode project and performs index-based
-analysis.
+`make test` stays focused on fast unit feedback. Formatting and linting live in
+`make lint`, while `make lint-fix` applies the available mechanical fixes.
+Periphery is separate because it builds the Xcode project and performs
+index-based analysis.
 
 ## Pre-Commit Hook
 

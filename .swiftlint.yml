@@ -36,9 +36,8 @@ identifier_name:
     warning: 2
   max_length:
     warning: 60
-  allowed_symbols:
-    - "_"
   excluded:
+    - SQLITE_TRANSIENT
     - db
     - id
     - ms
