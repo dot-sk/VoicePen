@@ -85,7 +85,7 @@ struct AboutView: View {
                     Text("Made by Sergey Khokhlachev.")
                         .font(.system(size: 14, weight: .medium))
 
-                    Text("VoicePen is free. It works locally on your Mac, does not send your voice or text to cloud services, and has 0 analytics.")
+                    Text("VoicePen works locally on your Mac, does not send your voice or text to cloud services, and has 0 analytics.")
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
 
