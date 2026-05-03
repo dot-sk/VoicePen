@@ -90,10 +90,12 @@ actor WhisperCppTranscriptionClient {
             throw TranscriptionError.modelMissing(expectedPaths: missingArtifactPaths)
         }
 
-        guard let modelURL = paths.existingModelFile(
-            for: model.id,
-            fileName: model.localArtifactFileName
-        ) else {
+        guard
+            let modelURL = paths.existingModelFile(
+                for: model.id,
+                fileName: model.localArtifactFileName
+            )
+        else {
             throw TranscriptionError.modelMissing(expectedPaths: model.expectedArtifactURLs(paths: paths).map(\.path))
         }
 

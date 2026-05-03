@@ -67,4 +67,3 @@ private enum ModelManifestError: LocalizedError {
         }
     }
 }
-

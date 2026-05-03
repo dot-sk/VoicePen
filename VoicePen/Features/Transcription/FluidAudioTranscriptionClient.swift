@@ -1,5 +1,5 @@
-import Foundation
 import FluidAudio
+import Foundation
 
 actor FluidAudioTranscriptionClient {
     private let paths: AppPaths

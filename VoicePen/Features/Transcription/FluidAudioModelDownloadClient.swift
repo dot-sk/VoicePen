@@ -1,5 +1,5 @@
-import Foundation
 import FluidAudio
+import Foundation
 
 final class FluidAudioModelDownloadClient: ModelDownloadClient {
     private let paths: AppPaths
@@ -56,10 +56,11 @@ final class FluidAudioModelDownloadClient: ModelDownloadClient {
                     to: targetDirectory,
                     version: version
                 ) { downloadProgress in
-                    events(.downloadingArtifact(
-                        name: model.displayName,
-                        progress: downloadProgress.fractionCompleted
-                    ))
+                    events(
+                        .downloadingArtifact(
+                            name: model.displayName,
+                            progress: downloadProgress.fractionCompleted
+                        ))
                 }
 
                 events(.validating)

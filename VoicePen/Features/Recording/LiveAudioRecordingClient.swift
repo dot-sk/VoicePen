@@ -32,13 +32,15 @@ final class LiveAudioRecordingClient: NSObject, AudioRecordingClient {
             throw RecordingError.couldNotStart
         }
 
-        guard let targetFormat = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: 16_000,
-            channels: 1,
-            interleaved: false
-        ),
-            let converter = AVAudioConverter(from: inputFormat, to: targetFormat) else {
+        guard
+            let targetFormat = AVAudioFormat(
+                commonFormat: .pcmFormatFloat32,
+                sampleRate: 16_000,
+                channels: 1,
+                interleaved: false
+            ),
+            let converter = AVAudioConverter(from: inputFormat, to: targetFormat)
+        else {
             throw RecordingError.couldNotStart
         }
 
@@ -109,15 +111,16 @@ final class LiveAudioRecordingClient: NSObject, AudioRecordingClient {
 
     private func processInputBuffer(_ buffer: AVAudioPCMBuffer) {
         guard let converter,
-              let targetFormat,
-              let outputBuffer = AVAudioPCMBuffer(
+            let targetFormat,
+            let outputBuffer = AVAudioPCMBuffer(
                 pcmFormat: targetFormat,
                 frameCapacity: convertedFrameCapacity(
                     inputFrames: buffer.frameLength,
                     inputSampleRate: buffer.format.sampleRate,
                     outputSampleRate: targetFormat.sampleRate
                 )
-              ) else {
+            )
+        else {
             recordingError = RecordingError.audioWriteFailed
             return
         }
@@ -134,7 +137,8 @@ final class LiveAudioRecordingClient: NSObject, AudioRecordingClient {
         }
 
         guard status == .haveData || status == .inputRanDry,
-              outputBuffer.frameLength > 0 else {
+            outputBuffer.frameLength > 0
+        else {
             return
         }
 

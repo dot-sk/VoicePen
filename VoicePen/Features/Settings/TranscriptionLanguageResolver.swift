@@ -8,7 +8,8 @@ nonisolated enum TranscriptionLanguageResolver {
         }
 
         let identifier = locale.identifier.lowercased()
-        let code = identifier
+        let code =
+            identifier
             .split { character in
                 character == "_" || character == "-"
             }

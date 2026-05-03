@@ -78,11 +78,11 @@ nonisolated struct DictionaryImportPreviewBuilder: Sendable {
     private static func eligibleEntries(from entries: [VoiceHistoryEntry], limit: Int) -> [VoiceHistoryEntry] {
         guard limit > 0 else { return [] }
 
-        return entries
+        return
+            entries
             .filter { entry in
-                entry.status == .insertAttempted &&
-                    !entry.rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-                    !entry.finalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                entry.status == .insertAttempted && !entry.rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    && !entry.finalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }
             .sorted { lhs, rhs in
                 if lhs.createdAt == rhs.createdAt {

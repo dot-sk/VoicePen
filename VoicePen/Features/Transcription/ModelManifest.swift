@@ -62,7 +62,8 @@ nonisolated struct ModelManifestModel: Codable, Equatable, Identifiable {
 
     func missingArtifactURLs(paths: AppPaths) -> [URL] {
         let mainModelMissing = paths.existingModelFile(for: id, fileName: localArtifactFileName) == nil
-        let missingMainModelURLs = mainModelMissing
+        let missingMainModelURLs =
+            mainModelMissing
             ? paths.expectedModelFiles(for: id, fileName: localArtifactFileName)
             : []
 

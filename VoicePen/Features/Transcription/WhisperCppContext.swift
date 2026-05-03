@@ -36,10 +36,10 @@ actor WhisperCppContext {
     init(modelPath: String) throws {
         var contextParameters = whisper_context_default_params()
         #if targetEnvironment(simulator)
-        contextParameters.use_gpu = false
+            contextParameters.use_gpu = false
         #else
-        contextParameters.use_gpu = true
-        contextParameters.flash_attn = true
+            contextParameters.use_gpu = true
+            contextParameters.flash_attn = true
         #endif
 
         guard let context = whisper_init_from_file_with_params(modelPath, contextParameters) else {
@@ -210,10 +210,12 @@ actor WhisperCppContext {
     private static func readAudioSamples(_ url: URL) throws -> [Float] {
         let audioFile = try AVAudioFile(forReading: url)
         let format = audioFile.processingFormat
-        guard let buffer = AVAudioPCMBuffer(
-            pcmFormat: format,
-            frameCapacity: AVAudioFrameCount(audioFile.length)
-        ) else {
+        guard
+            let buffer = AVAudioPCMBuffer(
+                pcmFormat: format,
+                frameCapacity: AVAudioFrameCount(audioFile.length)
+            )
+        else {
             throw TranscriptionError.transcriptionFailed("Could not create audio buffer.")
         }
 

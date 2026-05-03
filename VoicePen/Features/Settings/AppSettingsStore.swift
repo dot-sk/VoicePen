@@ -32,7 +32,8 @@ final class AppSettingsStore: ObservableObject {
             let modelId = try fetchValue(forKey: Self.selectedModelKey, from: database) ?? defaultModelId
             let preprocessing = try fetchValue(forKey: Self.speechPreprocessingKey, from: database) ?? SpeechPreprocessingMode.off.rawValue
             let hotkey = try fetchValue(forKey: Self.hotkeyPreferenceKey, from: database) ?? HotkeyPreference.option.rawValue
-            let holdDuration = try fetchValue(forKey: Self.hotkeyHoldDurationKey, from: database)
+            let holdDuration =
+                try fetchValue(forKey: Self.hotkeyHoldDurationKey, from: database)
                 ?? String(VoicePenConfig.defaultHotkeyHoldDuration)
             let openAtLogin = try fetchValue(forKey: Self.openAtLoginKey, from: database) ?? "false"
             return (
@@ -103,12 +104,14 @@ final class AppSettingsStore: ObservableObject {
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
 
         var database: OpaquePointer?
-        guard sqlite3_open_v2(
-            databaseURL.path,
-            &database,
-            SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX,
-            nil
-        ) == SQLITE_OK, let database else {
+        guard
+            sqlite3_open_v2(
+                databaseURL.path,
+                &database,
+                SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX,
+                nil
+            ) == SQLITE_OK, let database
+        else {
             let message = database.map { String(cString: sqlite3_errmsg($0)) } ?? "Unable to open database"
             throw AppSettingsStoreError.sqlite(message)
         }

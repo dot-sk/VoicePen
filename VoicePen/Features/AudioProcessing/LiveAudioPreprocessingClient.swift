@@ -41,10 +41,12 @@ nonisolated private func trimSilence(
 
     let inputFile = try AVAudioFile(forReading: inputURL)
     let inputFormat = inputFile.processingFormat
-    guard let buffer = AVAudioPCMBuffer(
-        pcmFormat: inputFormat,
-        frameCapacity: AVAudioFrameCount(inputFile.length)
-    ) else {
+    guard
+        let buffer = AVAudioPCMBuffer(
+            pcmFormat: inputFormat,
+            frameCapacity: AVAudioFrameCount(inputFile.length)
+        )
+    else {
         throw AudioPreprocessingError.couldNotCreateRenderBuffer
     }
 
@@ -53,26 +55,32 @@ nonisolated private func trimSilence(
     guard frameLength > 0 else { return nil }
 
     let samples = try monoSamples(from: buffer, frameLength: frameLength)
-    guard AudioSilenceTrimmer.containsSpeech(
-        samples: samples,
-        sampleRate: inputFormat.sampleRate,
-        minimumSpeechDuration: VoicePenConfig.minimumSpeechSignalDuration
-    ) else {
+    guard
+        AudioSilenceTrimmer.containsSpeech(
+            samples: samples,
+            sampleRate: inputFormat.sampleRate,
+            minimumSpeechDuration: VoicePenConfig.minimumSpeechSignalDuration
+        )
+    else {
         throw AudioPreprocessingError.noSpeechDetected
     }
 
-    guard let trimRange = AudioSilenceTrimmer.trimRange(
-        samples: samples,
-        sampleRate: inputFormat.sampleRate,
-        minimumSpeechDuration: VoicePenConfig.minimumSpeechSignalDuration
-    ) else {
+    guard
+        let trimRange = AudioSilenceTrimmer.trimRange(
+            samples: samples,
+            sampleRate: inputFormat.sampleRate,
+            minimumSpeechDuration: VoicePenConfig.minimumSpeechSignalDuration
+        )
+    else {
         return nil
     }
 
-    guard let outputBuffer = AVAudioPCMBuffer(
-        pcmFormat: inputFormat,
-        frameCapacity: AVAudioFrameCount(trimRange.count)
-    ) else {
+    guard
+        let outputBuffer = AVAudioPCMBuffer(
+            pcmFormat: inputFormat,
+            frameCapacity: AVAudioFrameCount(trimRange.count)
+        )
+    else {
         throw AudioPreprocessingError.couldNotCreateRenderBuffer
     }
     outputBuffer.frameLength = AVAudioFrameCount(trimRange.count)
@@ -84,7 +92,8 @@ nonisolated private func trimSilence(
         channelCount: Int(inputFormat.channelCount)
     )
 
-    let outputURL = outputDirectory
+    let outputURL =
+        outputDirectory
         .appendingPathComponent("voicepen-trimmed-\(UUID().uuidString)")
         .appendingPathExtension("wav")
     let outputFile = try AVAudioFile(forWriting: outputURL, settings: inputFormat.settings)
@@ -102,7 +111,8 @@ nonisolated private func slowDownAudio(
 
     let inputFile = try AVAudioFile(forReading: inputURL)
     let inputFormat = inputFile.processingFormat
-    let outputURL = outputDirectory
+    let outputURL =
+        outputDirectory
         .appendingPathComponent("voicepen-processed-\(UUID().uuidString)")
         .appendingPathExtension("wav")
 
@@ -128,10 +138,12 @@ nonisolated private func slowDownAudio(
         settings: inputFormat.settings
     )
 
-    guard let buffer = AVAudioPCMBuffer(
-        pcmFormat: engine.manualRenderingFormat,
-        frameCapacity: engine.manualRenderingMaximumFrameCount
-    ) else {
+    guard
+        let buffer = AVAudioPCMBuffer(
+            pcmFormat: engine.manualRenderingFormat,
+            frameCapacity: engine.manualRenderingMaximumFrameCount
+        )
+    else {
         throw AudioPreprocessingError.couldNotCreateRenderBuffer
     }
 
@@ -202,7 +214,8 @@ nonisolated private func copyFrames(
     channelCount: Int
 ) throws {
     guard let sourceData = source.floatChannelData,
-          let destinationData = destination.floatChannelData else {
+        let destinationData = destination.floatChannelData
+    else {
         throw AudioPreprocessingError.renderFailed
     }
 
