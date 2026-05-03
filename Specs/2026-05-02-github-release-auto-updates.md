@@ -53,6 +53,15 @@ update-signing material.
 - When release publishing runs for a tagged release, it shall publish or update
   the GitHub Pages appcast/feed metadata that points to the GitHub Release
   archive.
+- When a release tag is published, it shall be created from the release branch
+  where the app version was bumped.
+- When a release tag is published, release publishing shall require an open,
+  non-draft pull request from the release branch into `main` with completed
+  green checks.
+- When a release tag is published, release publishing shall require the Xcode
+  marketing version to match the requested release version.
+- When a release tag is published, release publishing shall require exactly one
+  numeric Xcode build number that is greater than the previous release build.
 - When release publishing builds a tagged release, it shall avoid a standalone
   package-resolution step because the test and package builds already resolve
   Swift packages as needed.
@@ -80,6 +89,9 @@ update-signing material.
 | First updater rollout | User has a pre-updater build installed | User manually installs the transition build once; later updates use the updater. |
 | Local development run | Debug build is launched from Xcode or `make run` | macOS sees `VoicePen Dev` with a development bundle identifier and separate local data folder. |
 | Release packaging | Release build is archived for GitHub Releases | macOS sees production `VoicePen` with the production bundle identifier and local data folder. |
+| Release tag publishing | `make publish-release VERSION=1.1.0` after preparing `release/v1.1.0` | The `v1.1.0` tag is pushed from `release/v1.1.0`. |
+| Release PR not green | `make publish-release VERSION=1.1.0` while the release PR has pending or failed checks | Publishing stops before creating or pushing `v1.1.0`. |
+| Release metadata mismatch | `make publish-release VERSION=1.1.0` while the branch contains another marketing version or a non-incremented build | Publishing stops before creating or pushing `v1.1.0`. |
 | Invalid release archive | Feed item lacks a valid update signature | VoicePen refuses to install that update. |
 
 ## Test Mapping
@@ -92,6 +104,11 @@ update-signing material.
 - Automated: `VoicePenTests/Updates/AppcastGenerationTests.swift` verifies
   release feed generation emits an item for the tagged version with the expected
   archive URL, version/build metadata, length, and updater signature.
+- Manual: run `make prepare-release VERSION=x.y.z`, wait for the release pull
+  request checks to pass, then run `make publish-release VERSION=x.y.z` and
+  confirm the script refuses non-green PRs, mismatched versions, or
+  non-incremented builds before tagging, and confirm a valid tag points to the
+  release branch commit.
 - Automated: `VoicePenTests/Updates/SoftwareUpdateConfigurationTests.swift`
   verifies the package target signs the app bundle before archiving it and the
   release workflow imports a stable macOS signing identity from GitHub Secrets.

@@ -305,13 +305,21 @@ make prepare-release VERSION=1.1.0
 
 This creates a branch named `release/v1.1.0`, bumps the Xcode app version, pushes the branch, and opens a pull request.
 
-After the pull request is merged, create and push the release tag:
+After checks pass on the release pull request, create and push the release tag
+from the same release branch:
 
 ```bash
+git checkout release/v1.1.0
+git pull --ff-only origin release/v1.1.0
 make publish-release VERSION=1.1.0
 ```
 
-Pushing the tag starts the Release workflow:
+Before pushing the tag, `make publish-release` verifies that the release pull
+request is open, non-draft, has completed green checks, the Xcode marketing
+version matches `VERSION`, and the build number is higher than the previous
+release build.
+
+Pushing the tag starts the Release workflow from the version-bump branch:
 
 ```text
 .github/workflows/release.yml
@@ -320,6 +328,7 @@ Pushing the tag starts the Release workflow:
 When the workflow finishes, download `VoicePen-macOS-unsigned.zip` from the GitHub Release page.
 The same workflow signs the archive for Sparkle and publishes
 `https://dot-sk.github.io/VoicePen/appcast.xml` through GitHub Pages.
+After the Release workflow succeeds, merge the release pull request into `main`.
 
 Local package build:
 
