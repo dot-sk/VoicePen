@@ -142,7 +142,8 @@ nonisolated private struct DictionaryCSVImportBuilder {
     private var usedIDs = Set<String>()
 
     mutating func append(_ rawRow: [String]) throws {
-        let row = rawRow
+        let row =
+            rawRow
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         guard row.contains(where: { !$0.isEmpty }) else { return }
 
@@ -198,7 +199,8 @@ nonisolated private struct DictionaryCSVImportBuilder {
     }
 
     private static func uniqueID(for canonical: String, usedIDs: inout Set<String>) -> String {
-        let base = canonical
+        let base =
+            canonical
             .lowercased()
             .replacingOccurrences(of: #"[^a-z0-9а-яё]+"#, with: "-", options: .regularExpression)
             .trimmingCharacters(in: CharacterSet(charactersIn: "-"))

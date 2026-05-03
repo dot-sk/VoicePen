@@ -28,13 +28,15 @@ nonisolated enum DictionaryWordDiff {
 
         while index > 0 || simulatedIndex > 0 {
             if index > 0,
-               simulatedIndex > 0,
-               currentTokens[index - 1] == simulatedTokens[simulatedIndex - 1] {
+                simulatedIndex > 0,
+                currentTokens[index - 1] == simulatedTokens[simulatedIndex - 1]
+            {
                 diff.append(DictionaryWordDiffToken(text: currentTokens[index - 1], change: .unchanged))
                 index -= 1
                 simulatedIndex -= 1
             } else if simulatedIndex > 0,
-                      (index == 0 || table[index][simulatedIndex - 1] >= table[index - 1][simulatedIndex]) {
+                index == 0 || table[index][simulatedIndex - 1] >= table[index - 1][simulatedIndex]
+            {
                 diff.append(DictionaryWordDiffToken(text: simulatedTokens[simulatedIndex - 1], change: .inserted))
                 simulatedIndex -= 1
             } else if index > 0 {

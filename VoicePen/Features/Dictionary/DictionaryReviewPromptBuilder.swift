@@ -62,36 +62,36 @@ nonisolated struct DictionaryReviewPromptBuilder {
         let historyCSV = historyRows(from: eligibleHistoryRows)
 
         return """
-        Dictionary Review Prompt
+            Dictionary Review Prompt
 
-        Privacy:
-        This prompt is copied to the local clipboard and may contain transcription history. VoicePen does not send it anywhere automatically.
+            Privacy:
+            This prompt is copied to the local clipboard and may contain transcription history. VoicePen does not send it anywhere automatically.
 
-        Preset:
-        \(preset.title)
+            Preset:
+            \(preset.title)
 
-        \(preset.reviewInstructions)
+            \(preset.reviewInstructions)
 
-        CSV-only response contract:
-        Return only CSV. No markdown, prose, explanations, or extra columns.
-        Header:
-        canonical,variants
-        Rows: one canonical value plus at least one variant; separate variants with semicolons.
-        Quote fields containing commas or quotes; escape quotes by doubling them.
-        Do not duplicate current dictionary entries.
+            CSV-only response contract:
+            Return only CSV. No markdown, prose, explanations, or extra columns.
+            Header:
+            canonical,variants
+            Rows: one canonical value plus at least one variant; separate variants with semicolons.
+            Quote fields containing commas or quotes; escape quotes by doubling them.
+            Do not duplicate current dictionary entries.
 
-        Current dictionary entries:
-        ```csv
-        canonical,variants
-        \(dictionaryCSV)
-        ```
+            Current dictionary entries:
+            ```csv
+            canonical,variants
+            \(dictionaryCSV)
+            ```
 
-        Recent eligible transcription history, newest first, limited to \(historyLimit.rawValue) entries:
-        ```csv
-        raw_text,final_text
-        \(historyCSV)
-        ```
-        """
+            Recent eligible transcription history, newest first, limited to \(historyLimit.rawValue) entries:
+            ```csv
+            raw_text,final_text
+            \(historyCSV)
+            ```
+            """
     }
 
     private func eligibleHistoryEntries(

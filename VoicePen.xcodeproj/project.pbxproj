@@ -33,7 +33,7 @@
 
 /* Begin PBXFileReference section */
 		11953D762FA4D47A00ED707B /* VoicePen.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VoicePen.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		11953D832FA4D47E00ED707B /* VoicePenTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VoicePenTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		11953D832FA4D47E00ED707B /* VoicePenIntegrationTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VoicePenIntegrationTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		11953D8D2FA4D47E00ED707B /* VoicePenUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VoicePenUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -43,9 +43,9 @@
 			path = VoicePen;
 			sourceTree = "<group>";
 		};
-		11953D862FA4D47E00ED707B /* VoicePenTests */ = {
+		11953D862FA4D47E00ED707B /* VoicePenIntegrationTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = VoicePenTests;
+			path = VoicePenIntegrationTests;
 			sourceTree = "<group>";
 		};
 		11953D902FA4D47E00ED707B /* VoicePenUITests */ = {
@@ -89,7 +89,7 @@
 			isa = PBXGroup;
 			children = (
 				11953D782FA4D47A00ED707B /* VoicePen */,
-				11953D862FA4D47E00ED707B /* VoicePenTests */,
+				11953D862FA4D47E00ED707B /* VoicePenIntegrationTests */,
 				11953D902FA4D47E00ED707B /* VoicePenUITests */,
 				11953D772FA4D47A00ED707B /* Products */,
 			);
@@ -99,7 +99,7 @@
 			isa = PBXGroup;
 			children = (
 				11953D762FA4D47A00ED707B /* VoicePen.app */,
-				11953D832FA4D47E00ED707B /* VoicePenTests.xctest */,
+				11953D832FA4D47E00ED707B /* VoicePenIntegrationTests.xctest */,
 				11953D8D2FA4D47E00ED707B /* VoicePenUITests.xctest */,
 			);
 			name = Products;
@@ -135,9 +135,9 @@
 			productReference = 11953D762FA4D47A00ED707B /* VoicePen.app */;
 			productType = "com.apple.product-type.application";
 		};
-		11953D822FA4D47E00ED707B /* VoicePenTests */ = {
+		11953D822FA4D47E00ED707B /* VoicePenIntegrationTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 11953D9A2FA4D47E00ED707B /* Build configuration list for PBXNativeTarget "VoicePenTests" */;
+			buildConfigurationList = 11953D9A2FA4D47E00ED707B /* Build configuration list for PBXNativeTarget "VoicePenIntegrationTests" */;
 			buildPhases = (
 				11953D7F2FA4D47E00ED707B /* Sources */,
 				11953D802FA4D47E00ED707B /* Frameworks */,
@@ -149,13 +149,13 @@
 				11953D852FA4D47E00ED707B /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				11953D862FA4D47E00ED707B /* VoicePenTests */,
+				11953D862FA4D47E00ED707B /* VoicePenIntegrationTests */,
 			);
-			name = VoicePenTests;
+			name = VoicePenIntegrationTests;
 			packageProductDependencies = (
 			);
-			productName = VoicePenTests;
-			productReference = 11953D832FA4D47E00ED707B /* VoicePenTests.xctest */;
+			productName = VoicePenIntegrationTests;
+			productReference = 11953D832FA4D47E00ED707B /* VoicePenIntegrationTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		11953D8C2FA4D47E00ED707B /* VoicePenUITests */ = {
@@ -226,7 +226,7 @@
 			projectRoot = "";
 			targets = (
 				11953D752FA4D47A00ED707B /* VoicePen */,
-				11953D822FA4D47E00ED707B /* VoicePenTests */,
+				11953D822FA4D47E00ED707B /* VoicePenIntegrationTests */,
 				11953D8C2FA4D47E00ED707B /* VoicePenUITests */,
 			);
 		};
@@ -430,14 +430,14 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = Config/VoicePen-Info.plist;
+				INFOPLIST_FILE = "Config/VoicePen-Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.1.5;
 				OTHER_SWIFT_FLAGS = "$(inherited) -Xfrontend -warn-concurrency -Xfrontend -strict-concurrency=complete";
-				PRODUCT_BUNDLE_IDENTIFIER = com.khokhlachev.VoicePen;
+				PRODUCT_BUNDLE_IDENTIFIER = com.khokhlachev.VoicePen.dev;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -447,6 +447,8 @@
 				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
+				VP_APP_SUPPORT_FOLDER_NAME = "VoicePen Dev";
+				VP_DISPLAY_NAME = "VoicePen Dev";
 			};
 			name = Debug;
 		};
@@ -464,7 +466,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = Config/VoicePen-Info.plist;
+				INFOPLIST_FILE = "Config/VoicePen-Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -481,6 +483,8 @@
 				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
+				VP_APP_SUPPORT_FOLDER_NAME = VoicePen;
+				VP_DISPLAY_NAME = VoicePen;
 			};
 			name = Release;
 		};
@@ -495,7 +499,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.1.5;
 				OTHER_SWIFT_FLAGS = "$(inherited) -Xfrontend -warn-concurrency -Xfrontend -strict-concurrency=complete";
-				PRODUCT_BUNDLE_IDENTIFIER = com.khokhlachev.VoicePenTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.khokhlachev.VoicePenIntegrationTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -518,7 +522,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.1.5;
 				OTHER_SWIFT_FLAGS = "$(inherited) -Xfrontend -warn-concurrency -Xfrontend -strict-concurrency=complete";
-				PRODUCT_BUNDLE_IDENTIFIER = com.khokhlachev.VoicePenTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.khokhlachev.VoicePenIntegrationTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -593,7 +597,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		11953D9A2FA4D47E00ED707B /* Build configuration list for PBXNativeTarget "VoicePenTests" */ = {
+		11953D9A2FA4D47E00ED707B /* Build configuration list for PBXNativeTarget "VoicePenIntegrationTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				11953D9B2FA4D47E00ED707B /* Debug */,

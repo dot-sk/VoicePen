@@ -85,12 +85,14 @@ final class DictionaryStore: ObservableObject {
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
 
         var database: OpaquePointer?
-        guard sqlite3_open_v2(
-            databaseURL.path,
-            &database,
-            SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX,
-            nil
-        ) == SQLITE_OK, let database else {
+        guard
+            sqlite3_open_v2(
+                databaseURL.path,
+                &database,
+                SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX,
+                nil
+            ) == SQLITE_OK, let database
+        else {
             let message = database.map { String(cString: sqlite3_errmsg($0)) } ?? "Unable to open database"
             throw DictionaryStoreError.sqlite(message)
         }
@@ -215,7 +217,9 @@ final class DictionaryStore: ObservableObject {
             TermEntry(
                 id: "postgresql",
                 canonical: "PostgreSQL",
-                variants: ["постгрес", "постгресе", "постгресом", "постгреса", "постгресу", "постгрескуэль", "postgres", "postgre sequel", "Postgres", "postgre sql", "Postgre SQL"]
+                variants: [
+                    "постгрес", "постгресе", "постгресом", "постгреса", "постгресу", "постгрескуэль", "postgres", "postgre sequel", "Postgres", "postgre sql", "Postgre SQL"
+                ]
             ),
             TermEntry(
                 id: "typescript",

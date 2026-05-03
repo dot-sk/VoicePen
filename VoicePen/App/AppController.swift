@@ -36,6 +36,14 @@ final class NSAlertUserPromptPresenter: UserPromptPresenter {
 }
 
 @MainActor
+struct AppControllerStartTasks {
+    let permissions: Task<Void, Never>?
+    let modelWarmup: Task<Void, Never>?
+
+    static let empty = AppControllerStartTasks(permissions: nil, modelWarmup: nil)
+}
+
+@MainActor
 final class AppController: ObservableObject {
     @Published var appState: AppState = .starting
     @Published var lastRawText: String = ""
@@ -68,6 +76,7 @@ final class AppController: ObservableObject {
     private var modelWarmupTask: Task<Void, Never>?
     private var transcriptionTask: Task<Void, Never>?
     private var didHandleCurrentTranscriptionCancellation = false
+    private var isWaitingForCustomShortcut = false
     private var accessibilityPermissionPollingTask: Task<Void, Never>?
     private var appActivationObserver: NSObjectProtocol?
 
@@ -98,7 +107,8 @@ final class AppController: ObservableObject {
             historyStore.entries.first?.bestText ?? ""
         ]
 
-        return candidates
+        return
+            candidates
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty } ?? ""
     }
@@ -309,10 +319,12 @@ final class AppController: ObservableObject {
         }
     }
 
-    func start() {
-        guard !didStart else { return }
+    @discardableResult
+    func start() -> AppControllerStartTasks {
+        guard !didStart else { return .empty }
         didStart = true
 
+        let modelWarmup: Task<Void, Never>?
         do {
             try paths.createRequiredDirectories()
             try paths.cleanOldTemporaryAudioFiles()
@@ -321,13 +333,13 @@ final class AppController: ObservableObject {
             try historyStore.load()
             try settingsStore.load(defaultModelId: recommendedModel.id)
             try syncOpenAtLoginState()
-            scheduleModelWarmupIfInstalled()
+            modelWarmup = scheduleModelWarmupIfInstalled()
         } catch {
             setError(error)
-            return
+            return .empty
         }
 
-        Task {
+        let permissions = Task {
             await requestStartupPermissions()
         }
 
@@ -342,6 +354,8 @@ final class AppController: ObservableObject {
                 controller.refreshOpenAtLoginState()
             }
         }
+
+        return AppControllerStartTasks(permissions: permissions, modelWarmup: modelWarmup)
     }
 
     private func requestStartupPermissions() async {
@@ -382,21 +396,22 @@ final class AppController: ObservableObject {
         _ = userPrompts.showAlert(
             messageText: "Microphone permission is needed",
             informativeText: """
-            VoicePen records only while you hold the hotkey, and transcription happens locally on this Mac.
+                VoicePen records only while you hold the hotkey, and transcription happens locally on this Mac.
 
-            You can enable Microphone permission later in System Settings > Privacy & Security > Microphone.
-            """,
+                You can enable Microphone permission later in System Settings > Privacy & Security > Microphone.
+                """,
             style: .warning,
             buttons: ["OK"],
             activateBeforeShowing: true
         )
     }
 
-    func startRecording() {
-        guard appState != .recording, appState != .transcribing, !isDownloadingModel else { return }
+    @discardableResult
+    func startRecording() -> Task<Void, Never>? {
+        guard appState != .recording, appState != .transcribing, !isDownloadingModel else { return nil }
 
         cancelModelWarmup()
-        Task {
+        let task = Task {
             do {
                 appState = .recording
                 errorMessage = nil
@@ -405,13 +420,15 @@ final class AppController: ObservableObject {
                 setError(error)
             }
         }
+        return task
     }
 
-    func stopRecordingAndProcess() {
-        guard appState == .recording, transcriptionTask == nil else { return }
+    @discardableResult
+    func stopRecordingAndProcess() -> Task<Void, Never>? {
+        guard appState == .recording, transcriptionTask == nil else { return nil }
 
         didHandleCurrentTranscriptionCancellation = false
-        transcriptionTask = Task { [weak self] in
+        let task = Task { [weak self] in
             guard let self else { return }
             defer {
                 transcriptionCancellationKeyMonitor.uninstall()
@@ -437,6 +454,8 @@ final class AppController: ObservableObject {
                 setError(error)
             }
         }
+        transcriptionTask = task
+        return task
     }
 
     func cancelTranscription() {
@@ -578,14 +597,14 @@ final class AppController: ObservableObject {
         let response = userPrompts.showAlert(
             messageText: "Download transcription model?",
             informativeText: """
-            VoicePen will download the local transcription model:
+                VoicePen will download the local transcription model:
 
-            \(selectedModel.displayName)
-            \(selectedModel.id)
+                \(selectedModel.displayName)
+                \(selectedModel.id)
 
-            The model is stored in:
-            \(userModelDirectory.path)
-            """,
+                The model is stored in:
+                \(userModelDirectory.path)
+                """,
             style: .informational,
             buttons: ["Download", "Cancel"],
             activateBeforeShowing: false
@@ -654,7 +673,7 @@ final class AppController: ObservableObject {
                     return
                 }
 
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                try? await Task.sleep(for: VoicePenConfig.accessibilityPermissionPollInterval)
             }
         }
     }
@@ -673,7 +692,13 @@ final class AppController: ObservableObject {
                     }
                 }
             )
+            isWaitingForCustomShortcut = false
+            errorMessage = nil
+        } catch HotkeyError.shortcutMissing where settingsStore.hotkeyPreference == .custom {
+            isWaitingForCustomShortcut = true
+            errorMessage = HotkeyError.shortcutMissing.localizedDescription
         } catch {
+            isWaitingForCustomShortcut = false
             setError(error)
         }
     }
@@ -683,8 +708,9 @@ final class AppController: ObservableObject {
         installHotkey()
     }
 
-    func downloadModel() {
-        guard !isDownloadingModel else { return }
+    @discardableResult
+    func downloadModel() -> Task<Void, Never>? {
+        guard !isDownloadingModel else { return nil }
 
         let downloadID = UUID()
         activeModelDownloadID = downloadID
@@ -694,7 +720,7 @@ final class AppController: ObservableObject {
         overlay.show(.transcribing(stage: .loadingModel, progress: nil))
         let model = selectedModel
 
-        modelDownloadTask = Task {
+        let task = Task {
             do {
                 let modelURL = try await modelDownloader.downloadModel(model) { [weak self] event in
                     Task { @MainActor [weak self] in
@@ -723,6 +749,8 @@ final class AppController: ObservableObject {
                 setError(error)
             }
         }
+        modelDownloadTask = task
+        return task
     }
 
     func cancelModelDownload() {
@@ -819,17 +847,18 @@ final class AppController: ObservableObject {
         }
     }
 
-    private func scheduleModelWarmupIfInstalled() {
+    @discardableResult
+    private func scheduleModelWarmupIfInstalled() -> Task<Void, Never>? {
         guard isModelInstalled, let modelWarmupClient else {
             modelRuntimeState = .notLoaded
-            return
+            return nil
         }
 
         let model = selectedModel
         let language = TranscriptionLanguageResolver.resolve(settingsStore.transcriptionLanguage)
         modelWarmupTask?.cancel()
         modelRuntimeState = .warming(modelId: model.id)
-        modelWarmupTask = Task { @MainActor [weak self, modelWarmupClient] in
+        let task = Task { @MainActor [weak self, modelWarmupClient] in
             do {
                 AppLogger.info("Warming up model \(model.id)")
                 try await modelWarmupClient.warmUp(model: model, language: language)
@@ -846,6 +875,8 @@ final class AppController: ObservableObject {
 
             self?.modelWarmupTask = nil
         }
+        modelWarmupTask = task
+        return task
     }
 
     private func cancelModelWarmup() {
@@ -870,6 +901,13 @@ final class AppController: ObservableObject {
         } catch {
             setError(error)
         }
+    }
+
+    func customHotkeyDidChange() {
+        guard settingsStore.hotkeyPreference == .custom else { return }
+        guard permissions.hasAccessibilityPermission else { return }
+        guard appState == .ready || appState == .missingModel || isWaitingForCustomShortcut else { return }
+        installHotkey()
     }
 
     func updateHotkeyHoldDuration(_ duration: TimeInterval) {

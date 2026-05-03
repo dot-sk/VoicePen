@@ -32,8 +32,8 @@ nonisolated struct ModelDownloadProxyConfiguration: Equatable, Sendable {
             "http_proxy",
             "HTTP_PROXY"
         ]
-            .compactMap { environment[$0]?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty }
+        .compactMap { environment[$0]?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .first { !$0.isEmpty }
 
         guard let proxyValue else { return nil }
         return fromProxyURLString(proxyValue)
@@ -42,9 +42,10 @@ nonisolated struct ModelDownloadProxyConfiguration: Equatable, Sendable {
     private static func fromProxyURLString(_ value: String) -> Self? {
         let urlString = value.contains("://") ? value : "http://\(value)"
         guard let components = URLComponents(string: urlString),
-              let scheme = components.scheme?.lowercased(),
-              ["http", "https"].contains(scheme),
-              let host = components.host else {
+            let scheme = components.scheme?.lowercased(),
+            ["http", "https"].contains(scheme),
+            let host = components.host
+        else {
             return nil
         }
 

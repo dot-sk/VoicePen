@@ -36,7 +36,8 @@ final class WhisperCppModelDownloadClient: ModelDownloadClient {
             events(.downloadingArtifact(name: model.localArtifactFileName, progress: completedUnits / totalUnits))
         } else {
             guard let downloadURLString = model.downloadURL,
-                  let downloadURL = URL(string: downloadURLString) else {
+                let downloadURL = URL(string: downloadURLString)
+            else {
                 throw ModelDownloadError.missingDownloadURL(model.id)
             }
 
@@ -190,32 +191,34 @@ final class WhisperCppModelDownloadClient: ModelDownloadClient {
 
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-            process.arguments = ["-x", "-k", zipURL.path, targetDirectory.path]
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+                process.arguments = ["-x", "-k", zipURL.path, targetDirectory.path]
 
-            let errorPipe = Pipe()
-            process.standardError = errorPipe
-            process.terminationHandler = { process in
-                if process.terminationStatus == 0 {
-                    state.complete(.success(()))
-                    return
+                let errorPipe = Pipe()
+                process.standardError = errorPipe
+                process.terminationHandler = { process in
+                    if process.terminationStatus == 0 {
+                        state.complete(.success(()))
+                        return
+                    }
+
+                    let data = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                    let message = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    state.complete(
+                        .failure(
+                            ModelDownloadError.downloadFailed(
+                                modelId: zipURL.lastPathComponent,
+                                message: message?.isEmpty == false ? message! : "ditto exited with status \(process.terminationStatus)"
+                            )))
                 }
 
-                let data = errorPipe.fileHandleForReading.readDataToEndOfFile()
-                let message = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-                state.complete(.failure(ModelDownloadError.downloadFailed(
-                    modelId: zipURL.lastPathComponent,
-                    message: message?.isEmpty == false ? message! : "ditto exited with status \(process.terminationStatus)"
-                )))
-            }
-
-            do {
-                state.set(continuation: continuation, process: process)
-                try process.run()
-            } catch {
-                state.complete(.failure(error))
-            }
+                do {
+                    state.set(continuation: continuation, process: process)
+                    try process.run()
+                } catch {
+                    state.complete(.failure(error))
+                }
             }
         } onCancel: {
             state.cancel()
@@ -280,7 +283,8 @@ final class WhisperCppModelDownloadClient: ModelDownloadClient {
 
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                let request = session
+                let request =
+                    session
                     .download(sourceURL, to: destination)
                     .validate()
                     .downloadProgress { downloadProgress in
@@ -300,10 +304,12 @@ final class WhisperCppModelDownloadClient: ModelDownloadClient {
                         }
 
                         guard FileManager.default.fileExists(atPath: destinationURL.path) else {
-                            state.complete(.failure(ModelDownloadError.downloadFailed(
-                                modelId: sourceURL.lastPathComponent,
-                                message: "The downloaded file was missing after Alamofire completed the request."
-                            )))
+                            state.complete(
+                                .failure(
+                                    ModelDownloadError.downloadFailed(
+                                        modelId: sourceURL.lastPathComponent,
+                                        message: "The downloaded file was missing after Alamofire completed the request."
+                                    )))
                             return
                         }
 
@@ -462,7 +468,8 @@ extension Error {
             }
 
             if case let .responseValidationFailed(reason) = afError,
-               case let .unacceptableStatusCode(code) = reason {
+                case let .unacceptableStatusCode(code) = reason
+            {
                 return [408, 429, 500, 502, 503, 504].contains(code)
             }
 

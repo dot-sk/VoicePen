@@ -9,7 +9,8 @@ nonisolated struct TermNormalizer {
 
     func normalize(_ rawText: String) throws -> String {
         var normalized = rawText
-        let activeEntries = entries
+        let activeEntries =
+            entries
             .sorted { lhs, rhs in
                 if lhs.canonical.count == rhs.canonical.count {
                     return lhs.canonical.localizedCaseInsensitiveCompare(rhs.canonical) == .orderedAscending

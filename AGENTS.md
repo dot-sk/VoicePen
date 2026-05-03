@@ -17,7 +17,7 @@ Before changing behavior:
 3. Map each acceptance criterion to an automated test or explicit manual verification.
 4. Implement the smallest change that satisfies the spec.
 5. Update the spec in the same change when behavior, edge cases, or tests change.
-6. Run `make test-strict` before handoff when local tooling is available.
+6. Run `make test` before handoff when local tooling is available.
 
 Write an ADR in `Docs/adr/` only for technical decisions that are expensive to
 reverse: architecture, persistence shape, model/backend strategy,
@@ -44,6 +44,10 @@ privacy/security posture, distribution, or dependencies.
 
 Use Swift Testing unit tests for core behavior, persistence, model routing, dictionary logic, and pipeline decisions. Use UI tests only when behavior depends on the macOS UI surface. When automated coverage is not practical, add a manual verification item in `Test Mapping` with enough detail for another engineer to repeat it.
 
+Follow `Docs/testing.md` for local test layering and async test style. Prefer
+task handles, explicit async checkpoints, continuations, clocks, or schedulers
+over polling sleeps in unit tests.
+
 Do not add copywriting snapshot tests. For labels, disclosures, prompts,
 diagnostics, or other user-facing text, test the behavior contract: that text is
 passed, surfaced, or includes a required signal. Avoid asserting full prose
@@ -56,8 +60,8 @@ absence is the actual safety or privacy requirement.
 
 ## Local Test Runner
 
-`make test-strict` commonly needs to write into Xcode and SwiftPM cache
+`make test` commonly needs to write into Xcode and SwiftPM cache
 locations under the user's home directory (`~/Library/Caches`, `~/.cache`, and
 CoreSimulator logs). The workspace sandbox blocks those writes before tests
-execute, so request escalated execution for `make test-strict` immediately
+execute, so request escalated execution for `make test` immediately
 instead of trying a sandboxed run first.

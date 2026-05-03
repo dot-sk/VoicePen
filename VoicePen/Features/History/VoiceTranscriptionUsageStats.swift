@@ -24,7 +24,7 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
         }
         transcribedSessionCount = countedEntries.count
         totalWordCount = countedEntries.reduce(0) { total, entry in
-            total + Self.wordCount(in: entry.bestText)
+            total + entry.usageWordCount
         }
     }
 
@@ -82,9 +82,7 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
     nonisolated private static func shouldCount(_ entry: VoiceHistoryEntry) -> Bool {
         guard entry.status != .failed else { return false }
         guard let duration = entry.duration, duration > 0 else { return false }
-
-        let bestText = entry.bestText
-        return !bestText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return true
     }
 
     nonisolated private static func readableDurationText(for duration: TimeInterval) -> String {
@@ -106,12 +104,9 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
         return parts.isEmpty ? "0 minutes" : parts.joined(separator: " ")
     }
 
-    nonisolated private static func wordCount(in text: String) -> Int {
-        text.split(whereSeparator: \.isWhitespace).count
-    }
-
     nonisolated private static func format(_ value: Double, unit: String) -> String {
-        let formattedValue = value >= 10
+        let formattedValue =
+            value >= 10
             ? String(format: "%.0f", value)
             : String(format: "%.1f", value)
         return "\(formattedValue) \(unit)"

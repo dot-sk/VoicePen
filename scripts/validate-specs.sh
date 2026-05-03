@@ -162,10 +162,10 @@ for file in "${spec_files[@]}"; do
   if [ "$tests_value" != "[]" ]; then
     while IFS= read -r test_path; do
       case "$test_path" in
-        VoicePenTests/*|VoicePenUITests/*)
+        VoicePenTests/*|VoicePenIntegrationTests/*|VoicePenUITests/*)
           ;;
         *)
-          fail "$file test path must be under VoicePenTests/ or VoicePenUITests/: $test_path"
+          fail "$file test path must be under VoicePenTests/, VoicePenIntegrationTests/, or VoicePenUITests/: $test_path"
           ;;
       esac
 
