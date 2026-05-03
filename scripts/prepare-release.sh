@@ -83,7 +83,7 @@ perl -0pi -e "s/MARKETING_VERSION = [^;]+;/MARKETING_VERSION = $version;/g" "$pr
 perl -0pi -e "s/CURRENT_PROJECT_VERSION = [^;]+;/CURRENT_PROJECT_VERSION = $build;/g" "$project_file"
 
 git add "$project_file"
-git commit -m "🚀 Prepare $tag"
+git commit -m "chore: 🚀 prepare $tag"
 git push -u origin "$branch"
 
 gh pr create \
