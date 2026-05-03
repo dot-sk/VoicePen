@@ -26,6 +26,9 @@ available through an explicit command.
 
 - When a developer runs the default test command, VoicePen shall validate specs
   and execute tests in a non-hosted unit-test runner.
+- When the default test command runs from an environment with an inherited
+  `SDKROOT`, VoicePen shall still use the macOS SDK from the configured Xcode
+  developer directory.
 - When a pull request or main-branch push changes only documentation, specs, or
   repository instructions, VoicePen CI shall skip code-quality checks, unit
   tests, and dead-code analysis.
@@ -49,6 +52,7 @@ available through an explicit command.
 | Case | Input | Expected |
 | --- | --- | --- |
 | Default local check | `make test` | Specs validate and SwiftPM unit tests run without `VoicePen.app` opening |
+| Inherited SDKROOT | `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk make test` | Tests still run with the macOS SDK selected from `DEVELOPER_DIR` |
 | Docs-only PR | Change only `README.md`, `Docs/`, `Specs/`, or `AGENTS.md` | CI skips code-quality checks, unit tests, and dead-code analysis |
 | Code PR | Change `VoicePen/`, `VoicePenTests/`, package files, scripts, or CI workflow | CI runs code-quality checks, unit tests, and dead-code analysis |
 | Hook install | `make install-hooks` | Lefthook installs the configured Git hooks |
@@ -60,6 +64,9 @@ available through an explicit command.
 
 - Automated: `make test` verifies spec validation and the non-hosted unit test
   target.
+- Automated: `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk make
+  test` verifies the default test command does not inherit an incompatible SDK
+  from Git hook environments.
 - Automated: `make integration-test` verifies the hosted app integration target.
 - Automated: `.github/workflows/ci.yml` gates code-quality checks, unit tests,
   and dead-code analysis on code-impacting changed paths.

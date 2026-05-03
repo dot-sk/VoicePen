@@ -5,6 +5,7 @@ SCHEME := VoicePen
 DESTINATION := platform=macOS
 DERIVED_DATA := /private/tmp/VoicePenDerivedData
 DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
+MACOS_SDKROOT ?= $(shell DEVELOPER_DIR="$(DEVELOPER_DIR)" xcrun --sdk macosx --show-sdk-path)
 CONFIGURATION ?= Debug
 APP := $(DERIVED_DATA)/Build/Products/Debug/VoicePen.app
 PACKAGE_CONFIGURATION := Release
@@ -115,7 +116,7 @@ install-hooks:
 check: lint test
 
 test: validate-specs
-	DEVELOPER_DIR="$(DEVELOPER_DIR)" swift test
+	DEVELOPER_DIR="$(DEVELOPER_DIR)" SDKROOT="$(MACOS_SDKROOT)" xcrun swift test
 
 integration-test:
 	@set -o pipefail; \
