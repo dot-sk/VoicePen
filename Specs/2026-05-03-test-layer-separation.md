@@ -1,0 +1,62 @@
+---
+id: SPEC-007
+status: implemented
+updated: 2026-05-03
+tests:
+  - VoicePenTests/App/AppControllerTests.swift
+  - VoicePenIntegrationTests/VoicePenIntegrationHostTests.swift
+---
+
+# Test Layer Separation
+
+## Problem
+
+VoicePen unit tests were run as hosted macOS app tests, so even pure logic tests
+started `VoicePen.app`. This made the default test loop slower and blurred the
+boundary between unit tests and app-host integration coverage.
+
+## Behavior
+
+VoicePen shall keep fast unit tests separate from tests that require the macOS
+application host. The default test command shall validate specs and run unit
+tests without launching `VoicePen.app`. Hosted app integration tests shall be
+available through an explicit command.
+
+## Acceptance Criteria
+
+- When a developer runs the default test command, VoicePen shall validate specs
+  and execute tests in a non-hosted unit-test runner.
+- When a developer needs app-host coverage, VoicePen shall provide a separate
+  hosted integration-test command.
+- Unit tests shall import the core VoicePen module directly rather than loading
+  through the app target.
+- Hosted integration tests shall remain able to launch `VoicePen.app` for
+  behavior that depends on the macOS app runtime.
+
+## Examples
+
+| Case | Input | Expected |
+| --- | --- | --- |
+| Default local check | `make test` | Specs validate and SwiftPM unit tests run without `VoicePen.app` opening |
+| App-host check | `make integration-test` | Xcode runs hosted integration tests against `VoicePen.app` |
+
+## Test Mapping
+
+- Automated: `make test` verifies spec validation and the non-hosted unit test
+  target.
+- Automated: `make integration-test` verifies the hosted app integration target.
+- Manual: observe that `make test` does not open the VoicePen app window, while
+  `make integration-test` may launch the app host by design.
+
+## Notes
+
+`VoicePenCore` is the unit-testable module for app logic. The app target remains
+responsible for SwiftUI/AppKit composition and production wiring.
+
+Async unit tests should synchronize on explicit task handles, continuations,
+clocks, schedulers, or fake-client checkpoints rather than elapsed-time polling.
+See `Docs/testing.md` for the project testing conventions.
+
+## Open Questions
+
+- None.
