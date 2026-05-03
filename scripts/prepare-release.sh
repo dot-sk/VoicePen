@@ -94,16 +94,17 @@ gh pr create \
 - bump VoicePen version to $version
 - set build number to $build
 
-## Release after merge
+## Release from this branch
 \`\`\`bash
-git checkout main
-git pull --ff-only origin main
-git tag $tag
-git push origin $tag
+git checkout $branch
+git pull --ff-only origin $branch
+make publish-release VERSION=$version
 \`\`\`
 
-Pushing the tag starts the Release workflow, attaches the downloadable unsigned macOS zip, and publishes the Sparkle appcast to GitHub Pages."
+Publishing verifies that this PR is open, non-draft, and green, then pushes the tag from $branch. The tag starts the Release workflow, attaches the downloadable unsigned macOS zip, and publishes the Sparkle appcast to GitHub Pages.
+
+After the Release workflow succeeds, merge this pull request into main."
 
 echo
 echo "Release PR created for $tag."
-echo "After it is merged, push tag $tag to create the GitHub Release package and update appcast."
+echo "After checks pass, run make publish-release VERSION=$version from $branch."
