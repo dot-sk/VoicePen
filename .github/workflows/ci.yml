@@ -3,6 +3,8 @@ name: CI
 on:
   pull_request:
   push:
+    branches:
+      - main
   workflow_dispatch:
 
 concurrency:
@@ -53,9 +55,6 @@ jobs:
         run: |
           xcodebuild -version
           swift --version
-
-      - name: Resolve Swift packages
-        run: make resolve-packages
 
       - name: Run unit tests
         run: make test
