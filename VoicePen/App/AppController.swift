@@ -100,6 +100,10 @@ final class AppController: ObservableObject {
         paths.historyURL
     }
 
+    var userConfigURL: URL {
+        environmentSettingsStore.userConfigURL
+    }
+
     var latestTranscriptionText: String {
         let candidates = [
             lastFinalText,
@@ -257,6 +261,7 @@ final class AppController: ObservableObject {
         let whisperCppTranscriber = WhisperCppTranscriptionClient(paths: paths)
         let fluidAudioTranscriber = FluidAudioTranscriptionClient(paths: paths)
         let inserter = PasteboardTextInsertionClient(restoreDelay: VoicePenConfig.clipboardRestoreDelay)
+        let userConfigStore = UserConfigStore()
         let transcriber = RoutingTranscriptionClient(
             modelProvider: {
                 modelManifest.compatibleModels.first { $0.id == settingsStore.selectedModelId }
@@ -272,8 +277,17 @@ final class AppController: ObservableObject {
             dictionaryStore: dictionaryStore,
             inserter: inserter,
             overlay: overlay,
+            userConfigStore: userConfigStore,
             languageProvider: { settingsStore.transcriptionLanguage },
             speechPreprocessingModeProvider: { settingsStore.speechPreprocessingMode },
+            developerModeOverrideProvider: { settingsStore.developerModeOverride },
+            activeApplicationProvider: {
+                guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
+                return ActiveApplicationInfo(
+                    bundleIdentifier: app.bundleIdentifier,
+                    localizedName: app.localizedName
+                )
+            },
             minimumRecordingDuration: VoicePenConfig.minimumRecordingDuration
         )
 
@@ -298,6 +312,7 @@ final class AppController: ObservableObject {
             modelWarmupClient: transcriber,
             launchAtLogin: LiveLaunchAtLoginClient(),
             userPrompts: NSAlertUserPromptPresenter(),
+            environmentSettingsStore: userConfigStore,
             historyStore: historyStore,
             settingsStore: settingsStore,
             modelManifest: modelManifest
@@ -328,7 +343,7 @@ final class AppController: ObservableObject {
         do {
             try paths.createRequiredDirectories()
             try paths.cleanOldTemporaryAudioFiles()
-            try environmentSettingsStore.applyEnvironment()
+            environmentSettingsStore.applyEnvironment()
             try dictionaryStore.load()
             try historyStore.load()
             try settingsStore.load(defaultModelId: recommendedModel.id)
@@ -495,6 +510,15 @@ final class AppController: ObservableObject {
         NSWorkspace.shared.activateFileViewerSelecting([paths.historyURL])
     }
 
+    func openUserConfigFile() {
+        do {
+            try environmentSettingsStore.ensureUserConfigFileExists()
+            NSWorkspace.shared.open(environmentSettingsStore.userConfigURL)
+        } catch {
+            setError(error)
+        }
+    }
+
     func copyToClipboard(_ text: String) {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
@@ -576,7 +600,8 @@ final class AppController: ObservableObject {
     }
 
     func insertText(_ text: String) {
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedText = TextOutputNormalizer.normalize(text)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
         inserter.insert(trimmedText)
     }
@@ -919,6 +944,14 @@ final class AppController: ObservableObject {
         }
     }
 
+    func updateDeveloperModeOverride(_ mode: DeveloperMode) {
+        do {
+            try settingsStore.updateDeveloperModeOverride(mode)
+        } catch {
+            setError(error)
+        }
+    }
+
     func updateOpenAtLogin(_ isEnabled: Bool) {
         do {
             try launchAtLogin.setEnabled(isEnabled)
@@ -994,7 +1027,8 @@ final class AppController: ObservableObject {
             errorMessage: nil,
             recording: result.recording,
             timings: result.timings,
-            modelMetadata: result.modelMetadata
+            modelMetadata: result.modelMetadata,
+            diagnosticNotes: result.diagnosticNotes
         )
     }
 
@@ -1005,7 +1039,8 @@ final class AppController: ObservableObject {
         errorMessage: String?,
         recording: RecordingResult?,
         timings: VoicePipelineTimings?,
-        modelMetadata: VoiceTranscriptionModelMetadata? = nil
+        modelMetadata: VoiceTranscriptionModelMetadata? = nil,
+        diagnosticNotes: [String] = []
     ) {
         let trimmedRawText = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedFinalText = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1021,7 +1056,8 @@ final class AppController: ObservableObject {
             status: status,
             errorMessage: errorMessage,
             timings: timings,
-            modelMetadata: modelMetadata ?? VoiceTranscriptionModelMetadata(model: selectedModel)
+            modelMetadata: modelMetadata ?? VoiceTranscriptionModelMetadata(model: selectedModel),
+            diagnosticNotes: diagnosticNotes
         )
 
         do {

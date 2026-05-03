@@ -1,0 +1,89 @@
+[env]
+http_proxy = ""
+https_proxy = ""
+
+[developer]
+mode = "auto"
+terminal_command_action = "paste"
+
+[aliases.common]
+"гит" = "git"
+"чекаут" = "checkout"
+"пул реквест" = "pull request"
+"джейсон" = "JSON"
+"тип скрипт" = "TypeScript"
+
+[aliases.developer]
+"вью модель" = "ViewModel"
+
+[aliases.terminal]
+"гид" = "git"
+"гита" = "git"
+"гите" = "git"
+"гиту" = "git"
+"минус минус" = "--"
+
+[[commands.terminal]]
+id = "git-status-short"
+triggers = ["покажи гит статус", "покажи статус в гит", "какой статус в гит", "что в гит", "что по гит", "что там в гит", "короткий гит статус", "git status", "show git status"]
+template = "git status --short --branch"
+
+[[commands.terminal]]
+id = "git-history"
+triggers = ["покажи гит history", "покажи гит историю", "покажи историю в гит", "покажи историю гит", "покажи гит лог", "покажи лог в гит", "история гит", "лог гит", "git history", "git log", "show git history", "show git log"]
+template = "git log --oneline --decorate --graph"
+
+[[commands.terminal]]
+id = "git-history-all"
+triggers = ["покажи всю гит историю", "покажи всю историю в гит", "покажи гит историю всех веток", "покажи историю всех веток", "вся история гит", "история всех веток", "git history all", "show all git history"]
+template = "git log --oneline --decorate --graph --all"
+
+[[commands.terminal]]
+id = "git-diff"
+triggers = ["покажи гит diff", "покажи гит дифф", "покажи дифф", "покажи дифф в гит", "покажи изменения", "покажи изменения в гит", "что изменилось в гит", "git diff", "show git diff"]
+template = "git diff"
+
+[[commands.terminal]]
+id = "git-diff-cached"
+triggers = ["покажи staged гит diff", "покажи staged гит дифф", "покажи staged изменения", "покажи staged изменения в гит", "покажи застейдженные изменения", "что в индексе", "покажи индекс", "git diff cached", "git diff staged", "show staged git diff"]
+template = "git diff --cached"
+
+[[commands.terminal]]
+id = "git-branches-all"
+triggers = ["покажи гит branches", "покажи гит ветки", "покажи ветки", "покажи все ветки", "покажи ветки в гит", "какие ветки", "список веток", "git branches", "show git branches"]
+template = "git branch --all"
+
+[[commands.terminal]]
+id = "git-create-branch"
+triggers = ["создай ветку", "создай новую ветку", "сделай ветку", "новая ветка", "create branch", "new branch"]
+template = "git checkout -b {{ args|gitBranch }}"
+
+[[commands.terminal]]
+id = "git-create-feature-branch"
+triggers = ["создай фича ветку", "создай новую фича ветку", "сделай фича ветку", "новая фича ветка", "create feature branch", "new feature branch"]
+template = "git checkout -b feature/{{ args|gitBranch }}"
+
+[[commands.terminal]]
+id = "git-create-fix-branch"
+triggers = ["создай баг ветку", "создай новую баг ветку", "сделай баг ветку", "новая баг ветка", "create fix branch", "new fix branch", "create bugfix branch"]
+template = "git checkout -b fix/{{ args|gitBranch }}"
+
+[[commands.terminal]]
+id = "git-create-chore-branch"
+triggers = ["создай chore ветку", "создай новую chore ветку", "сделай chore ветку", "новая chore ветка", "create chore branch", "new chore branch"]
+template = "git checkout -b chore/{{ args|gitBranch }}"
+
+[[commands.terminal]]
+id = "git-create-docs-branch"
+triggers = ["создай docs ветку", "создай новую docs ветку", "сделай docs ветку", "новая docs ветка", "create docs branch", "new docs branch"]
+template = "git checkout -b docs/{{ args|gitBranch }}"
+
+[[commands.terminal]]
+id = "git-create-refactor-branch"
+triggers = ["создай refactor ветку", "создай новую refactor ветку", "сделай refactor ветку", "новая refactor ветка", "create refactor branch", "new refactor branch"]
+template = "git checkout -b refactor/{{ args|gitBranch }}"
+
+[[commands.terminal]]
+id = "git-create-test-branch"
+triggers = ["создай test ветку", "создай новую test ветку", "сделай test ветку", "новая test ветка", "create test branch", "new test branch"]
+template = "git checkout -b test/{{ args|gitBranch }}"

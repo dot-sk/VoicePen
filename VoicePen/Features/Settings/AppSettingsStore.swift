@@ -10,6 +10,7 @@ final class AppSettingsStore: ObservableObject {
     @Published private(set) var hotkeyPreference: HotkeyPreference
     @Published private(set) var hotkeyHoldDuration: TimeInterval
     @Published private(set) var openAtLogin: Bool
+    @Published private(set) var developerModeOverride: DeveloperMode?
 
     private let databaseURL: URL
     private let fileManager: FileManager
@@ -23,6 +24,7 @@ final class AppSettingsStore: ObservableObject {
         self.hotkeyPreference = .option
         self.hotkeyHoldDuration = VoicePenConfig.defaultHotkeyHoldDuration
         self.openAtLogin = false
+        self.developerModeOverride = nil
     }
 
     func load(defaultModelId: String) throws {
@@ -36,8 +38,9 @@ final class AppSettingsStore: ObservableObject {
                 try fetchValue(forKey: Self.hotkeyHoldDurationKey, from: database)
                 ?? String(VoicePenConfig.defaultHotkeyHoldDuration)
             let openAtLogin = try fetchValue(forKey: Self.openAtLoginKey, from: database) ?? "false"
+            let developerModeOverride = try fetchValue(forKey: Self.developerModeOverrideKey, from: database)
             return (
-                language, modelId, preprocessing, hotkey, holdDuration, openAtLogin
+                language, modelId, preprocessing, hotkey, holdDuration, openAtLogin, developerModeOverride
             )
         }
         transcriptionLanguage = Self.normalizeLanguage(values.0)
@@ -46,6 +49,7 @@ final class AppSettingsStore: ObservableObject {
         hotkeyPreference = Self.normalizeHotkeyPreference(values.3)
         hotkeyHoldDuration = Self.normalizeHotkeyHoldDuration(values.4)
         openAtLogin = Self.normalizeBoolean(values.5)
+        developerModeOverride = Self.normalizeDeveloperModeOverride(values.6)
     }
 
     func updateTranscriptionLanguage(_ language: String) throws {
@@ -97,6 +101,14 @@ final class AppSettingsStore: ObservableObject {
             try setValue(String(isEnabled), forKey: Self.openAtLoginKey, in: database)
         }
         openAtLogin = isEnabled
+    }
+
+    func updateDeveloperModeOverride(_ mode: DeveloperMode) throws {
+        try withDatabase { database in
+            try DatabaseMigrator.migrate(database)
+            try setValue(mode.rawValue, forKey: Self.developerModeOverrideKey, in: database)
+        }
+        developerModeOverride = mode
     }
 
     private func withDatabase<T>(_ body: (OpaquePointer) throws -> T) throws -> T {
@@ -208,6 +220,11 @@ final class AppSettingsStore: ObservableObject {
         }
     }
 
+    private static func normalizeDeveloperModeOverride(_ value: String?) -> DeveloperMode? {
+        guard let value else { return nil }
+        return DeveloperMode(rawValue: value.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
     static let supportedLanguages: [TranscriptionLanguage] = [
         TranscriptionLanguage(code: "auto", name: "Auto-detect"),
         TranscriptionLanguage(code: "system", name: "System language"),
@@ -221,6 +238,7 @@ final class AppSettingsStore: ObservableObject {
     private static let hotkeyPreferenceKey = "hotkey.preference"
     private static let hotkeyHoldDurationKey = "hotkey.holdDuration"
     private static let openAtLoginKey = "app.openAtLogin"
+    private static let developerModeOverrideKey = "developer.modeOverride"
 }
 
 struct TranscriptionLanguage: Identifiable, Equatable {

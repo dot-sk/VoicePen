@@ -6,6 +6,7 @@ enum VoicePenSettingsSection: String, CaseIterable, Identifiable, Hashable {
     case general
     case permissions
     case model
+    case modes
     case shortcuts
     case dictionary
     case history
@@ -21,6 +22,8 @@ enum VoicePenSettingsSection: String, CaseIterable, Identifiable, Hashable {
             return "Permissions"
         case .model:
             return "Model"
+        case .modes:
+            return "Modes"
         case .shortcuts:
             return "Shortcuts"
         case .dictionary:
@@ -40,6 +43,8 @@ enum VoicePenSettingsSection: String, CaseIterable, Identifiable, Hashable {
             return "hand.raised"
         case .model:
             return "arrow.down.circle"
+        case .modes:
+            return "terminal"
         case .shortcuts:
             return "keyboard"
         case .dictionary:
@@ -103,7 +108,7 @@ struct GeneralSettingsView: View {
     @ObservedObject var historyStore: VoiceHistoryStore
 
     private var stats: VoiceTranscriptionUsageStats {
-        historyStore.usageStats
+        VoiceTranscriptionUsageStats(entries: historyStore.entries)
     }
 
     private var transcribedAudioCaption: String {
@@ -117,6 +122,26 @@ struct GeneralSettingsView: View {
 
     private var historyStorageCaption: String {
         "\(historyStore.storageStats.formattedTextPayloadSize) text, \(historyStore.storageStats.formattedDatabaseFileSize) database"
+    }
+
+    private var todayWordsText: String {
+        "\(stats.todayWordCount.formatted()) \(stats.todayWordCount == 1 ? "word" : "words") today"
+    }
+
+    private var streakText: String {
+        "\(stats.currentStreakDayCount.formatted()) \(stats.currentStreakDayCount == 1 ? "day" : "days")"
+    }
+
+    private var bestDayText: String {
+        guard let bestDay = stats.bestDay else { return "No best day yet" }
+        return "\(bestDay.wordCount.formatted()) \(bestDay.wordCount == 1 ? "word" : "words") on \(bestDay.date.formatted(date: .abbreviated, time: .omitted))"
+    }
+
+    private var milestoneText: String {
+        guard let nextMilestone = stats.nextMilestone else {
+            return "All milestones unlocked"
+        }
+        return "Next: \(nextMilestone.title)"
     }
 
     var body: some View {
@@ -141,6 +166,43 @@ struct GeneralSettingsView: View {
                     Text(estimatedTimeSavedCaption)
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.secondary)
+
+                    Divider()
+                        .padding(.vertical, 6)
+
+                    LazyVGrid(
+                        columns: [
+                            GridItem(.flexible(), alignment: .leading),
+                            GridItem(.flexible(), alignment: .leading)
+                        ],
+                        alignment: .leading,
+                        spacing: 10
+                    ) {
+                        UsageStatView(
+                            title: "Streak",
+                            value: streakText,
+                            caption: "Active dictation days"
+                        )
+                        UsageStatView(
+                            title: "Today",
+                            value: todayWordsText,
+                            caption: "Final recognized text"
+                        )
+                        UsageStatView(
+                            title: "Best Day",
+                            value: bestDayText,
+                            caption: "Most dictated words"
+                        )
+                        UsageStatView(
+                            title: "Milestones",
+                            value: stats.milestoneSummaryText,
+                            caption: milestoneText
+                        )
+                    }
+
+                    ProgressView(value: stats.nextMilestone?.progress ?? 1)
+                        .tint(.accentColor)
+                        .help(milestoneText)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 12)
@@ -161,6 +223,93 @@ struct GeneralSettingsView: View {
                 Text("App")
             } footer: {
                 Text("VoicePen records only while the push-to-talk shortcut is held. Audio and text stay on this Mac.")
+            }
+        }
+        .formStyle(.grouped)
+        .padding(18)
+    }
+}
+
+private struct UsageStatView: View {
+    let title: String
+    let value: String
+    let caption: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+
+            Text(value)
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+
+            Text(caption)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct ModesSettingsView: View {
+    @ObservedObject var controller: AppController
+    @ObservedObject var settingsStore: AppSettingsStore
+    private let modesDescription =
+        "Modes tell VoicePen how to handle dictated text in different apps. Auto chooses the mode from the active app; Plain keeps dictation simple; Writing Code improves technical text; Terminal can turn configured phrases into commands. For example, in Terminal \"show git status\" becomes \"git status --short --branch\"."
+
+    private var developerModeSelection: Binding<DeveloperMode> {
+        Binding(
+            get: { settingsStore.developerModeOverride ?? .auto },
+            set: { controller.updateDeveloperModeOverride($0) }
+        )
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                Text(modesDescription)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Section {
+                Picker("Current mode", selection: developerModeSelection) {
+                    ForEach(DeveloperMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                LabeledContent("Config file", value: controller.userConfigURL.path)
+
+                Button {
+                    controller.openUserConfigFile()
+                } label: {
+                    Label("Open Config File", systemImage: "doc.text")
+                }
+            } header: {
+                Text("Mode")
+            }
+
+            Section {
+                ForEach(DeveloperMode.allCases) { mode in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(mode.displayName)
+                            .font(.headline)
+                        Text(mode.userDescription)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 4)
+                }
+            } header: {
+                Text("What Each Mode Does")
             }
         }
         .formStyle(.grouped)

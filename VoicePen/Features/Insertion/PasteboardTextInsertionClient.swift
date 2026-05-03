@@ -14,6 +14,7 @@ extension NSPasteboard: TextPasteboard {}
 @MainActor
 protocol PasteCommandSender: AnyObject {
     func sendPasteCommand()
+    func sendReturnCommand()
 }
 
 @MainActor
@@ -40,8 +41,9 @@ final class PasteboardTextInsertionClient: TextInsertionClient {
         self.restoreDelay = restoreDelay
     }
 
-    func insert(_ text: String) {
-        let finalText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    func insert(_ text: String, action: TextInsertionAction = .paste) {
+        let finalText = TextOutputNormalizer.normalize(text)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !finalText.isEmpty else { return }
 
         let previousString = pasteboard.string(forType: .string)
@@ -49,6 +51,9 @@ final class PasteboardTextInsertionClient: TextInsertionClient {
         _ = pasteboard.setString(finalText, forType: .string)
 
         pasteCommandSender.sendPasteCommand()
+        if action == .pasteAndSubmit {
+            pasteCommandSender.sendReturnCommand()
+        }
 
         scheduler.schedule(after: restoreDelay) { [weak self] in
             self?.restorePreviousPlainText(previousString)
@@ -66,14 +71,21 @@ final class PasteboardTextInsertionClient: TextInsertionClient {
 @MainActor
 final class CGEventPasteCommandSender: PasteCommandSender {
     func sendPasteCommand() {
+        sendKeyCommand(keyCode: 9, flags: .maskCommand)
+    }
+
+    func sendReturnCommand() {
+        sendKeyCommand(keyCode: 36, flags: [])
+    }
+
+    private func sendKeyCommand(keyCode: CGKeyCode, flags: CGEventFlags) {
         let source = CGEventSource(stateID: .combinedSessionState)
-        let keyCodeForV: CGKeyCode = 9
 
-        let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCodeForV, keyDown: true)
-        keyDown?.flags = .maskCommand
+        let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true)
+        keyDown?.flags = flags
 
-        let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCodeForV, keyDown: false)
-        keyUp?.flags = .maskCommand
+        let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
+        keyUp?.flags = flags
 
         keyDown?.post(tap: .cghidEventTap)
         keyUp?.post(tap: .cghidEventTap)

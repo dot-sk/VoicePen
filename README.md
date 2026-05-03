@@ -171,17 +171,14 @@ This database contains app settings, custom dictionary entries, usage stats, and
 Proxy settings, if needed for model downloads, can be configured outside the app:
 
 ```text
-~/.voicepen/settings.json
+~/.voicepen/config.toml
 ```
 
 Example:
 
-```json
-{
-  "env": {
-    "http_proxy": "http://proxy.example.local:2080/"
-  }
-}
+```toml
+[env]
+http_proxy = "http://proxy.example.local:2080/"
 ```
 
 ## Custom Dictionary

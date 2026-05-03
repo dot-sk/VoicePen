@@ -122,10 +122,11 @@ final class VoiceHistoryStore: ObservableObject {
                 timings_json,
                 model_metadata_json,
                 recognized_word_count,
+                diagnostic_notes_json,
                 text_storage_format,
                 raw_text_compressed,
                 final_text_compressed
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """,
             in: database
         )
@@ -163,9 +164,14 @@ final class VoiceHistoryStore: ObservableObject {
         }
 
         sqlite3_bind_int64(statement, 10, Int64(entry.usageWordCount))
-        sqlite3_bind_text(statement, 11, VoiceHistoryTextStorageFormat.plain, -1, SQLITE_TRANSIENT)
-        sqlite3_bind_null(statement, 12)
+        if let diagnosticNotesJSON = try diagnosticNotesJSON(from: entry.diagnosticNotes) {
+            sqlite3_bind_text(statement, 11, diagnosticNotesJSON, -1, SQLITE_TRANSIENT)
+        } else {
+            sqlite3_bind_null(statement, 11)
+        }
+        sqlite3_bind_text(statement, 12, VoiceHistoryTextStorageFormat.plain, -1, SQLITE_TRANSIENT)
         sqlite3_bind_null(statement, 13)
+        sqlite3_bind_null(statement, 14)
 
         try stepDone(statement, database: database)
     }
@@ -337,7 +343,7 @@ final class VoiceHistoryStore: ObservableObject {
     private func fetchEntries(from database: OpaquePointer) throws -> [VoiceHistoryEntry] {
         let statement = try prepare(
             """
-            SELECT id, created_at, duration, raw_text, final_text, status, error_message, timings_json, model_metadata_json, text_storage_format, raw_text_compressed, final_text_compressed, recognized_word_count
+            SELECT id, created_at, duration, raw_text, final_text, status, error_message, timings_json, model_metadata_json, text_storage_format, raw_text_compressed, final_text_compressed, recognized_word_count, diagnostic_notes_json
             FROM voice_history
             ORDER BY created_at DESC;
             """,
@@ -386,6 +392,7 @@ final class VoiceHistoryStore: ObservableObject {
             errorMessage: optionalStringColumn(statement, index: 6),
             timings: try timings(from: optionalStringColumn(statement, index: 7)),
             modelMetadata: try modelMetadata(from: optionalStringColumn(statement, index: 8)),
+            diagnosticNotes: try diagnosticNotes(from: optionalStringColumn(statement, index: 13)),
             recognizedWordCount: optionalIntColumn(statement, index: 12),
             isTextPayloadEvicted: storedText.isEvicted
         )
@@ -473,6 +480,18 @@ final class VoiceHistoryStore: ObservableObject {
     private func modelMetadata(from json: String?) throws -> VoiceTranscriptionModelMetadata? {
         guard let json, let data = json.data(using: .utf8) else { return nil }
         return try JSONDecoder().decode(VoiceTranscriptionModelMetadata.self, from: data)
+    }
+
+    private func diagnosticNotesJSON(from diagnosticNotes: [String]) throws -> String? {
+        guard !diagnosticNotes.isEmpty else { return nil }
+
+        let data = try JSONEncoder().encode(diagnosticNotes)
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func diagnosticNotes(from json: String?) throws -> [String] {
+        guard let json, let data = json.data(using: .utf8) else { return [] }
+        return try JSONDecoder().decode([String].self, from: data)
     }
 
     private func execute(_ sql: String, in database: OpaquePointer) throws {
