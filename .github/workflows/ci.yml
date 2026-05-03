@@ -21,6 +21,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       code: ${{ steps.detect.outputs.code }}
+      specs: ${{ steps.detect.outputs.specs }}
 
     steps:
       - name: Checkout
@@ -52,11 +53,31 @@ jobs:
 
           git diff --name-only "$base" "$head" > changed-files.txt
 
-          if grep -Eq '^(\.github/workflows/ci\.yml|\.periphery\.yml|\.swift-format|\.swiftlint\.yml|Makefile|Package\.resolved|Package\.swift|scripts/|VoicePen(\.xcodeproj|IntegrationTests|Tests|UITests)?/)' changed-files.txt; then
+          if scripts/code-impacting-changes.sh changed-files.txt; then
             printf "code=true\n" >> "$GITHUB_OUTPUT"
           else
             printf "code=false\n" >> "$GITHUB_OUTPUT"
           fi
+
+          if grep -Eq '^(Specs/|scripts/validate-specs\.sh$)' changed-files.txt; then
+            printf "specs=true\n" >> "$GITHUB_OUTPUT"
+          else
+            printf "specs=false\n" >> "$GITHUB_OUTPUT"
+          fi
+
+  spec-validation:
+    name: Spec Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: changes
+    if: needs.changes.outputs.code != 'true' && needs.changes.outputs.specs == 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate specs
+        run: make validate-specs
 
   quality-test:
     name: Quality and Unit Tests

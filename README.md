@@ -40,9 +40,9 @@ For bug fixes, use `Specs/templates/bug-spec.md` when the bug is not already cov
 
 `make test` validates the specs and then runs the unit test suite. The spec validator checks frontmatter, required sections, acceptance criteria, test mapping, and links from `Specs/index.md`.
 
-Development tooling lives in `Docs/development.md`. Use `make format`,
-`make lint`, and `make dead-code` for formatting, linting, and unused-code
-analysis.
+Development tooling lives in `Docs/development.md`. Use `make install-hooks` to
+install Lefthook hooks, and `make format`, `make lint`, and `make dead-code` for
+formatting, linting, and unused-code analysis.
 
 Use ADRs in `Docs/adr/` for significant technical decisions and tradeoffs. Specs describe what VoicePen should do; ADRs explain why a durable architecture or process decision was chosen. Routine bug fixes and small implementation details do not need ADRs.
 
@@ -207,7 +207,9 @@ Large dictionaries can slow down transcription post-processing. As a rough guide
 
 ## CI
 
-GitHub Actions runs unit tests on every pull request and on pushes to `main`.
+GitHub Actions runs code-quality checks, unit tests, and unused-code analysis on
+code-impacting pull requests and pushes to `main`. Documentation-only changes
+skip those code checks.
 
 The workflow is in:
 
