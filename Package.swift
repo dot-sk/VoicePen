@@ -15,7 +15,9 @@ let package = Package(
         .package(path: "Vendor/whisper.spm"),
         .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", from: "2.2.0"),
         .package(url: "https://github.com/Alamofire/Alamofire.git", from: "5.11.2"),
-        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.1")
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.1"),
+        .package(url: "https://github.com/LebJe/TOMLKit.git", from: "0.6.0"),
+        .package(url: "https://github.com/stencilproject/Stencil.git", from: "0.15.1")
     ],
     targets: [
         .target(
@@ -25,7 +27,9 @@ let package = Package(
                 .product(name: "whisper", package: "whisper.spm"),
                 .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts"),
                 .product(name: "Alamofire", package: "Alamofire"),
-                .product(name: "Sparkle", package: "Sparkle")
+                .product(name: "Sparkle", package: "Sparkle"),
+                .product(name: "TOMLKit", package: "TOMLKit"),
+                .product(name: "Stencil", package: "Stencil")
             ],
             path: "VoicePen",
             exclude: [
@@ -35,7 +39,8 @@ let package = Package(
                 "Assets.xcassets"
             ],
             resources: [
-                .process("Resources/model-manifest.json")
+                .process("Resources/model-manifest.json"),
+                .process("Resources/default-config.toml")
             ],
             swiftSettings: [
                 .enableUpcomingFeature("MemberImportVisibility"),

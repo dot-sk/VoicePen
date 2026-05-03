@@ -5,7 +5,7 @@ updated: 2026-05-03
 tests:
   - VoicePenTests/Persistence/DatabaseMigratorTests.swift
   - VoicePenTests/Settings/AppSettingsStoreTests.swift
-  - VoicePenTests/Settings/AppEnvironmentSettingsStoreTests.swift
+  - VoicePenTests/Settings/UserConfigStoreTests.swift
   - VoicePenTests/History/VoiceHistoryStoreTests.swift
   - VoicePenTests/History/VoiceHistoryFilterTests.swift
   - VoicePenTests/History/VoiceTranscriptionUsageStatsTests.swift
@@ -33,6 +33,9 @@ VoicePen stores app data in a local SQLite database under Application Support, m
 - When older history text is compressed or evicted, VoicePen shall keep each history row's duration, status, timing, model metadata, and recognized word count so total dictated time and estimated time saved remain complete.
 - When the History UI is shown, VoicePen shall show an approximate local storage size for saved history without exposing transcription content.
 - When VoicePen shows total transcribed audio time, it shall also show an approximate time-saved estimate by comparing recognized word count against a professional typing baseline.
+- When VoicePen shows usage stats, it shall also show lightweight progress signals: active streak, words dictated today, best dictation day, and milestone progress.
+- When VoicePen computes active streak, it shall count consecutive local calendar days with at least one countable history entry, allowing the streak to remain active before today's first dictation when yesterday had activity.
+- When VoicePen computes words dictated today and best dictation day, it shall use countable history entries and each entry's recognized word count.
 - When the user clicks a visible history entry, VoicePen shall select that entry, show it as active in the list, and update the detail pane to that entry.
 - When the user copies text from a visible history row, VoicePen shall temporarily replace that row's copy icon with a checkmark so the completed copy action is visible.
 - When the history list shows a successful entry, VoicePen shall use a green checkmark without repeating a success label; non-success entries shall show a status or error reason.
@@ -54,6 +57,7 @@ VoicePen stores app data in a local SQLite database under Application Support, m
 | Usage stats after text compression or eviction | Older text payloads are compressed or evicted by the budget | Total dictated duration and estimated time saved still include those retained rows |
 | History storage display | History has saved rows | UI shows approximate local history storage size |
 | Usage time saved | History contains completed dictations with recognized text | General settings shows estimated time saved versus manual typing at the professional typing baseline |
+| Lightweight progress stats | History contains entries across multiple days | General settings shows current streak, today's words, best day, and milestone progress |
 | History selection | Click an older visible history row | Row becomes active and the detail pane shows that row |
 | History row copy feedback | Copy a row with final text | The row copy icon temporarily changes from copy to checkmark |
 | History success status | Entry inserted successfully | Row shows a green checkmark without `Insert attempted` text |
@@ -65,10 +69,11 @@ VoicePen stores app data in a local SQLite database under Application Support, m
 ## Test Mapping
 
 - Automated: `VoicePenTests/Persistence/DatabaseMigratorTests.swift` covers schema migration.
-- Automated: `VoicePenTests/Settings/AppSettingsStoreTests.swift` and `VoicePenTests/Settings/AppEnvironmentSettingsStoreTests.swift` cover settings persistence and normalization.
+- Automated: `VoicePenTests/Settings/AppSettingsStoreTests.swift` and `VoicePenTests/Settings/UserConfigStoreTests.swift` cover settings persistence and normalization.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers launch-at-login updates and synchronization with current macOS login item status.
 - Automated: `VoicePenTests/History/VoiceHistoryStoreTests.swift` covers unlimited local history rows, batch text compression, text payload eviction, storage stats, ordering, deletion, clearing, and persisted history metadata.
-- Automated: `VoicePenTests/History/VoiceHistoryFilterTests.swift` and `VoicePenTests/History/VoiceTranscriptionUsageStatsTests.swift` cover history filtering and estimated time-saved usage stats.
+- Automated: `VoicePenTests/History/VoiceHistoryFilterTests.swift` and `VoicePenTests/History/VoiceTranscriptionUsageStatsTests.swift` cover history filtering, estimated time-saved usage stats, streaks, daily word counts, best day, and milestone progress.
+- Manual: open General settings with several history entries and verify the progress stats appear near the usage summary without success popups.
 - Manual: open History with at least two entries, click a non-selected entry, and verify the row becomes active and the detail pane changes to that entry.
 - Manual: hover a completed History row, copy it with the row copy button or double-click, and verify the row copy icon temporarily changes to a checkmark while the clipboard receives the row text.
 - Manual: verify successful History rows show only a green checkmark status, while empty or failed rows show a textual reason.

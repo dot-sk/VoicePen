@@ -2,7 +2,7 @@ import Foundation
 import SQLite3
 
 nonisolated enum DatabaseMigrator {
-    static let currentSchemaVersion = 6
+    static let currentSchemaVersion = 7
 
     private static let migrations: [DatabaseMigration] = [
         DatabaseMigration(
@@ -106,6 +106,16 @@ nonisolated enum DatabaseMigrator {
                 """
                 ALTER TABLE voice_history
                 ADD COLUMN recognized_word_count INTEGER;
+                """
+            ]
+        ),
+        DatabaseMigration(
+            version: 7,
+            name: "Add voice history diagnostics",
+            statements: [
+                """
+                ALTER TABLE voice_history
+                ADD COLUMN diagnostic_notes_json TEXT;
                 """
             ]
         )

@@ -67,6 +67,8 @@ struct VoicePenMainWindow: View {
             PermissionsSettingsView(controller: controller)
         case .model:
             ModelSettingsView(controller: controller, settingsStore: controller.settingsStore)
+        case .modes:
+            ModesSettingsView(controller: controller, settingsStore: controller.settingsStore)
         case .shortcuts:
             ShortcutsSettingsView(controller: controller, settingsStore: controller.settingsStore)
         case .dictionary:
@@ -1150,6 +1152,16 @@ private struct HistoryDetailView: View {
                             Text("Error")
                                 .font(.subheadline.weight(.semibold))
                             Text(errorMessage)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                    }
+
+                    if !entry.diagnosticNotes.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Diagnostics")
+                                .font(.subheadline.weight(.semibold))
+                            Text(entry.diagnosticNotes.joined(separator: "\n"))
                                 .foregroundStyle(.secondary)
                                 .textSelection(.enabled)
                         }

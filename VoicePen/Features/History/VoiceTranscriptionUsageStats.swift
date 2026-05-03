@@ -6,18 +6,36 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
     let totalDuration: TimeInterval
     let transcribedSessionCount: Int
     let totalWordCount: Int
+    let todayWordCount: Int
+    let currentStreakDayCount: Int
+    let bestDay: VoiceDailyUsageStats?
+    let milestones: [VoiceUsageMilestone]
 
     init(
         totalDuration: TimeInterval = 0,
         transcribedSessionCount: Int = 0,
-        totalWordCount: Int = 0
+        totalWordCount: Int = 0,
+        todayWordCount: Int = 0,
+        currentStreakDayCount: Int = 0,
+        bestDay: VoiceDailyUsageStats? = nil
     ) {
         self.totalDuration = max(0, totalDuration)
         self.transcribedSessionCount = max(0, transcribedSessionCount)
         self.totalWordCount = max(0, totalWordCount)
+        self.todayWordCount = max(0, todayWordCount)
+        self.currentStreakDayCount = max(0, currentStreakDayCount)
+        self.bestDay = bestDay
+        self.milestones = Self.milestones(
+            transcribedSessionCount: self.transcribedSessionCount,
+            totalWordCount: self.totalWordCount,
+            estimatedTimeSavedDuration: Self.estimatedTimeSavedDuration(
+                totalWordCount: self.totalWordCount,
+                totalDuration: self.totalDuration
+            )
+        )
     }
 
-    init(entries: [VoiceHistoryEntry]) {
+    init(entries: [VoiceHistoryEntry], now: Date = Date(), calendar: Calendar = .current) {
         let countedEntries = entries.filter(Self.shouldCount)
         totalDuration = countedEntries.reduce(0) { total, entry in
             total + (entry.duration ?? 0)
@@ -26,6 +44,23 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
         totalWordCount = countedEntries.reduce(0) { total, entry in
             total + entry.usageWordCount
         }
+        let dailyWordCounts = Self.dailyWordCounts(from: countedEntries, calendar: calendar)
+        let today = calendar.startOfDay(for: now)
+        todayWordCount = dailyWordCounts[today] ?? 0
+        currentStreakDayCount = Self.currentStreakDayCount(
+            activeDays: Set(dailyWordCounts.keys),
+            today: today,
+            calendar: calendar
+        )
+        bestDay = Self.bestDay(from: dailyWordCounts)
+        milestones = Self.milestones(
+            transcribedSessionCount: transcribedSessionCount,
+            totalWordCount: totalWordCount,
+            estimatedTimeSavedDuration: Self.estimatedTimeSavedDuration(
+                totalWordCount: totalWordCount,
+                totalDuration: totalDuration
+            )
+        )
     }
 
     var totalMinutes: Double {
@@ -72,11 +107,26 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
     }
 
     var estimatedTimeSavedDuration: TimeInterval {
-        max(0, estimatedManualTypingDuration - totalDuration)
+        Self.estimatedTimeSavedDuration(
+            totalWordCount: totalWordCount,
+            totalDuration: totalDuration
+        )
     }
 
     var readableEstimatedTimeSavedText: String {
         Self.readableDurationText(for: estimatedTimeSavedDuration)
+    }
+
+    var unlockedMilestoneCount: Int {
+        milestones.filter(\.isUnlocked).count
+    }
+
+    var nextMilestone: VoiceUsageMilestone? {
+        milestones.first { !$0.isUnlocked }
+    }
+
+    var milestoneSummaryText: String {
+        "\(unlockedMilestoneCount)/\(milestones.count) milestones"
     }
 
     nonisolated private static func shouldCount(_ entry: VoiceHistoryEntry) -> Bool {
@@ -119,5 +169,119 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
     ) -> String? {
         guard value > 0 else { return nil }
         return "\(value) \(value == 1 ? singular : plural)"
+    }
+
+    nonisolated private static func estimatedTimeSavedDuration(
+        totalWordCount: Int,
+        totalDuration: TimeInterval
+    ) -> TimeInterval {
+        let estimatedManualTypingDuration =
+            (Double(totalWordCount) / Self.manualTypingWordsPerMinute) * 60
+        return max(0, estimatedManualTypingDuration - totalDuration)
+    }
+
+    private static func dailyWordCounts(
+        from entries: [VoiceHistoryEntry],
+        calendar: Calendar
+    ) -> [Date: Int] {
+        entries.reduce(into: [:]) { result, entry in
+            let day = calendar.startOfDay(for: entry.createdAt)
+            result[day, default: 0] += entry.usageWordCount
+        }
+    }
+
+    private static func currentStreakDayCount(
+        activeDays: Set<Date>,
+        today: Date,
+        calendar: Calendar
+    ) -> Int {
+        let startDay =
+            activeDays.contains(today)
+            ? today
+            : calendar.date(byAdding: .day, value: -1, to: today) ?? today
+        var day = startDay
+        var count = 0
+
+        while activeDays.contains(day) {
+            count += 1
+            guard let previousDay = calendar.date(byAdding: .day, value: -1, to: day) else {
+                break
+            }
+            day = previousDay
+        }
+
+        return count
+    }
+
+    private static func bestDay(from dailyWordCounts: [Date: Int]) -> VoiceDailyUsageStats? {
+        dailyWordCounts
+            .map { VoiceDailyUsageStats(date: $0.key, wordCount: $0.value) }
+            .filter { $0.wordCount > 0 }
+            .max {
+                if $0.wordCount == $1.wordCount {
+                    return $0.date < $1.date
+                }
+                return $0.wordCount < $1.wordCount
+            }
+    }
+
+    private static func milestones(
+        transcribedSessionCount: Int,
+        totalWordCount: Int,
+        estimatedTimeSavedDuration: TimeInterval
+    ) -> [VoiceUsageMilestone] {
+        [
+            VoiceUsageMilestone(
+                title: "First dictation",
+                currentValue: transcribedSessionCount,
+                targetValue: 1,
+                unit: "session"
+            ),
+            VoiceUsageMilestone(
+                title: "10 dictations",
+                currentValue: transcribedSessionCount,
+                targetValue: 10,
+                unit: "sessions"
+            ),
+            VoiceUsageMilestone(
+                title: "1,000 words",
+                currentValue: totalWordCount,
+                targetValue: 1_000,
+                unit: "words"
+            ),
+            VoiceUsageMilestone(
+                title: "1 hour saved",
+                currentValue: Int(estimatedTimeSavedDuration.rounded(.down)),
+                targetValue: 3_600,
+                unit: "seconds"
+            )
+        ]
+    }
+}
+
+nonisolated struct VoiceDailyUsageStats: Equatable, Sendable {
+    var date: Date
+    var wordCount: Int
+}
+
+nonisolated struct VoiceUsageMilestone: Equatable, Identifiable, Sendable {
+    var title: String
+    var currentValue: Int
+    var targetValue: Int
+    var unit: String
+
+    var id: String { title }
+
+    var isUnlocked: Bool {
+        currentValue >= targetValue
+    }
+
+    var progress: Double {
+        guard targetValue > 0 else { return 1 }
+        return min(1, max(0, Double(currentValue) / Double(targetValue)))
+    }
+
+    var remainingValue: Int {
+        max(0, targetValue - currentValue)
     }
 }

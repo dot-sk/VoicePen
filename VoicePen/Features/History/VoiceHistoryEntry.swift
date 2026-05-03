@@ -10,6 +10,7 @@ nonisolated struct VoiceHistoryEntry: Codable, Identifiable, Equatable, Sendable
     var errorMessage: String?
     var timings: VoicePipelineTimings?
     var modelMetadata: VoiceTranscriptionModelMetadata?
+    var diagnosticNotes: [String] = []
     var recognizedWordCount: Int?
     var isTextPayloadEvicted: Bool = false
 

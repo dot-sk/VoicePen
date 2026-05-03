@@ -7,6 +7,8 @@ struct DictationPipelineResult: Equatable {
     let didAttemptInsertion: Bool
     let timings: VoicePipelineTimings?
     let modelMetadata: VoiceTranscriptionModelMetadata?
+    let diagnosticNotes: [String]
+    let insertionAction: TextInsertionAction
 
     init(
         rawText: String,
@@ -14,7 +16,9 @@ struct DictationPipelineResult: Equatable {
         recording: RecordingResult? = nil,
         didAttemptInsertion: Bool = false,
         timings: VoicePipelineTimings? = nil,
-        modelMetadata: VoiceTranscriptionModelMetadata? = nil
+        modelMetadata: VoiceTranscriptionModelMetadata? = nil,
+        diagnosticNotes: [String] = [],
+        insertionAction: TextInsertionAction = .paste
     ) {
         self.rawText = rawText
         self.finalText = finalText
@@ -22,6 +26,8 @@ struct DictationPipelineResult: Equatable {
         self.didAttemptInsertion = didAttemptInsertion
         self.timings = timings
         self.modelMetadata = modelMetadata
+        self.diagnosticNotes = diagnosticNotes
+        self.insertionAction = insertionAction
     }
 }
 
@@ -32,8 +38,11 @@ final class DictationPipeline {
     private let dictionaryStore: DictionaryStore
     private let inserter: TextInsertionClient
     private let overlay: OverlayPresenter
+    private let userConfigStore: UserConfigStore
     private let languageProvider: () -> String
     private let speechPreprocessingModeProvider: () -> SpeechPreprocessingMode
+    private let developerModeOverrideProvider: () -> DeveloperMode?
+    private let activeApplicationProvider: () -> ActiveApplicationInfo?
     private let minimumRecordingDuration: TimeInterval
     private var recordingLevelTask: Task<Void, Never>?
 
@@ -44,8 +53,11 @@ final class DictationPipeline {
         dictionaryStore: DictionaryStore,
         inserter: TextInsertionClient,
         overlay: OverlayPresenter,
+        userConfigStore: UserConfigStore = UserConfigStore(),
         languageProvider: @escaping () -> String = { VoicePenConfig.defaultLanguage },
         speechPreprocessingModeProvider: @escaping () -> SpeechPreprocessingMode = { .off },
+        developerModeOverrideProvider: @escaping () -> DeveloperMode? = { nil },
+        activeApplicationProvider: @escaping () -> ActiveApplicationInfo? = { nil },
         minimumRecordingDuration: TimeInterval = VoicePenConfig.minimumRecordingDuration
     ) {
         self.recorder = recorder
@@ -54,8 +66,11 @@ final class DictationPipeline {
         self.dictionaryStore = dictionaryStore
         self.inserter = inserter
         self.overlay = overlay
+        self.userConfigStore = userConfigStore
         self.languageProvider = languageProvider
         self.speechPreprocessingModeProvider = speechPreprocessingModeProvider
+        self.developerModeOverrideProvider = developerModeOverrideProvider
+        self.activeApplicationProvider = activeApplicationProvider
         self.minimumRecordingDuration = minimumRecordingDuration
     }
 
@@ -123,43 +138,69 @@ final class DictationPipeline {
         try Task.checkCancellation()
 
         await overlay.update(.transcribing(stage: .normalizing, progress: nil))
-        let normalized = try measure {
-            try dictionaryStore.makeNormalizer()
+        let normalized = try measure { () throws -> DeveloperModeProcessingResult in
+            let configResult = userConfigStore.loadConfig()
+            let commandResult = DeveloperModeProcessor.process(
+                text: rawText,
+                config: configResult.config,
+                uiOverride: developerModeOverrideProvider(),
+                activeApplication: activeApplicationProvider(),
+                configDiagnosticNotes: configResult.diagnosticNotes
+            )
+
+            guard commandResult.matchedCommandID == nil else {
+                return commandResult
+            }
+
+            let dictionaryText = try dictionaryStore.makeNormalizer()
                 .normalize(rawText)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+            let aliases = configResult.config.aliases.aliases(for: commandResult.activeContext)
+            let finalText = AliasNormalizer.normalize(dictionaryText, aliases: aliases)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return DeveloperModeProcessingResult(
+                text: finalText,
+                diagnosticNotes: commandResult.diagnosticNotes,
+                activeContext: commandResult.activeContext
+            )
         }
-        let finalText = normalized.value
         timings.normalization = normalized.elapsed
         try Task.checkCancellation()
+        let developerModeResult = normalized.value
+        let processedFinalText = TextOutputNormalizer.normalize(developerModeResult.text)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard !finalText.isEmpty else {
+        guard !processedFinalText.isEmpty else {
             overlay.hide(after: 0.1)
             return DictationPipelineResult(
                 rawText: rawText,
-                finalText: finalText,
+                finalText: processedFinalText,
                 recording: nil,
                 didAttemptInsertion: false,
-                modelMetadata: transcriptionResult.modelMetadata
+                modelMetadata: transcriptionResult.modelMetadata,
+                diagnosticNotes: developerModeResult.diagnosticNotes,
+                insertionAction: developerModeResult.insertionAction
             )
         }
 
         await overlay.update(.transcribing(stage: .pasting, progress: nil))
         try Task.checkCancellation()
         let insertion = measure {
-            inserter.insert(finalText)
+            inserter.insert(processedFinalText, action: developerModeResult.insertionAction)
         }
         timings.insertion = insertion.elapsed
 
-        overlay.update(.done(message: "Inserted"))
-        overlay.hide(after: 0.7)
+        overlay.hide(after: 0.1)
 
         return DictationPipelineResult(
             rawText: rawText,
-            finalText: finalText,
+            finalText: processedFinalText,
             recording: recording,
             didAttemptInsertion: true,
             timings: timings,
-            modelMetadata: transcriptionResult.modelMetadata
+            modelMetadata: transcriptionResult.modelMetadata,
+            diagnosticNotes: developerModeResult.diagnosticNotes,
+            insertionAction: developerModeResult.insertionAction
         )
     }
 
