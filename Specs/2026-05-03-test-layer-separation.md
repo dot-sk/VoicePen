@@ -26,6 +26,11 @@ available through an explicit command.
 
 - When a developer runs the default test command, VoicePen shall validate specs
   and execute tests in a non-hosted unit-test runner.
+- When a pull request or main-branch push changes only documentation, specs, or
+  repository instructions, VoicePen CI shall skip code-quality checks, unit
+  tests, and dead-code analysis.
+- When a pull request or main-branch push changes code-impacting files, VoicePen
+  CI shall run code-quality checks, unit tests, and dead-code analysis.
 - When a developer needs app-host coverage, VoicePen shall provide a separate
   hosted integration-test command.
 - Unit tests shall import the core VoicePen module directly rather than loading
@@ -38,6 +43,8 @@ available through an explicit command.
 | Case | Input | Expected |
 | --- | --- | --- |
 | Default local check | `make test` | Specs validate and SwiftPM unit tests run without `VoicePen.app` opening |
+| Docs-only PR | Change only `README.md`, `Docs/`, `Specs/`, or `AGENTS.md` | CI skips code-quality checks, unit tests, and dead-code analysis |
+| Code PR | Change `VoicePen/`, `VoicePenTests/`, package files, scripts, or CI workflow | CI runs code-quality checks, unit tests, and dead-code analysis |
 | App-host check | `make integration-test` | Xcode runs hosted integration tests against `VoicePen.app` |
 
 ## Test Mapping
@@ -45,6 +52,8 @@ available through an explicit command.
 - Automated: `make test` verifies spec validation and the non-hosted unit test
   target.
 - Automated: `make integration-test` verifies the hosted app integration target.
+- Automated: `.github/workflows/ci.yml` gates code-quality checks, unit tests,
+  and dead-code analysis on code-impacting changed paths.
 - Manual: observe that `make test` does not open the VoicePen app window, while
   `make integration-test` may launch the app host by design.
 
