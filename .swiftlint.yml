@@ -1,0 +1,53 @@
+included:
+  - VoicePen
+  - VoicePenTests
+  - VoicePenIntegrationTests
+  - VoicePenUITests
+
+excluded:
+  - Vendor
+  - .build
+  - /private/tmp
+  - /tmp
+
+disabled_rules:
+  - cyclomatic_complexity
+  - file_length
+  - function_parameter_count
+  - function_body_length
+  - opening_brace
+  - line_length
+  - optional_data_string_conversion
+  - static_over_final_class
+  - type_body_length
+
+opt_in_rules:
+  - closure_spacing
+  - empty_count
+  - first_where
+  - joined_default_parameter
+  - redundant_nil_coalescing
+  - toggle_bool
+  - unneeded_parentheses_in_closure_argument
+  - vertical_parameter_alignment_on_call
+
+identifier_name:
+  min_length:
+    warning: 2
+  max_length:
+    warning: 60
+  allowed_symbols:
+    - "_"
+  excluded:
+    - db
+    - id
+    - ms
+    - to
+    - up
+    - x
+    - y
+
+large_tuple:
+  warning: 3
+
+reporter: "xcode"

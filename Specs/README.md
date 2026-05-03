@@ -61,4 +61,4 @@ Run:
 scripts/validate-specs.sh
 ```
 
-`make test-strict` runs this validation before the unit test suite.
+`make test` runs this validation before the unit test suite.

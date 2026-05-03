@@ -34,11 +34,15 @@ For any feature or behavior change:
 4. Add or update tests that prove the acceptance criteria.
 5. Implement the smallest code change that satisfies the spec.
 6. Update the spec in the same change if the final behavior or test mapping changes.
-7. Run `make test-strict` before opening or merging the pull request.
+7. Run `make test` before opening or merging the pull request.
 
 For bug fixes, use `Specs/templates/bug-spec.md` when the bug is not already covered by an existing spec. The bug spec should include the current broken behavior, desired behavior, regression test, and any required manual verification.
 
-`make test-strict` validates the specs and then runs the unit test suite. The spec validator checks frontmatter, required sections, acceptance criteria, test mapping, and links from `Specs/index.md`.
+`make test` validates the specs and then runs the unit test suite. The spec validator checks frontmatter, required sections, acceptance criteria, test mapping, and links from `Specs/index.md`.
+
+Development tooling lives in `Docs/development.md`. Use `make format`,
+`make lint`, and `make dead-code` for formatting, linting, and unused-code
+analysis.
 
 Use ADRs in `Docs/adr/` for significant technical decisions and tradeoffs. Specs describe what VoicePen should do; ADRs explain why a durable architecture or process decision was chosen. Routine bug fixes and small implementation details do not need ADRs.
 

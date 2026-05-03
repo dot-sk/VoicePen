@@ -6,6 +6,7 @@ xcuserdata/
 DerivedData/
 .build/
 build/
+.swiftlint-cache/
 
 # Swift Package Manager
 .swiftpm/

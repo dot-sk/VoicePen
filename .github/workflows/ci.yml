@@ -3,8 +3,6 @@ name: CI
 on:
   pull_request:
   push:
-    branches:
-      - main
   workflow_dispatch:
 
 concurrency:
@@ -15,6 +13,30 @@ permissions:
   contents: read
 
 jobs:
+  quality:
+    name: Lint and Format
+    runs-on: macos-26
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Print toolchain versions
+        run: |
+          xcodebuild -version
+          swift --version
+          xcrun swift-format --version
+
+      - name: Install lint tools
+        run: brew install swiftlint
+
+      - name: Run lint checks
+        run: make lint
+
   test:
     name: Build and Test
     runs-on: macos-26
@@ -35,5 +57,28 @@ jobs:
       - name: Resolve Swift packages
         run: make resolve-packages
 
-      - name: Run strict checks
-        run: make test-strict
+      - name: Run unit tests
+        run: make test
+
+  dead-code:
+    name: Dead Code
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Print toolchain versions
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Install Periphery
+        run: brew install peripheryapp/periphery/periphery
+
+      - name: Run unused-code analysis
+        run: make dead-code
