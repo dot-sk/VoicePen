@@ -3,7 +3,7 @@ import Combine
 import Foundation
 
 #if canImport(Sparkle)
-import Sparkle
+    import Sparkle
 #endif
 
 nonisolated enum SoftwareUpdateConfiguration {
@@ -14,35 +14,35 @@ nonisolated enum SoftwareUpdateConfiguration {
 
 @MainActor
 final class SoftwareUpdateController: ObservableObject {
-#if canImport(Sparkle)
-    private let updaterController: SPUStandardUpdaterController?
-#endif
+    #if canImport(Sparkle)
+        private let updaterController: SPUStandardUpdaterController?
+    #endif
 
     init(startingUpdater: Bool = true) {
-#if canImport(Sparkle)
-        if Self.hasRequiredConfiguration {
-            updaterController = SPUStandardUpdaterController(
-                startingUpdater: startingUpdater,
-                updaterDelegate: nil,
-                userDriverDelegate: nil
-            )
-        } else {
-            updaterController = nil
-        }
-#endif
+        #if canImport(Sparkle)
+            if Self.hasRequiredConfiguration {
+                updaterController = SPUStandardUpdaterController(
+                    startingUpdater: startingUpdater,
+                    updaterDelegate: nil,
+                    userDriverDelegate: nil
+                )
+            } else {
+                updaterController = nil
+            }
+        #endif
     }
 
     func checkForUpdates() {
-#if canImport(Sparkle)
-        guard let updaterController else {
-            showMissingConfigurationAlert()
-            return
-        }
+        #if canImport(Sparkle)
+            guard let updaterController else {
+                showMissingConfigurationAlert()
+                return
+            }
 
-        updaterController.checkForUpdates(nil)
-#else
-        showMissingConfigurationAlert()
-#endif
+            updaterController.checkForUpdates(nil)
+        #else
+            showMissingConfigurationAlert()
+        #endif
     }
 
     private static var hasRequiredConfiguration: Bool {

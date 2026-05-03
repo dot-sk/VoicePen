@@ -36,8 +36,8 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "11953D822FA4D47E00ED707B"
-               BuildableName = "VoicePenTests.xctest"
-               BlueprintName = "VoicePenTests"
+               BuildableName = "VoicePenIntegrationTests.xctest"
+               BlueprintName = "VoicePenIntegrationTests"
                ReferencedContainer = "container:VoicePen.xcodeproj">
             </BuildableReference>
          </TestableReference>

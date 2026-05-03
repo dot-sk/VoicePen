@@ -12,6 +12,16 @@ nonisolated enum VoicePenConfig {
     static let glossaryLimit = 40
     static let shortRecordingPromptMaximumDuration: TimeInterval = 10
     static let defaultHotkeyHoldDuration: TimeInterval = 0.35
-    static let appSupportFolderName = "VoicePen"
+    static let accessibilityPermissionPollInterval: Duration = .seconds(1)
+    static let historyCopyFeedbackDuration: Duration = .milliseconds(1_400)
+    static let recordingLevelRefreshInterval: Duration = .milliseconds(80)
+    static var appSupportFolderName: String {
+        let configuredName = Bundle.main.object(forInfoDictionaryKey: "VPApplicationSupportFolderName") as? String
+        let trimmedName = configuredName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmedName, !trimmedName.isEmpty else {
+            return "VoicePen"
+        }
+        return trimmedName
+    }
     static let minimumSpeechSignalDuration: TimeInterval = 0.16
 }

@@ -1,7 +1,7 @@
 ---
 id: SPEC-006
 status: implemented
-updated: 2026-05-02
+updated: 2026-05-03
 tests:
   - VoicePenTests/Updates/SoftwareUpdateConfigurationTests.swift
   - VoicePenTests/Updates/AppcastGenerationTests.swift
@@ -61,6 +61,13 @@ update-signing material.
 - When release publishing packages app archives across versions, it shall sign
   the app bundle with a stable macOS code signing identity so macOS privacy
   permissions can remain associated with VoicePen across updater installs.
+- When a development build is run locally, it shall use a distinct bundle
+  identifier, display name, and Application Support folder from the release app
+  so macOS privacy permissions and local state do not conflict with production
+  installs.
+- When a release build is packaged, it shall keep the production bundle
+  identifier, display name, and Application Support folder used by installed
+  updater-enabled builds.
 - When an archive is missing a valid updater signature, VoicePen shall not offer
   it as an installable update.
 
@@ -71,6 +78,8 @@ update-signing material.
 | Manual check finds update | Installed build `1.0`, feed contains `1.1` | VoicePen shows the updater prompt for `1.1`. |
 | Manual check is current | Installed build matches newest feed item | VoicePen reports that VoicePen is up to date. |
 | First updater rollout | User has a pre-updater build installed | User manually installs the transition build once; later updates use the updater. |
+| Local development run | Debug build is launched from Xcode or `make run` | macOS sees `VoicePen Dev` with a development bundle identifier and separate local data folder. |
+| Release packaging | Release build is archived for GitHub Releases | macOS sees production `VoicePen` with the production bundle identifier and local data folder. |
 | Invalid release archive | Feed item lacks a valid update signature | VoicePen refuses to install that update. |
 
 ## Test Mapping
@@ -86,6 +95,9 @@ update-signing material.
 - Automated: `VoicePenTests/Updates/SoftwareUpdateConfigurationTests.swift`
   verifies the package target signs the app bundle before archiving it and the
   release workflow imports a stable macOS signing identity from GitHub Secrets.
+- Automated: `VoicePenTests/Updates/SoftwareUpdateConfigurationTests.swift`
+  verifies Debug and Release use separate app identity and local data build
+  settings.
 - Manual: install an older update-enabled build into `/Applications`, publish or
   locally host a newer feed item, choose check for updates, approve the prompt,
   and confirm the app updates and launches as the newer version.
