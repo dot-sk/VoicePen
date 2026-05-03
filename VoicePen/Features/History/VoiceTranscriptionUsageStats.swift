@@ -125,8 +125,18 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
         milestones.first { !$0.isUnlocked }
     }
 
-    var milestoneSummaryText: String {
-        "\(unlockedMilestoneCount)/\(milestones.count) milestones"
+    var latestReachedMilestone: VoiceUsageMilestone? {
+        milestones.last { $0.isUnlocked }
+    }
+
+    var reachedMilestoneText: String {
+        guard let latestReachedMilestone else { return "Reached: none yet" }
+        return "Reached: \(latestReachedMilestone.title)"
+    }
+
+    var nextMilestoneText: String {
+        guard let nextMilestone else { return "All milestones unlocked" }
+        return "Next: \(nextMilestone.title)"
     }
 
     nonisolated private static func shouldCount(_ entry: VoiceHistoryEntry) -> Bool {

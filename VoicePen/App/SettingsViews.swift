@@ -137,13 +137,6 @@ struct GeneralSettingsView: View {
         return "\(bestDay.wordCount.formatted()) \(bestDay.wordCount == 1 ? "word" : "words") on \(bestDay.date.formatted(date: .abbreviated, time: .omitted))"
     }
 
-    private var milestoneText: String {
-        guard let nextMilestone = stats.nextMilestone else {
-            return "All milestones unlocked"
-        }
-        return "Next: \(nextMilestone.title)"
-    }
-
     var body: some View {
         Form {
             Section {
@@ -195,14 +188,14 @@ struct GeneralSettingsView: View {
                         )
                         UsageStatView(
                             title: "Milestones",
-                            value: stats.milestoneSummaryText,
-                            caption: milestoneText
+                            value: stats.reachedMilestoneText,
+                            caption: stats.nextMilestoneText
                         )
                     }
 
                     ProgressView(value: stats.nextMilestone?.progress ?? 1)
                         .tint(.accentColor)
-                        .help(milestoneText)
+                        .help(stats.nextMilestoneText)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 12)
