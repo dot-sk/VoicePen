@@ -1,7 +1,7 @@
 ---
 id: SPEC-001
 status: implemented
-updated: 2026-05-03
+updated: 2026-05-04
 tests:
   - VoicePenTests/Pipeline/DictationPipelineTests.swift
   - VoicePenTests/TextOutput/TextOutputNormalizerTests.swift
@@ -21,6 +21,7 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 ## Acceptance Criteria
 
 - When dictation starts, VoicePen shall start recording and show the recording overlay.
+- When the recording overlay shows the microphone level indicator, the white level bar shall animate vertically without horizontal jitter.
 - When recording duration is below the minimum, VoicePen shall stop without transcription or insertion.
 - When audio is silent or transcription returns an empty result, VoicePen shall not insert text or create a history recording.
 - When recording is valid, VoicePen shall preprocess audio before transcription, pass the resolved language and glossary prompt, normalize raw text, insert non-empty final text, and record timing data.
@@ -35,6 +36,7 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 | Case | Input | Expected |
 | --- | --- | --- |
 | Short recording | 0.2s recording | No transcription and no insertion |
+| Recording overlay | Active recording with changing input level | The microphone level bar changes height while staying horizontally anchored |
 | Silent recording | Valid duration with no speech | No insertion and no history recording |
 | Normal recording | "создай типы на тайп скрипт" | Inserts "создай типы на TypeScript" |
 | Global output normalization | `Ёжик сказал: «пойдём» — готово` | `Ежик сказал: "пойдем" – готово` |
@@ -48,6 +50,7 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 - Automated: `VoicePenTests/TextOutput/TextOutputNormalizerTests.swift` covers global output character replacements.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers reinstalling the push-to-talk hotkey when a custom shortcut is recorded after the custom preference is selected.
 - Manual: verify the menu bar app records while the configured hotkey is held and pastes final text into the active app when Accessibility permission is granted.
+- Manual: hold the configured push-to-talk hotkey and verify the white microphone level bar changes height without moving left or right inside the red capsule.
 - Manual: select the custom push-to-talk shortcut, record Ctrl-E, hold Ctrl-E for the configured hold duration, and verify recording starts without restarting VoicePen.
 
 ## Notes

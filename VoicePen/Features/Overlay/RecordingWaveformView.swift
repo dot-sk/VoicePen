@@ -54,14 +54,13 @@ struct ListeningMicrophoneIndicatorView: View {
                     TimelineView(.animation(minimumInterval: 1.0 / 45.0)) { timeline in
                         let time = timeline.date.timeIntervalSinceReferenceDate
                         let tremble = sin(time * 48) * 2.2 + sin(time * 83) * 1.1
-                        let xJitter = sin(time * 71) * 0.45
                         let liveHeight = stripeHeight + CGFloat(tremble * trembleIntensity)
 
                         RoundedRectangle(cornerRadius: 1.5, style: .continuous)
                             .fill(.white.opacity(0.9))
                             .frame(width: 3.2, height: liveHeight)
-                            .offset(x: CGFloat(xJitter * trembleIntensity))
                             .shadow(color: .white.opacity(0.24), radius: 3, x: 0, y: 0)
+                            .frame(width: 26, height: 54, alignment: .center)
                             .animation(.easeOut(duration: 0.06), value: stripeHeight)
                     }
                 }
