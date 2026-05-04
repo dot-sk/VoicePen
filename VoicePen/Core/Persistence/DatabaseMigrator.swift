@@ -2,7 +2,7 @@ import Foundation
 import SQLite3
 
 nonisolated enum DatabaseMigrator {
-    static let currentSchemaVersion = 7
+    static let currentSchemaVersion = 8
 
     private static let migrations: [DatabaseMigration] = [
         DatabaseMigration(
@@ -116,6 +116,32 @@ nonisolated enum DatabaseMigrator {
                 """
                 ALTER TABLE voice_history
                 ADD COLUMN diagnostic_notes_json TEXT;
+                """
+            ]
+        ),
+        DatabaseMigration(
+            version: 8,
+            name: "Add meeting history",
+            statements: [
+                """
+                CREATE TABLE IF NOT EXISTS meeting_history (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    created_at REAL NOT NULL,
+                    duration REAL NOT NULL,
+                    transcript_text TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    source_flags_json TEXT NOT NULL,
+                    error_message TEXT,
+                    timings_json TEXT,
+                    model_metadata_json TEXT,
+                    recognized_word_count INTEGER,
+                    text_storage_format TEXT NOT NULL DEFAULT 'plain',
+                    transcript_text_compressed BLOB
+                );
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS idx_meeting_history_created_at
+                ON meeting_history(created_at DESC);
                 """
             ]
         )

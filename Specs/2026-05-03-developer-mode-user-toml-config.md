@@ -1,7 +1,7 @@
 ---
 id: SPEC-008
 status: implemented
-updated: 2026-05-04
+updated: 2026-05-05
 tests:
   - VoicePenTests/App/VoicePenAppCommandTests.swift
   - VoicePenTests/Settings/UserConfigStoreTests.swift
@@ -40,6 +40,7 @@ VoicePen reads a single user-editable TOML file at `~/.voicepen/config.toml`, cr
 - When the user chooses to reload config from Config settings, VoicePen shall reread `~/.voicepen/config.toml`, refresh settings displays backed by user config, and surface config diagnostics in the Config tab.
 - When the user switches to Config settings, VoicePen shall refresh TOML-backed settings after the settings view update rather than synchronously publishing during SwiftUI view construction.
 - When the user presses the standard macOS Settings shortcut `Command + ,`, VoicePen shall ensure `~/.voicepen/config.toml` exists and then open it with the system default editor.
+- When VoicePen saves TOML-backed settings from the UI, it shall write non-ASCII config text such as Russian aliases and triggers as readable UTF-8 characters rather than unicode escape sequences.
 - When no UI mode override exists, VoicePen shall use `[developer].mode`; `auto` shall classify the active app as terminal, developer, or plain.
 - When aliases are applied, VoicePen shall apply `aliases.common` in all contexts, then active-context aliases, case-insensitively, longest-first, and only across word boundaries.
 - When common and context aliases conflict, the active-context alias shall win.
@@ -77,12 +78,13 @@ VoicePen reads a single user-editable TOML file at `~/.voicepen/config.toml`, cr
 | Dictionary conflict | User dictionary maps `гит` differently, terminal command says `гит status` | Command still matches via TOML alias and inserts `git status --short --branch` |
 | Plain app | Unknown foreground app in auto mode | Normal dictation text is inserted |
 | Standard settings shortcut | User presses `Command + ,` | User TOML config is created if needed and opened in the default editor |
+| TOML autosave readability | Config contains `"гит"` and AI settings are changed from UI | Saved config still contains `"гит"` as UTF-8 text |
 
 ## Test Mapping
 
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers `Command + ,` being wired to opening the user TOML config.
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers settings sidebar ordering, push-to-talk controls living in General, and the dedicated Config settings tab.
-- Automated: `VoicePenTests/Settings/UserConfigStoreTests.swift` covers default TOML creation, non-overwrite, env normalization, config reload, and invalid-config fallback diagnostics.
+- Automated: `VoicePenTests/Settings/UserConfigStoreTests.swift` covers default TOML creation, non-overwrite, env normalization, config reload, readable UTF-8 autosave, and invalid-config fallback diagnostics.
 - Automated: `VoicePenTests/DeveloperMode/ActiveAppContextClassifierTests.swift` covers terminal, developer, and plain active app classification.
 - Automated: `VoicePenTests/DeveloperMode/DeveloperModeProcessorTests.swift` covers aliases, command matching, longest triggers, filters, branch formatting, action gating, and command-like diagnostics.
 - Automated: `VoicePenTests/Settings/AppSettingsStoreTests.swift` covers persisted UI mode override.

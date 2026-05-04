@@ -30,6 +30,8 @@
 	<false/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>VoicePen needs microphone access to transcribe your speech offline.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>VoicePen needs system audio access to transcribe meeting audio from apps locally.</string>
 	<key>SUAutomaticallyUpdate</key>
 	<true/>
 	<key>SUEnableAutomaticChecks</key>

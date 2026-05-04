@@ -11,6 +11,7 @@ final class AppSettingsStore: ObservableObject {
     @Published private(set) var hotkeyHoldDuration: TimeInterval
     @Published private(set) var openAtLogin: Bool
     @Published private(set) var developerModeOverride: DeveloperMode?
+    @Published private(set) var hasAcknowledgedMeetingRecordingConsent: Bool
 
     private let databaseURL: URL
     private let fileManager: FileManager
@@ -25,6 +26,7 @@ final class AppSettingsStore: ObservableObject {
         self.hotkeyHoldDuration = VoicePenConfig.defaultHotkeyHoldDuration
         self.openAtLogin = false
         self.developerModeOverride = nil
+        self.hasAcknowledgedMeetingRecordingConsent = false
     }
 
     func load(defaultModelId: String) throws {
@@ -39,8 +41,9 @@ final class AppSettingsStore: ObservableObject {
                 ?? String(VoicePenConfig.defaultHotkeyHoldDuration)
             let openAtLogin = try fetchValue(forKey: Self.openAtLoginKey, from: database) ?? "false"
             let developerModeOverride = try fetchValue(forKey: Self.developerModeOverrideKey, from: database)
+            let meetingConsent = try fetchValue(forKey: Self.meetingConsentKey, from: database) ?? "false"
             return (
-                language, modelId, preprocessing, hotkey, holdDuration, openAtLogin, developerModeOverride
+                language, modelId, preprocessing, hotkey, holdDuration, openAtLogin, developerModeOverride, meetingConsent
             )
         }
         transcriptionLanguage = Self.normalizeLanguage(values.0)
@@ -50,6 +53,7 @@ final class AppSettingsStore: ObservableObject {
         hotkeyHoldDuration = Self.normalizeHotkeyHoldDuration(values.4)
         openAtLogin = Self.normalizeBoolean(values.5)
         developerModeOverride = Self.normalizeDeveloperModeOverride(values.6)
+        hasAcknowledgedMeetingRecordingConsent = Self.normalizeBoolean(values.7)
     }
 
     func updateTranscriptionLanguage(_ language: String) throws {
@@ -109,6 +113,14 @@ final class AppSettingsStore: ObservableObject {
             try setValue(mode.rawValue, forKey: Self.developerModeOverrideKey, in: database)
         }
         developerModeOverride = mode
+    }
+
+    func updateMeetingRecordingConsentAcknowledged(_ isAcknowledged: Bool) throws {
+        try withDatabase { database in
+            try DatabaseMigrator.migrate(database)
+            try setValue(String(isAcknowledged), forKey: Self.meetingConsentKey, in: database)
+        }
+        hasAcknowledgedMeetingRecordingConsent = isAcknowledged
     }
 
     private func withDatabase<T>(_ body: (OpaquePointer) throws -> T) throws -> T {
@@ -239,6 +251,7 @@ final class AppSettingsStore: ObservableObject {
     private static let hotkeyHoldDurationKey = "hotkey.holdDuration"
     private static let openAtLoginKey = "app.openAtLogin"
     private static let developerModeOverrideKey = "developer.modeOverride"
+    private static let meetingConsentKey = "meeting.recordingConsentAcknowledged"
 }
 
 struct TranscriptionLanguage: Identifiable, Equatable {

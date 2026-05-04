@@ -12,6 +12,7 @@
 - [SPEC-008 Developer Mode And User TOML Config](2026-05-03-developer-mode-user-toml-config.md)
 - [SPEC-009 Experimental LLM Intent Parser](2026-05-04-experimental-llm-intent-parser.md)
 - [SPEC-010 Structured LLM Provider Layer](2026-05-04-structured-llm-provider-layer.md)
+- [SPEC-011 Meeting Recording Mode](2026-05-05-meeting-recording-mode.md)
 
 ## Templates
 

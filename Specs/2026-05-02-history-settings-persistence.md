@@ -1,7 +1,7 @@
 ---
 id: SPEC-004
 status: implemented
-updated: 2026-05-04
+updated: 2026-05-05
 tests:
   - VoicePenTests/App/VoicePenAppCommandTests.swift
   - VoicePenTests/Persistence/DatabaseMigratorTests.swift
@@ -33,6 +33,7 @@ VoicePen stores app data in a local SQLite database under Application Support, m
 - When the total stored text payload budget is exceeded after compression, VoicePen shall evict a fixed-size batch of oldest text payloads while keeping the history rows.
 - When older history text is compressed or evicted, VoicePen shall keep each history row's duration, status, timing, model metadata, and recognized word count so total dictated time and estimated time saved remain complete.
 - When the History UI is shown, VoicePen shall show an approximate local storage size for saved history without exposing transcription content.
+- When the History UI is shown, VoicePen shall not expose a file-reveal action for the SQLite history database; users inspect sessions through the in-app list and detail pane.
 - When VoicePen shows total transcribed audio time, it shall also show an approximate time-saved estimate by comparing recognized word count against a professional typing baseline.
 - When VoicePen shows usage stats, it shall also show lightweight progress signals: active streak, words dictated today, best dictation day, the latest reached milestone, and the next milestone.
 - When VoicePen computes usage milestones, it shall use a progressive ladder that mixes early wins, lifetime word volume, dictation count, active streak, best-day volume, and time saved so a single high-volume day cannot unlock the full ladder.
@@ -60,6 +61,7 @@ VoicePen stores app data in a local SQLite database under Application Support, m
 | Compressed history read | A compressed older row is loaded from SQLite | Raw and final text are restored into the history entry |
 | Usage stats after text compression or eviction | Older text payloads are compressed or evicted by the budget | Total dictated duration and estimated time saved still include those retained rows |
 | History storage display | History has saved rows | UI shows approximate local history storage size |
+| History database file | Open History | No history database reveal action is shown |
 | Usage time saved | History contains completed dictations with recognized text | General settings shows estimated time saved versus manual typing at the professional typing baseline |
 | Lightweight progress stats | History contains entries across multiple days | General settings shows current streak, today's words, best day, latest reached milestone, and next milestone |
 | Single high-volume day | One day contains thousands of dictated words | Early volume and daily-record milestones may unlock, but longer streak and elite lifetime milestones remain locked |
@@ -77,6 +79,7 @@ VoicePen stores app data in a local SQLite database under Application Support, m
 
 - Automated: `VoicePenTests/Persistence/DatabaseMigratorTests.swift` covers schema migration.
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers main window sidebar ordering and history row context/accessibility actions.
+- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers that History does not expose a SQLite file-reveal action.
 - Automated: `VoicePenTests/Settings/AppSettingsStoreTests.swift` and `VoicePenTests/Settings/UserConfigStoreTests.swift` cover settings persistence and normalization.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers launch-at-login updates and synchronization with current macOS login item status.
 - Automated: `VoicePenTests/History/VoiceHistoryStoreTests.swift` covers unlimited local history rows, batch text compression, text payload eviction, storage stats, ordering, deletion, clearing, and persisted history metadata.
