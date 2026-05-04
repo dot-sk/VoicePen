@@ -51,6 +51,7 @@ final class AppController: ObservableObject {
     @Published var errorMessage: String?
     @Published var modelDownloadProgress: Double?
     @Published var modelRuntimeState: ModelRuntimeState = .notLoaded
+    @Published private(set) var userConfigLoadResult = UserConfigLoadResult(config: UserConfig())
     @Published private(set) var modelManifest: ModelManifest
 
     private let paths: AppPaths
@@ -343,7 +344,7 @@ final class AppController: ObservableObject {
         do {
             try paths.createRequiredDirectories()
             try paths.cleanOldTemporaryAudioFiles()
-            environmentSettingsStore.applyEnvironment()
+            reloadUserConfig()
             try dictionaryStore.load()
             try historyStore.load()
             try settingsStore.load(defaultModelId: recommendedModel.id)
@@ -519,12 +520,47 @@ final class AppController: ObservableObject {
         }
     }
 
+    @discardableResult
+    func reloadUserConfig() -> UserConfigLoadResult {
+        let result = environmentSettingsStore.loadConfig()
+        applyEnvironment(result.config.env)
+        userConfigLoadResult = result
+        return result
+    }
+
+    func updateLLMSettings(_ update: (inout LLMConfig) -> Void) throws {
+        var config = userConfigLoadResult.config
+        update(&config.llm)
+        try saveLLMAndIntentParserSettings(config)
+    }
+
+    func updateDeveloperIntentParserSettings(_ update: (inout DeveloperIntentParserConfig) -> Void) throws {
+        var config = userConfigLoadResult.config
+        update(&config.developer.intentParser)
+        try saveLLMAndIntentParserSettings(config)
+    }
+
+    private func saveLLMAndIntentParserSettings(_ config: UserConfig) throws {
+        let result = try environmentSettingsStore.saveAISettings(
+            llm: config.llm,
+            intentParser: config.developer.intentParser
+        )
+        applyEnvironment(result.config.env)
+        userConfigLoadResult = result
+    }
+
     func copyToClipboard(_ text: String) {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
 
         clipboard.clearContents()
         _ = clipboard.setString(trimmedText, forType: .string)
+    }
+
+    private func applyEnvironment(_ environment: [String: String]) {
+        for (key, value) in environment {
+            setenv(key, value, 1)
+        }
     }
 
     func copyLastTranscription() {

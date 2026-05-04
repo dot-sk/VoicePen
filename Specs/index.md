@@ -10,6 +10,8 @@
 - [SPEC-006 GitHub Release Auto Updates](2026-05-02-github-release-auto-updates.md)
 - [SPEC-007 Test Layer Separation](2026-05-03-test-layer-separation.md)
 - [SPEC-008 Developer Mode And User TOML Config](2026-05-03-developer-mode-user-toml-config.md)
+- [SPEC-009 Experimental LLM Intent Parser](2026-05-04-experimental-llm-intent-parser.md)
+- [SPEC-010 Structured LLM Provider Layer](2026-05-04-structured-llm-provider-layer.md)
 
 ## Templates
 

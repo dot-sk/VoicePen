@@ -7,11 +7,12 @@ struct VoicePenMainWindow: View {
     @State private var selectedSection: VoicePenSettingsSection? = .general
     private let sidebarSections: [VoicePenSettingsSection] = [
         .general,
-        .shortcuts,
-        .modes,
         .model,
+        .modes,
         .dictionary,
+        .ai,
         .history,
+        .config,
         .permissions,
         .about
     ]
@@ -72,15 +73,21 @@ struct VoicePenMainWindow: View {
     private func detailView(for section: VoicePenSettingsSection) -> some View {
         switch section {
         case .general:
-            GeneralSettingsView(controller: controller, historyStore: controller.historyStore)
+            GeneralSettingsView(
+                controller: controller,
+                historyStore: controller.historyStore,
+                settingsStore: controller.settingsStore
+            )
         case .permissions:
             PermissionsSettingsView(controller: controller)
         case .model:
             ModelSettingsView(controller: controller, settingsStore: controller.settingsStore)
         case .modes:
             ModesSettingsView(controller: controller, settingsStore: controller.settingsStore)
-        case .shortcuts:
-            ShortcutsSettingsView(controller: controller, settingsStore: controller.settingsStore)
+        case .ai:
+            AISettingsView(controller: controller)
+        case .config:
+            ConfigSettingsView(controller: controller)
         case .dictionary:
             DictionaryEditorView(controller: controller, dictionaryStore: controller.dictionaryStore)
         case .history:
@@ -95,6 +102,7 @@ private struct DictionaryEditorView: View {
     @ObservedObject var controller: AppController
     @ObservedObject var dictionaryStore: DictionaryStore
     @State private var selectedID: String?
+    @State private var isCreatingNewEntry = false
     @State private var draft = TermEntryDraft()
     @State private var message: String?
     @State private var showingDeleteConfirmation = false
@@ -104,6 +112,7 @@ private struct DictionaryEditorView: View {
     @State private var pendingImportPreview: PendingDictionaryImportPreview?
 
     private var selectedEntry: TermEntry? {
+        guard !isCreatingNewEntry else { return nil }
         guard let selectedID else { return filteredEntries.first }
         return filteredEntries.first { $0.id == selectedID } ?? filteredEntries.first
     }
@@ -272,9 +281,13 @@ private struct DictionaryEditorView: View {
             loadSelectedEntry()
         }
         .onChange(of: selectedID) { _, _ in
+            if selectedID != nil {
+                isCreatingNewEntry = false
+            }
             loadSelectedEntry()
         }
         .onChange(of: dictionaryStore.entries) { _, entries in
+            guard !isCreatingNewEntry else { return }
             guard !entries.contains(where: { $0.id == selectedID }) else {
                 ensureSelectedEntryIsVisible()
                 return
@@ -324,12 +337,14 @@ private struct DictionaryEditorView: View {
     }
 
     private func ensureSelectedEntryIsVisible() {
+        guard !isCreatingNewEntry else { return }
         guard !filteredEntries.contains(where: { $0.id == selectedID }) else { return }
         selectedID = filteredEntries.first?.id
         loadSelectedEntry()
     }
 
     private func createNewEntry() {
+        isCreatingNewEntry = true
         selectedID = nil
         draft = TermEntryDraft(
             id: UUID().uuidString,
@@ -343,6 +358,7 @@ private struct DictionaryEditorView: View {
         do {
             let entry = draft.makeEntry()
             try dictionaryStore.upsertEntry(entry)
+            isCreatingNewEntry = false
             selectedID = entry.id
             message = "Saved"
         } catch {
@@ -353,6 +369,7 @@ private struct DictionaryEditorView: View {
     private func deleteDraft() {
         do {
             try dictionaryStore.deleteEntry(id: draft.id)
+            isCreatingNewEntry = false
             selectedID = dictionaryStore.entries.first?.id
             message = "Deleted"
         } catch {

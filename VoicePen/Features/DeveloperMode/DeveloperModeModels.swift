@@ -73,18 +73,22 @@ nonisolated struct DeveloperCommand: Codable, Equatable, Sendable {
 nonisolated struct DeveloperConfig: Codable, Equatable, Sendable {
     var mode: DeveloperMode
     var terminalCommandAction: TextInsertionAction
+    var intentParser: DeveloperIntentParserConfig
 
     init(
         mode: DeveloperMode = .auto,
-        terminalCommandAction: TextInsertionAction = .paste
+        terminalCommandAction: TextInsertionAction = .paste,
+        intentParser: DeveloperIntentParserConfig = DeveloperIntentParserConfig()
     ) {
         self.mode = mode
         self.terminalCommandAction = terminalCommandAction
+        self.intentParser = intentParser
     }
 
     enum CodingKeys: String, CodingKey {
         case mode
         case terminalCommandAction = "terminal_command_action"
+        case intentParser = "intent_parser"
     }
 
     init(from decoder: Decoder) throws {
@@ -92,6 +96,34 @@ nonisolated struct DeveloperConfig: Codable, Equatable, Sendable {
         self.mode = try container.decodeIfPresent(DeveloperMode.self, forKey: .mode) ?? .auto
         self.terminalCommandAction =
             try container.decodeIfPresent(TextInsertionAction.self, forKey: .terminalCommandAction) ?? .paste
+        self.intentParser =
+            try container.decodeIfPresent(DeveloperIntentParserConfig.self, forKey: .intentParser)
+            ?? DeveloperIntentParserConfig()
+    }
+}
+
+nonisolated struct DeveloperIntentParserConfig: Codable, Equatable, Sendable {
+    var enabled: Bool
+    var confidenceThreshold: Double
+
+    init(
+        enabled: Bool = false,
+        confidenceThreshold: Double = 0.75
+    ) {
+        self.enabled = enabled
+        self.confidenceThreshold = confidenceThreshold
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case enabled
+        case confidenceThreshold = "confidence_threshold"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        self.confidenceThreshold =
+            try container.decodeDoubleOrIntIfPresent(forKey: .confidenceThreshold) ?? 0.75
     }
 }
 
@@ -172,17 +204,20 @@ nonisolated struct UserCommandsConfig: Codable, Equatable, Sendable {
 
 nonisolated struct UserConfig: Codable, Equatable, Sendable {
     var env: [String: String]
+    var llm: LLMConfig
     var developer: DeveloperConfig
     var aliases: UserAliasesConfig
     var commands: UserCommandsConfig
 
     init(
         env: [String: String] = [:],
+        llm: LLMConfig = LLMConfig(),
         developer: DeveloperConfig = DeveloperConfig(),
         aliases: UserAliasesConfig = UserAliasesConfig(),
         commands: UserCommandsConfig = UserCommandsConfig()
     ) {
         self.env = env
+        self.llm = llm
         self.developer = developer
         self.aliases = aliases
         self.commands = commands
@@ -218,5 +253,17 @@ nonisolated struct DeveloperModeProcessingResult: Equatable, Sendable {
         self.diagnosticNotes = diagnosticNotes
         self.activeContext = activeContext
         self.matchedCommandID = matchedCommandID
+    }
+}
+
+nonisolated private extension KeyedDecodingContainer {
+    func decodeDoubleOrIntIfPresent(forKey key: Key) throws -> Double? {
+        if let value = try? decodeIfPresent(Double.self, forKey: key) {
+            return value
+        }
+        if let value = try decodeIfPresent(Int.self, forKey: key) {
+            return Double(value)
+        }
+        return nil
     }
 }

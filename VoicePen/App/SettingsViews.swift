@@ -7,7 +7,8 @@ enum VoicePenSettingsSection: String, CaseIterable, Identifiable, Hashable {
     case permissions
     case model
     case modes
-    case shortcuts
+    case ai
+    case config
     case dictionary
     case history
     case about
@@ -24,8 +25,10 @@ enum VoicePenSettingsSection: String, CaseIterable, Identifiable, Hashable {
             return "Model"
         case .modes:
             return "Modes"
-        case .shortcuts:
-            return "Shortcuts"
+        case .ai:
+            return "AI"
+        case .config:
+            return "Config"
         case .dictionary:
             return "Dictionary"
         case .history:
@@ -45,8 +48,10 @@ enum VoicePenSettingsSection: String, CaseIterable, Identifiable, Hashable {
             return "arrow.down.circle"
         case .modes:
             return "terminal"
-        case .shortcuts:
-            return "keyboard"
+        case .ai:
+            return "sparkles"
+        case .config:
+            return "doc.text"
         case .dictionary:
             return "text.book.closed"
         case .history:
@@ -106,9 +111,24 @@ struct AboutView: View {
 struct GeneralSettingsView: View {
     @ObservedObject var controller: AppController
     @ObservedObject var historyStore: VoiceHistoryStore
+    @ObservedObject var settingsStore: AppSettingsStore
 
     private var stats: VoiceTranscriptionUsageStats {
         VoiceTranscriptionUsageStats(entries: historyStore.entries)
+    }
+
+    private var hotkeyPreference: Binding<HotkeyPreference> {
+        Binding(
+            get: { settingsStore.hotkeyPreference },
+            set: { controller.updateHotkeyPreference($0) }
+        )
+    }
+
+    private var holdDuration: Binding<Double> {
+        Binding(
+            get: { settingsStore.hotkeyHoldDuration },
+            set: { controller.updateHotkeyHoldDuration($0) }
+        )
     }
 
     private var transcribedAudioCaption: String {
@@ -202,6 +222,43 @@ struct GeneralSettingsView: View {
             }
 
             Section {
+                Picker("Push-to-talk hotkey", selection: hotkeyPreference) {
+                    ForEach(HotkeyPreference.allCases) { preference in
+                        Text(preference.displayName)
+                            .tag(preference)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                if settingsStore.hotkeyPreference == .custom {
+                    LabeledContent("Custom shortcut") {
+                        KeyboardShortcuts.Recorder(for: .voicePenPushToTalk) { _ in
+                            Task { @MainActor in
+                                controller.customHotkeyDidChange()
+                            }
+                        }
+                        .controlSize(.small)
+                    }
+                }
+
+                LabeledContent("Hold duration") {
+                    HStack(spacing: 10) {
+                        Slider(value: holdDuration, in: 0.1...2.0, step: 0.05)
+                            .frame(width: 220)
+                        Text(settingsStore.hotkeyHoldDuration, format: .number.precision(.fractionLength(2)))
+                            .monospacedDigit()
+                            .frame(width: 42, alignment: .trailing)
+                        Text("s")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } header: {
+                Text("Shortcut")
+            } footer: {
+                Text("Recording starts only after the selected shortcut is held for the configured duration. Release it to transcribe and insert text.")
+            }
+
+            Section {
                 LabeledContent("Status", value: controller.appState.menuTitle)
                 LabeledContent("Privacy", value: "Offline only, 0 analytics")
                 LabeledContent("History storage", value: historyStorageCaption)
@@ -252,13 +309,40 @@ private struct UsageStatView: View {
 struct ModesSettingsView: View {
     @ObservedObject var controller: AppController
     @ObservedObject var settingsStore: AppSettingsStore
+    @State private var saveError: String?
     private let modesDescription =
-        "Modes tell VoicePen how to handle dictated text in different apps. Auto chooses the mode from the active app; Plain keeps dictation simple; Writing Code improves technical text; Terminal can turn configured phrases into commands. For example, in Terminal \"show git status\" becomes \"git status --short --branch\"."
+        "Choose how VoicePen handles dictation in the active app. Connect an AI provider first for full supported command parsing."
+
+    private var currentConfig: UserConfig {
+        controller.userConfigLoadResult.config
+    }
 
     private var developerModeSelection: Binding<DeveloperMode> {
         Binding(
             get: { settingsStore.developerModeOverride ?? .auto },
             set: { controller.updateDeveloperModeOverride($0) }
+        )
+    }
+
+    private var parserEnabled: Binding<Bool> {
+        Binding(
+            get: { currentConfig.developer.intentParser.enabled },
+            set: { newValue in
+                persistDeveloperIntentParserSettings { config in
+                    config.enabled = newValue
+                }
+            }
+        )
+    }
+
+    private var confidenceThreshold: Binding<Double> {
+        Binding(
+            get: { currentConfig.developer.intentParser.confidenceThreshold },
+            set: { newValue in
+                persistDeveloperIntentParserSettings { config in
+                    config.confidenceThreshold = newValue
+                }
+            }
         )
     }
 
@@ -277,96 +361,262 @@ struct ModesSettingsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-
-                LabeledContent("Config file", value: controller.userConfigURL.path)
-
-                Button {
-                    controller.openUserConfigFile()
-                } label: {
-                    Label("Open Config File", systemImage: "doc.text")
-                }
             } header: {
                 Text("Mode")
             }
 
-            Section {
-                ForEach(DeveloperMode.allCases) { mode in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(mode.displayName)
-                            .font(.headline)
-                        Text(mode.userDescription)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 4)
+            ForEach(DeveloperMode.allCases) { mode in
+                Section {
+                    modeSectionContent(for: mode)
+                } header: {
+                    Text(mode.displayName)
                 }
-            } header: {
-                Text("What Each Mode Does")
+            }
+
+            if let saveError {
+                Section {
+                    Text(saveError)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                } header: {
+                    Text("Status")
+                }
             }
         }
         .formStyle(.grouped)
         .padding(18)
     }
+
+    @ViewBuilder
+    private func modeSectionContent(for mode: DeveloperMode) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(mode.userDescription)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 4)
+
+        if mode == .developer {
+            Divider()
+            developerCommandParsingControls
+        }
+    }
+
+    private var developerCommandParsingControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle("Use AI for supported developer commands", isOn: parserEnabled)
+
+            LabeledContent("Confidence threshold") {
+                HStack(spacing: 10) {
+                    Slider(value: confidenceThreshold, in: 0...1, step: 0.05)
+                        .frame(width: 220)
+                    Text(currentConfig.developer.intentParser.confidenceThreshold.formatted(.number.precision(.fractionLength(2))))
+                        .monospacedDigit()
+                        .frame(width: 42, alignment: .trailing)
+                }
+            }
+
+            Text("AI provider settings only connect the model. This switch decides whether developer contexts may use AI for short supported command phrases.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func persistDeveloperIntentParserSettings(_ update: (inout DeveloperIntentParserConfig) -> Void) {
+        do {
+            try controller.updateDeveloperIntentParserSettings(update)
+            saveError = nil
+        } catch {
+            saveError = "Mode settings could not be saved: \(error.localizedDescription)"
+        }
+    }
 }
 
-struct ShortcutsSettingsView: View {
+struct AISettingsView: View {
     @ObservedObject var controller: AppController
-    @ObservedObject var settingsStore: AppSettingsStore
+    @State private var saveError: String?
 
-    private var hotkeyPreference: Binding<HotkeyPreference> {
+    private var currentConfig: UserConfig {
+        controller.userConfigLoadResult.config
+    }
+
+    private var provider: Binding<LLMProvider> {
         Binding(
-            get: { settingsStore.hotkeyPreference },
-            set: { controller.updateHotkeyPreference($0) }
+            get: { currentConfig.llm.provider },
+            set: { newValue in
+                persistAISettings { config in
+                    config.provider = newValue
+                }
+            }
         )
     }
 
-    private var holdDuration: Binding<Double> {
+    private var ollamaBaseURL: Binding<String> {
         Binding(
-            get: { settingsStore.hotkeyHoldDuration },
-            set: { controller.updateHotkeyHoldDuration($0) }
+            get: { currentConfig.llm.ollama.baseURL },
+            set: { newValue in
+                persistAISettings { config in
+                    config.ollama.baseURL = newValue
+                }
+            }
+        )
+    }
+
+    private var ollamaModel: Binding<String> {
+        Binding(
+            get: { currentConfig.llm.ollama.model },
+            set: { newValue in
+                persistAISettings { config in
+                    config.ollama.model = newValue
+                }
+            }
+        )
+    }
+
+    private var openRouterBaseURL: Binding<String> {
+        Binding(
+            get: { currentConfig.llm.openrouter.baseURL },
+            set: { newValue in
+                persistAISettings { config in
+                    config.openrouter.baseURL = newValue
+                }
+            }
+        )
+    }
+
+    private var openRouterModel: Binding<String> {
+        Binding(
+            get: { currentConfig.llm.openrouter.model },
+            set: { newValue in
+                persistAISettings { config in
+                    config.openrouter.model = newValue
+                }
+            }
+        )
+    }
+
+    private var openRouterAPIKey: Binding<String> {
+        Binding(
+            get: { currentConfig.llm.openrouter.apiKey },
+            set: { newValue in
+                persistAISettings { config in
+                    config.openrouter.apiKey = newValue
+                }
+            }
         )
     }
 
     var body: some View {
         Form {
             Section {
-                Picker("Push-to-talk hotkey", selection: hotkeyPreference) {
-                    ForEach(HotkeyPreference.allCases) { preference in
-                        Text(preference.displayName)
-                            .tag(preference)
-                    }
+                Picker("Provider", selection: provider) {
+                    Text("Ollama").tag(LLMProvider.ollama)
+                    Text("OpenRouter").tag(LLMProvider.openrouter)
                 }
-                .pickerStyle(.menu)
-
-                if settingsStore.hotkeyPreference == .custom {
-                    LabeledContent("Custom shortcut") {
-                        KeyboardShortcuts.Recorder(for: .voicePenPushToTalk) { _ in
-                            Task { @MainActor in
-                                controller.customHotkeyDidChange()
-                            }
-                        }
-                        .controlSize(.small)
-                    }
-                }
-
-                LabeledContent("Hold duration") {
-                    HStack(spacing: 10) {
-                        Slider(value: holdDuration, in: 0.1...2.0, step: 0.05)
-                            .frame(width: 220)
-                        Text(settingsStore.hotkeyHoldDuration, format: .number.precision(.fractionLength(2)))
-                            .monospacedDigit()
-                            .frame(width: 42, alignment: .trailing)
-                        Text("s")
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                .pickerStyle(.segmented)
+            } header: {
+                Text("AI Provider")
             } footer: {
-                Text("Recording starts only after the selected shortcut is held for the configured duration. Release it to transcribe and insert text.")
+                Text("Provider settings prepare VoicePen to use structured AI features. They do not send dictation anywhere by themselves.")
+            }
+
+            if currentConfig.llm.provider == .ollama {
+                Section {
+                    TextField("Base URL", text: ollamaBaseURL)
+                    TextField("Model", text: ollamaModel)
+                } header: {
+                    Text("Ollama")
+                } footer: {
+                    Text("Advanced Ollama options are edited in TOML config.")
+                }
+            } else {
+                Section {
+                    TextField("Base URL", text: openRouterBaseURL)
+                    TextField("Model", text: openRouterModel)
+                    SecureField("API key", text: openRouterAPIKey)
+                } header: {
+                    Text("OpenRouter")
+                } footer: {
+                    Text("Advanced provider options are edited in TOML config.")
+                }
+            }
+
+            if let saveError {
+                Section {
+                    Text(saveError)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                } header: {
+                    Text("Status")
+                }
             }
         }
         .formStyle(.grouped)
         .padding(18)
+    }
+
+    private func persistAISettings(_ update: (inout LLMConfig) -> Void) {
+        do {
+            try controller.updateLLMSettings(update)
+            saveError = nil
+        } catch {
+            saveError = "AI settings could not be saved: \(error.localizedDescription)"
+        }
+    }
+}
+
+struct ConfigSettingsView: View {
+    @ObservedObject var controller: AppController
+
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent("Config file", value: controller.userConfigURL.path)
+                LabeledContent(
+                    "Status",
+                    value: controller.userConfigLoadResult.diagnosticNotes.isEmpty ? "Loaded" : "Using last valid config"
+                )
+
+                HStack {
+                    Button {
+                        controller.reloadUserConfig()
+                    } label: {
+                        Label("Reload Config", systemImage: "arrow.clockwise")
+                    }
+
+                    Button {
+                        controller.openUserConfigFile()
+                    } label: {
+                        Label("Open Config File", systemImage: "doc.text")
+                    }
+                }
+            } footer: {
+                Text("Dictation reloads this TOML file automatically. Reload Config refreshes settings displays and environment values immediately.")
+            }
+
+            if !controller.userConfigLoadResult.diagnosticNotes.isEmpty {
+                Section {
+                    ForEach(controller.userConfigLoadResult.diagnosticNotes, id: \.self) { note in
+                        Text(note)
+                            .foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } header: {
+                    Text("Diagnostics")
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .padding(18)
+        .onAppear {
+            Task { @MainActor in
+                await Task.yield()
+                controller.reloadUserConfig()
+            }
+        }
     }
 }
 
