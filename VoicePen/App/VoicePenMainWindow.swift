@@ -5,6 +5,16 @@ import UniformTypeIdentifiers
 struct VoicePenMainWindow: View {
     @ObservedObject var controller: AppController
     @State private var selectedSection: VoicePenSettingsSection? = .general
+    private let sidebarSections: [VoicePenSettingsSection] = [
+        .general,
+        .shortcuts,
+        .modes,
+        .model,
+        .dictionary,
+        .history,
+        .permissions,
+        .about
+    ]
 
     var body: some View {
         NavigationSplitView {
@@ -31,7 +41,7 @@ struct VoicePenMainWindow: View {
                 }
 
                 Section("Settings") {
-                    ForEach(VoicePenSettingsSection.allCases) { section in
+                    ForEach(sidebarSections) { section in
                         NavigationLink(value: section) {
                             Label(section.title, systemImage: section.systemImage)
                         }
@@ -1009,8 +1019,9 @@ private struct HistoryRowView: View {
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(isCopyConfirmed ? .green : .secondary)
-                .opacity((isHovered || isCopyConfirmed) && !entry.bestText.trimmed.isEmpty ? 1 : 0)
-                .disabled((!isHovered && !isCopyConfirmed) || entry.bestText.trimmed.isEmpty)
+                .opacity((isHovered || isCopyConfirmed) && hasCopyableText ? 1 : 0)
+                .disabled(!hasCopyableText)
+                .allowsHitTesting(isHovered || isCopyConfirmed)
                 .help(isCopyConfirmed ? "Copied" : "Copy text")
                 .animation(.snappy(duration: 0.15), value: isCopyConfirmed)
 
@@ -1023,7 +1034,7 @@ private struct HistoryRowView: View {
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
                 .opacity(isHovered ? 1 : 0)
-                .disabled(!isHovered)
+                .allowsHitTesting(isHovered)
                 .help("Delete session")
             }
 
@@ -1053,11 +1064,37 @@ private struct HistoryRowView: View {
         .simultaneousGesture(
             TapGesture(count: 2)
                 .onEnded {
-                    guard !entry.bestText.trimmed.isEmpty else { return }
+                    guard hasCopyableText else { return }
                     copyAction()
                 }
         )
+        .contextMenu {
+            if hasCopyableText {
+                Button {
+                    copyAction()
+                } label: {
+                    Label("Copy Text", systemImage: "doc.on.doc")
+                }
+            }
+
+            Button(role: .destructive) {
+                deleteAction()
+            } label: {
+                Label("Delete Session", systemImage: "trash")
+            }
+        }
+        .accessibilityAction(named: Text("Copy Text")) {
+            guard hasCopyableText else { return }
+            copyAction()
+        }
+        .accessibilityAction(named: Text("Delete Session")) {
+            deleteAction()
+        }
         .onHover { isHovered = $0 }
+    }
+
+    private var hasCopyableText: Bool {
+        !entry.bestText.trimmed.isEmpty
     }
 
     private var iconName: String {

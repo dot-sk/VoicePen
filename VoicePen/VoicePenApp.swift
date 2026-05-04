@@ -31,12 +31,18 @@ struct VoicePenApp: App {
         .windowResizability(.contentMinSize)
         .defaultLaunchBehavior(.presented)
         .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Open Config File") {
+                    controller.openUserConfigFile()
+                }
+                .keyboardShortcut(",", modifiers: [.command])
+            }
+
             CommandGroup(after: .appInfo) {
                 Button("Open VoicePen Window") {
                     NSApplication.shared.activate(ignoringOtherApps: true)
                     openWindow(id: "voicepen-main")
                 }
-                .keyboardShortcut(",", modifiers: [.command])
 
                 Button("Check for Updates...") {
                     softwareUpdateController.checkForUpdates()
@@ -56,47 +62,51 @@ private struct VoicePenMenuView: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Text("Status: \(controller.appState.menuTitle)")
+        if showsDictationCommands {
+            if controller.appState == .ready {
+                Button(dictationCommandTitle("Start Dictation")) {
+                    controller.startRecording()
+                }
+            }
 
-        if let errorMessage = controller.errorMessage {
-            Text(errorMessage)
-        }
+            if controller.appState == .recording {
+                Button(dictationCommandTitle("Stop Dictation")) {
+                    controller.stopRecordingAndProcess()
+                }
+            }
 
-        Divider()
-
-        Button("Start Dictation") {
-            controller.startRecording()
-        }
-        .disabled(controller.appState != .ready)
-
-        Button("Stop Dictation") {
-            controller.stopRecordingAndProcess()
-        }
-        .disabled(controller.appState != .recording)
-
-        if controller.appState == .transcribing {
-            Button("Cancel Transcription", role: .cancel) {
-                controller.cancelTranscription()
+            if controller.appState == .transcribing {
+                Button("Cancel Transcription", role: .cancel) {
+                    controller.cancelTranscription()
+                }
             }
         }
 
-        Divider()
-
-        Button("Copy Last Transcription") {
-            controller.copyLastTranscription()
+        if showsDictationCommands && controller.hasLatestTranscriptionText {
+            Divider()
         }
-        .disabled(!controller.hasLatestTranscriptionText)
 
-        Button("Retry Insert Last Text") {
-            controller.retryInsertLastTranscription()
+        if controller.hasLatestTranscriptionText {
+            Button("Copy Last Transcription") {
+                controller.copyLastTranscription()
+            }
+
+            Button("Retry Insert Last Text") {
+                controller.retryInsertLastTranscription()
+            }
         }
-        .disabled(!controller.hasLatestTranscriptionText)
 
-        Divider()
+        if showsDictationCommands || controller.hasLatestTranscriptionText {
+            Divider()
+        }
 
         Button("Open VoicePen Window") {
             NSApplication.shared.activate(ignoringOtherApps: true)
             openWindow(id: "voicepen-main")
+        }
+
+        Button("Open Config File") {
+            controller.openUserConfigFile()
         }
 
         Button("Check for Updates...") {
@@ -108,6 +118,19 @@ private struct VoicePenMenuView: View {
         Button("Quit") {
             NSApplication.shared.terminate(nil)
         }
-        .keyboardShortcut("q")
+    }
+
+    private var showsDictationCommands: Bool {
+        controller.appState == .ready
+            || controller.appState == .recording
+            || controller.appState == .transcribing
+    }
+
+    private var pushToTalkHotkeyHint: String {
+        controller.settingsStore.hotkeyPreference.menuBarHint()
+    }
+
+    private func dictationCommandTitle(_ title: String) -> String {
+        "\(title) (\(pushToTalkHotkeyHint))"
     }
 }

@@ -60,6 +60,10 @@ nonisolated struct AppPaths: @unchecked Sendable {
         userModelDirectory(for: modelId).appendingPathComponent(localPath)
     }
 
+    func userModelCompletionMarker(for modelId: String) -> URL {
+        userModelDirectory(for: modelId).appendingPathComponent(".voicepen-download-complete")
+    }
+
     func bundledModelDirectory(for modelId: String) -> URL? {
         Bundle.main.resourceURL?
             .appendingPathComponent("Models", isDirectory: true)
@@ -110,11 +114,31 @@ nonisolated struct AppPaths: @unchecked Sendable {
     }
 
     func existingModelFile(for modelId: String, fileName: String) -> URL? {
-        expectedModelFiles(for: modelId, fileName: fileName).first { fileManager.fileExists(atPath: $0.path) }
+        if let bundledURL = bundledModelFile(for: modelId, fileName: fileName),
+            ModelArtifactPresence.exists(at: bundledURL, fileManager: fileManager)
+        {
+            return bundledURL
+        }
+
+        guard hasCompletedUserModelDownload(for: modelId) else { return nil }
+        let userURL = userModelFile(for: modelId, fileName: fileName)
+        return ModelArtifactPresence.exists(at: userURL, fileManager: fileManager) ? userURL : nil
     }
 
     func existingModelArtifact(for modelId: String, localPath: String) -> URL? {
-        expectedModelArtifacts(for: modelId, localPath: localPath).first { fileManager.fileExists(atPath: $0.path) }
+        if let bundledURL = bundledModelArtifact(for: modelId, localPath: localPath),
+            ModelArtifactPresence.exists(at: bundledURL, fileManager: fileManager)
+        {
+            return bundledURL
+        }
+
+        guard hasCompletedUserModelDownload(for: modelId) else { return nil }
+        let userURL = userModelArtifact(for: modelId, localPath: localPath)
+        return ModelArtifactPresence.exists(at: userURL, fileManager: fileManager) ? userURL : nil
+    }
+
+    func hasCompletedUserModelDownload(for modelId: String) -> Bool {
+        ModelArtifactPresence.exists(at: userModelCompletionMarker(for: modelId), fileManager: fileManager)
     }
 
     func cleanOldTemporaryAudioFiles(olderThan maxAge: TimeInterval = 24 * 60 * 60) throws {

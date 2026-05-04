@@ -28,6 +28,8 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
         self.milestones = Self.milestones(
             transcribedSessionCount: self.transcribedSessionCount,
             totalWordCount: self.totalWordCount,
+            currentStreakDayCount: self.currentStreakDayCount,
+            bestDayWordCount: self.bestDay?.wordCount ?? 0,
             estimatedTimeSavedDuration: Self.estimatedTimeSavedDuration(
                 totalWordCount: self.totalWordCount,
                 totalDuration: self.totalDuration
@@ -56,6 +58,8 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
         milestones = Self.milestones(
             transcribedSessionCount: transcribedSessionCount,
             totalWordCount: totalWordCount,
+            currentStreakDayCount: currentStreakDayCount,
+            bestDayWordCount: bestDay?.wordCount ?? 0,
             estimatedTimeSavedDuration: Self.estimatedTimeSavedDuration(
                 totalWordCount: totalWordCount,
                 totalDuration: totalDuration
@@ -238,6 +242,8 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
     private static func milestones(
         transcribedSessionCount: Int,
         totalWordCount: Int,
+        currentStreakDayCount: Int,
+        bestDayWordCount: Int,
         estimatedTimeSavedDuration: TimeInterval
     ) -> [VoiceUsageMilestone] {
         [
@@ -248,10 +254,10 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
                 unit: "session"
             ),
             VoiceUsageMilestone(
-                title: "10 dictations",
-                currentValue: transcribedSessionCount,
-                targetValue: 10,
-                unit: "sessions"
+                title: "100 words",
+                currentValue: totalWordCount,
+                targetValue: 100,
+                unit: "words"
             ),
             VoiceUsageMilestone(
                 title: "1,000 words",
@@ -260,10 +266,112 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
                 unit: "words"
             ),
             VoiceUsageMilestone(
+                title: "10 dictations",
+                currentValue: transcribedSessionCount,
+                targetValue: 10,
+                unit: "sessions"
+            ),
+            VoiceUsageMilestone(
+                title: "3-day streak",
+                currentValue: currentStreakDayCount,
+                targetValue: 3,
+                unit: "days"
+            ),
+            VoiceUsageMilestone(
+                title: "1,500-word day",
+                currentValue: bestDayWordCount,
+                targetValue: 1_500,
+                unit: "words"
+            ),
+            VoiceUsageMilestone(
+                title: "5,000 words",
+                currentValue: totalWordCount,
+                targetValue: 5_000,
+                unit: "words"
+            ),
+            VoiceUsageMilestone(
+                title: "7-day streak",
+                currentValue: currentStreakDayCount,
+                targetValue: 7,
+                unit: "days"
+            ),
+            VoiceUsageMilestone(
                 title: "1 hour saved",
                 currentValue: Int(estimatedTimeSavedDuration.rounded(.down)),
                 targetValue: 3_600,
                 unit: "seconds"
+            ),
+            VoiceUsageMilestone(
+                title: "25,000 words",
+                currentValue: totalWordCount,
+                targetValue: 25_000,
+                unit: "words"
+            ),
+            VoiceUsageMilestone(
+                title: "5,000-word day",
+                currentValue: bestDayWordCount,
+                targetValue: 5_000,
+                unit: "words"
+            ),
+            VoiceUsageMilestone(
+                title: "14-day streak",
+                currentValue: currentStreakDayCount,
+                targetValue: 14,
+                unit: "days"
+            ),
+            VoiceUsageMilestone(
+                title: "10 hours saved",
+                currentValue: Int(estimatedTimeSavedDuration.rounded(.down)),
+                targetValue: 36_000,
+                unit: "seconds"
+            ),
+            VoiceUsageMilestone(
+                title: "100,000 words",
+                currentValue: totalWordCount,
+                targetValue: 100_000,
+                unit: "words"
+            ),
+            VoiceUsageMilestone(
+                title: "30-day streak",
+                currentValue: currentStreakDayCount,
+                targetValue: 30,
+                unit: "days"
+            ),
+            VoiceUsageMilestone(
+                title: "250,000 words",
+                currentValue: totalWordCount,
+                targetValue: 250_000,
+                unit: "words"
+            ),
+            VoiceUsageMilestone(
+                title: "10,000-word day",
+                currentValue: bestDayWordCount,
+                targetValue: 10_000,
+                unit: "words"
+            ),
+            VoiceUsageMilestone(
+                title: "50 hours saved",
+                currentValue: Int(estimatedTimeSavedDuration.rounded(.down)),
+                targetValue: 180_000,
+                unit: "seconds"
+            ),
+            VoiceUsageMilestone(
+                title: "500,000 words",
+                currentValue: totalWordCount,
+                targetValue: 500_000,
+                unit: "words"
+            ),
+            VoiceUsageMilestone(
+                title: "100-day streak",
+                currentValue: currentStreakDayCount,
+                targetValue: 100,
+                unit: "days"
+            ),
+            VoiceUsageMilestone(
+                title: "1,000,000 words",
+                currentValue: totalWordCount,
+                targetValue: 1_000_000,
+                unit: "words"
             )
         ]
     }

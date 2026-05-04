@@ -31,7 +31,7 @@ final class WhisperCppModelDownloadClient: ModelDownloadClient {
 
         try fileManager.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
 
-        if fileManager.fileExists(atPath: targetFile.path) {
+        if isArtifactDownloadComplete(targetFile, marker: artifactCompletionMarker(in: targetDirectory, id: "model")) {
             completedUnits += 1
             events(.downloadingArtifact(name: model.localArtifactFileName, progress: completedUnits / totalUnits))
         } else {
@@ -52,13 +52,14 @@ final class WhisperCppModelDownloadClient: ModelDownloadClient {
                     totalUnits: totalUnits
                 )
             )
+            try markArtifactDownloadComplete(in: targetDirectory, id: "model")
             completedUnits += 1
             events(.downloadingArtifact(name: model.localArtifactFileName, progress: completedUnits / totalUnits))
         }
 
         for artifact in artifacts {
             let targetArtifactURL = paths.userModelArtifact(for: model.id, localPath: artifact.localPath)
-            if fileManager.fileExists(atPath: targetArtifactURL.path) {
+            if isArtifactDownloadComplete(targetArtifactURL, marker: artifactCompletionMarker(in: targetDirectory, id: artifact.id)) {
                 completedUnits += 1
                 events(.downloadingArtifact(name: artifact.displayName, progress: completedUnits / totalUnits))
                 continue
@@ -82,6 +83,7 @@ final class WhisperCppModelDownloadClient: ModelDownloadClient {
 
         events(.validating)
         try validateInstalledModel(model)
+        try markModelDownloadComplete(for: model)
         events(.completed)
         return targetDirectory
     }
@@ -131,6 +133,7 @@ final class WhisperCppModelDownloadClient: ModelDownloadClient {
                 try fileManager.createDirectory(at: targetArtifactURL.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try fileManager.moveItem(at: downloadedFileURL, to: targetArtifactURL)
             }
+            try markArtifactDownloadComplete(in: targetDirectory, id: artifact.id)
         case .zip:
             events(.extractingArtifact(name: artifact.displayName))
             try await extractZipArtifact(
@@ -139,14 +142,52 @@ final class WhisperCppModelDownloadClient: ModelDownloadClient {
                 model: model,
                 targetDirectory: targetDirectory
             )
+            try markArtifactDownloadComplete(in: targetDirectory, id: artifact.id)
         }
     }
 
     private func validateInstalledModel(_ model: ModelManifestModel) throws {
-        let missingPaths = model.missingArtifactURLs(paths: paths).map(\.path)
-        guard missingPaths.isEmpty else {
+        let targetDirectory = paths.userModelDirectory(for: model.id)
+        var missingPaths: [String] = []
+
+        let modelURL = paths.userModelFile(for: model.id, fileName: model.localArtifactFileName)
+        if !isArtifactDownloadComplete(modelURL, marker: artifactCompletionMarker(in: targetDirectory, id: "model")) {
+            missingPaths.append(modelURL.path)
+        }
+
+        for artifact in model.requiredCompanionArtifacts {
+            let artifactURL = paths.userModelArtifact(for: model.id, localPath: artifact.localPath)
+            if !isArtifactDownloadComplete(artifactURL, marker: artifactCompletionMarker(in: targetDirectory, id: artifact.id)) {
+                missingPaths.append(artifactURL.path)
+            }
+        }
+
+        if !missingPaths.isEmpty {
             throw TranscriptionError.modelMissing(expectedPaths: missingPaths)
         }
+    }
+
+    private func artifactCompletionMarker(in targetDirectory: URL, id: String) -> URL {
+        targetDirectory
+            .appendingPathComponent(".voicepen-artifacts", isDirectory: true)
+            .appendingPathComponent("\(id).complete")
+    }
+
+    private func isArtifactDownloadComplete(_ artifactURL: URL, marker: URL) -> Bool {
+        ModelArtifactPresence.exists(at: artifactURL, fileManager: fileManager)
+            && ModelArtifactPresence.exists(at: marker, fileManager: fileManager)
+    }
+
+    private func markArtifactDownloadComplete(in targetDirectory: URL, id: String) throws {
+        let markerURL = artifactCompletionMarker(in: targetDirectory, id: id)
+        try fileManager.createDirectory(at: markerURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("complete".utf8).write(to: markerURL, options: .atomic)
+    }
+
+    private func markModelDownloadComplete(for model: ModelManifestModel) throws {
+        let markerURL = paths.userModelCompletionMarker(for: model.id)
+        try fileManager.createDirectory(at: markerURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("complete".utf8).write(to: markerURL, options: .atomic)
     }
 
     private func extractZipArtifact(
@@ -165,8 +206,7 @@ final class WhisperCppModelDownloadClient: ModelDownloadClient {
             try await runDittoExtract(zipURL: zipURL, targetDirectory: targetDirectory)
             try? fileManager.removeItem(at: zipURL)
 
-            var isDirectory: ObjCBool = false
-            guard fileManager.fileExists(atPath: targetArtifactURL.path, isDirectory: &isDirectory) else {
+            guard ModelArtifactPresence.exists(at: targetArtifactURL, fileManager: fileManager) else {
                 throw ModelDownloadError.archiveExtractionFailed(
                     modelId: model.id,
                     artifactId: artifact.id,

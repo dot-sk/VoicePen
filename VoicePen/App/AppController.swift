@@ -134,7 +134,7 @@ final class AppController: ObservableObject {
         case .whisperCpp:
             selectedModel.isInstalled(paths: paths)
         case .fluidAudio:
-            paths.existingModelDirectory(for: selectedModel.id) != nil
+            FluidAudioModelInstallation.isInstalled(model: selectedModel, paths: paths)
         case .unsupported:
             paths.existingModelDirectory(for: selectedModel.id) != nil
         }
@@ -778,15 +778,22 @@ final class AppController: ObservableObject {
         return task
     }
 
-    func cancelModelDownload() {
-        guard isDownloadingModel else { return }
+    @discardableResult
+    func cancelModelDownload() -> Task<Void, Never>? {
+        guard isDownloadingModel else { return nil }
 
         let task = modelDownloadTask
         clearActiveModelDownload()
         task?.cancel()
         overlay.show(.done(message: "Download canceled"))
         overlay.hide(after: 1.0)
-        updateStateAfterModelChange()
+        updateStateAfterIncompleteModelDownload()
+
+        let cleanupTask = Task { [weak self] in
+            guard let self else { return }
+            updateStateAfterIncompleteModelDownload()
+        }
+        return cleanupTask
     }
 
     private func handleModelDownloadEvent(_ event: ModelDownloadEvent) {
@@ -1118,6 +1125,23 @@ final class AppController: ObservableObject {
 
         errorMessage = nil
         appState = isModelInstalled ? .ready : .missingModel
+    }
+
+    private func updateStateAfterIncompleteModelDownload() {
+        guard permissions.microphonePermissionStatus == .authorized else {
+            appState = .missingMicrophonePermission
+            errorMessage = Self.microphonePermissionRequiredMessage
+            return
+        }
+
+        guard permissions.hasAccessibilityPermission else {
+            appState = .missingAccessibilityPermission
+            errorMessage = Self.accessibilityPermissionRequiredMessage
+            return
+        }
+
+        errorMessage = nil
+        appState = .missingModel
     }
 }
 

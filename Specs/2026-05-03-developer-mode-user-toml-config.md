@@ -1,8 +1,9 @@
 ---
 id: SPEC-008
 status: implemented
-updated: 2026-05-03
+updated: 2026-05-04
 tests:
+  - VoicePenTests/App/VoicePenAppCommandTests.swift
   - VoicePenTests/Settings/UserConfigStoreTests.swift
   - VoicePenTests/DeveloperMode/ActiveAppContextClassifierTests.swift
   - VoicePenTests/DeveloperMode/DeveloperModeProcessorTests.swift
@@ -33,6 +34,7 @@ VoicePen reads a single user-editable TOML file at `~/.voicepen/config.toml`, cr
 - When the UI shows Writing Code, VoicePen shall keep storing and reading the compatible TOML mode value `developer`.
 - When the Modes settings tab is open, VoicePen shall show a short user-facing description of what modes do and a per-mode explanation for Plain, Auto, Writing Code, and Terminal, including a terminal command example.
 - When the user chooses to open the config file from Modes settings, VoicePen shall ensure `~/.voicepen/config.toml` exists and then open it with the system default editor.
+- When the user presses the standard macOS Settings shortcut `Command + ,`, VoicePen shall ensure `~/.voicepen/config.toml` exists and then open it with the system default editor.
 - When no UI mode override exists, VoicePen shall use `[developer].mode`; `auto` shall classify the active app as terminal, developer, or plain.
 - When aliases are applied, VoicePen shall apply `aliases.common` in all contexts, then active-context aliases, case-insensitively, longest-first, and only across word boundaries.
 - When common and context aliases conflict, the active-context alias shall win.
@@ -69,9 +71,11 @@ VoicePen reads a single user-editable TOML file at `~/.voicepen/config.toml`, cr
 | Feature branch | `create feature branch Developer Mode Config` | `git checkout -b feature/developer_mode_config` |
 | Dictionary conflict | User dictionary maps `гит` differently, terminal command says `гит status` | Command still matches via TOML alias and inserts `git status --short --branch` |
 | Plain app | Unknown foreground app in auto mode | Normal dictation text is inserted |
+| Standard settings shortcut | User presses `Command + ,` | User TOML config is created if needed and opened in the default editor |
 
 ## Test Mapping
 
+- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers `Command + ,` being wired to opening the user TOML config.
 - Automated: `VoicePenTests/Settings/UserConfigStoreTests.swift` covers default TOML creation, non-overwrite, env normalization, config reload, and invalid-config fallback diagnostics.
 - Automated: `VoicePenTests/DeveloperMode/ActiveAppContextClassifierTests.swift` covers terminal, developer, and plain active app classification.
 - Automated: `VoicePenTests/DeveloperMode/DeveloperModeProcessorTests.swift` covers aliases, command matching, longest triggers, filters, branch formatting, action gating, command-like diagnostics, and user-facing mode description signals.
@@ -80,6 +84,7 @@ VoicePen reads a single user-editable TOML file at `~/.voicepen/config.toml`, cr
 - Automated: `VoicePenTests/History/VoiceHistoryStoreTests.swift` covers persistence of diagnostic notes.
 - Manual: open Settings, verify mode selection, the short modes overview, and per-mode explanations appear under the Modes tab and no longer appear under General.
 - Manual: use Open Config File from Modes settings with no existing `~/.voicepen/config.toml`, verify the default file is created and opens in the system default editor.
+- Manual: press `Command + ,` with VoicePen active and verify the same config file opens.
 - Manual: edit `~/.voicepen/config.toml`, add one custom alias and one custom terminal command, keep VoicePen running, dictate both, and verify the next dictation uses the edited config.
 
 ## Notes
