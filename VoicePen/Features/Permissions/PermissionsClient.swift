@@ -9,7 +9,9 @@ enum MicrophonePermissionStatus: Equatable {
 protocol PermissionsClient: AnyObject {
     var microphonePermissionStatus: MicrophonePermissionStatus { get }
     var hasAccessibilityPermission: Bool { get }
+    var hasSystemAudioRecordingPermission: Bool { get }
 
     func requestAccessibilityPermission()
     func requestMicrophonePermission() async -> Bool
+    func requestSystemAudioRecordingPermission()
 }

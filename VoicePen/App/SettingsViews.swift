@@ -10,6 +10,7 @@ enum VoicePenSettingsSection: String, CaseIterable, Identifiable, Hashable {
     case ai
     case config
     case dictionary
+    case meetings
     case history
     case about
 
@@ -31,6 +32,8 @@ enum VoicePenSettingsSection: String, CaseIterable, Identifiable, Hashable {
             return "Config"
         case .dictionary:
             return "Dictionary"
+        case .meetings:
+            return "Meetings"
         case .history:
             return "History"
         case .about:
@@ -54,6 +57,8 @@ enum VoicePenSettingsSection: String, CaseIterable, Identifiable, Hashable {
             return "doc.text"
         case .dictionary:
             return "text.book.closed"
+        case .meetings:
+            return "person.2.wave.2"
         case .history:
             return "clock.arrow.circlepath"
         case .about:
@@ -447,9 +452,7 @@ struct AISettingsView: View {
         Binding(
             get: { currentConfig.llm.provider },
             set: { newValue in
-                persistAISettings { config in
-                    config.provider = newValue
-                }
+                persistAIProviderSelection(newValue)
             }
         )
     }
@@ -566,6 +569,15 @@ struct AISettingsView: View {
             saveError = "AI settings could not be saved: \(error.localizedDescription)"
         }
     }
+
+    private func persistAIProviderSelection(_ provider: LLMProvider) {
+        Task { @MainActor in
+            await Task.yield()
+            persistAISettings { config in
+                config.provider = provider
+            }
+        }
+    }
 }
 
 struct ConfigSettingsView: View {
@@ -627,6 +639,7 @@ struct PermissionsSettingsView: View {
         Form {
             Section {
                 LabeledContent("Microphone", value: controller.microphonePermissionTitle)
+                LabeledContent("System Audio", value: controller.systemAudioPermissionTitle)
                 LabeledContent("Text insertion", value: controller.accessibilityPermissionTitle)
                 LabeledContent("Bundle ID", value: controller.runningBundleIdentifier)
                 LabeledContent("Running app", value: controller.runningAppPath)
@@ -636,6 +649,12 @@ struct PermissionsSettingsView: View {
                         controller.requestMicrophonePermission()
                     } label: {
                         Label("Request Microphone", systemImage: "mic")
+                    }
+
+                    Button {
+                        controller.requestSystemAudioRecordingPermission()
+                    } label: {
+                        Label("Open System Audio Settings", systemImage: "waveform")
                     }
 
                     Button {
@@ -714,12 +733,7 @@ struct ModelSettingsView: View {
                 LabeledContent("Install path", value: controller.userModelDirectory.path)
 
                 if controller.isDownloadingModel {
-                    ProgressView(
-                        value: controller.modelDownloadProgress,
-                        total: 1.0
-                    ) {
-                        Text(controller.appState.menuTitle)
-                    }
+                    modelDownloadProgressView
                 }
 
                 HStack {
@@ -808,6 +822,21 @@ struct ModelSettingsView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("VoicePen will remove downloaded files for \(controller.selectedModel.displayName). Bundled app resources will not be deleted.")
+        }
+    }
+
+    @ViewBuilder
+    private var modelDownloadProgressView: some View {
+        if let progress = controller.modelDownloadProgress {
+            ProgressView(value: progress, total: 1.0) {
+                Text(controller.appState.menuTitle)
+            }
+            .progressViewStyle(.linear)
+        } else {
+            ProgressView {
+                Text(controller.appState.menuTitle)
+            }
+            .progressViewStyle(.linear)
         }
     }
 

@@ -7,10 +7,11 @@ struct VoicePenMainWindow: View {
     @State private var selectedSection: VoicePenSettingsSection? = .general
     private let sidebarSections: [VoicePenSettingsSection] = [
         .general,
-        .model,
+        .meetings,
         .modes,
-        .dictionary,
         .ai,
+        .dictionary,
+        .model,
         .history,
         .config,
         .permissions,
@@ -22,7 +23,7 @@ struct VoicePenMainWindow: View {
             List(selection: $selectedSection) {
                 Section {
                     HStack(spacing: 10) {
-                        Image(systemName: "mic.fill")
+                        Image(systemName: controller.menuBarSystemImage)
                             .font(.system(size: 18, weight: .semibold))
                             .foregroundStyle(.tint)
                             .frame(width: 28, height: 28)
@@ -44,7 +45,7 @@ struct VoicePenMainWindow: View {
                 Section("Settings") {
                     ForEach(sidebarSections) { section in
                         NavigationLink(value: section) {
-                            Label(section.title, systemImage: section.systemImage)
+                            Label(section.title, systemImage: systemImage(for: section))
                         }
                     }
                 }
@@ -66,7 +67,18 @@ struct VoicePenMainWindow: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            MeetingRecordingPanel(controller: controller)
+        }
         .frame(minWidth: 860, minHeight: 560)
+    }
+
+    private func systemImage(for section: VoicePenSettingsSection) -> String {
+        guard section == .meetings, controller.appState.showsMeetingRecordingPanel else {
+            return section.systemImage
+        }
+
+        return controller.menuBarSystemImage
     }
 
     @ViewBuilder
@@ -90,6 +102,16 @@ struct VoicePenMainWindow: View {
             ConfigSettingsView(controller: controller)
         case .dictionary:
             DictionaryEditorView(controller: controller, dictionaryStore: controller.dictionaryStore)
+        case .meetings:
+            if let meetingHistoryStore = controller.meetingHistoryStore {
+                MeetingsView(controller: controller, meetingHistoryStore: meetingHistoryStore)
+            } else {
+                ContentUnavailableView(
+                    "Meetings unavailable",
+                    systemImage: "person.2.wave.2",
+                    description: Text("Meeting recording is not configured in this build.")
+                )
+            }
         case .history:
             HistoryView(controller: controller, historyStore: controller.historyStore)
         case .about:
@@ -764,6 +786,362 @@ private struct TermEntryDraft: Equatable {
     }
 }
 
+private struct MeetingRecordingPanel: View {
+    @ObservedObject var controller: AppController
+
+    var body: some View {
+        if showsPanel {
+            HStack(spacing: 16) {
+                Label(formatDuration(controller.meetingElapsedTime), systemImage: "record.circle.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .monospacedDigit()
+
+                Label(controller.meetingSourceStatus.microphone.title, systemImage: "mic")
+                Label(controller.meetingSourceStatus.systemAudio.title, systemImage: "waveform")
+
+                Spacer()
+
+                if controller.appState == .meetingRecording {
+                    Button {
+                        controller.pauseMeetingRecording()
+                    } label: {
+                        Label("Pause Meeting Recording", systemImage: "pause.fill")
+                    }
+                } else if controller.appState == .meetingPaused {
+                    Button {
+                        controller.resumeMeetingRecording()
+                    } label: {
+                        Label("Resume Meeting Recording", systemImage: "play.fill")
+                    }
+                }
+
+                Button {
+                    controller.stopMeetingRecording()
+                } label: {
+                    Label("Stop Meeting Recording", systemImage: "stop.fill")
+                }
+                .disabled(controller.appState == .meetingProcessing)
+
+                Button(role: .destructive) {
+                    controller.cancelMeetingRecording()
+                } label: {
+                    Label("Cancel Meeting Recording", systemImage: "xmark")
+                }
+                .disabled(controller.appState == .meetingProcessing)
+            }
+            .font(.system(size: 12))
+            .padding(.horizontal, 18)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+            .background(.bar)
+            .overlay(alignment: .top) {
+                Divider()
+            }
+        }
+    }
+
+    private var showsPanel: Bool {
+        controller.appState.showsMeetingRecordingPanel
+    }
+
+    private func formatDuration(_ duration: TimeInterval) -> String {
+        let totalSeconds = max(0, Int(duration.rounded()))
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+}
+
+private struct MeetingsView: View {
+    @ObservedObject var controller: AppController
+    @ObservedObject var meetingHistoryStore: MeetingHistoryStore
+    @State private var selectedID: MeetingHistoryEntry.ID?
+    @State private var entryPendingDeletion: MeetingHistoryEntry?
+
+    private var selectedEntry: MeetingHistoryEntry? {
+        guard let selectedID else {
+            return meetingHistoryStore.entries.first
+        }
+        return meetingHistoryStore.entries.first { $0.id == selectedID } ?? meetingHistoryStore.entries.first
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                HStack {
+                    Text("Meetings")
+                        .font(.headline)
+
+                    Spacer()
+
+                    Button {
+                        controller.startMeetingRecording()
+                    } label: {
+                        Label("Start", systemImage: "record.circle")
+                    }
+                    .disabled(!canStartMeeting)
+                }
+                .padding([.horizontal, .top], 16)
+                .padding(.bottom, 10)
+
+                if meetingHistoryStore.entries.isEmpty {
+                    ContentUnavailableView(
+                        "No meetings yet",
+                        systemImage: "person.2.wave.2",
+                        description: Text("Finished meeting transcripts will appear here.")
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List(selection: $selectedID) {
+                        ForEach(meetingHistoryStore.entries) { entry in
+                            MeetingRowView(
+                                entry: entry,
+                                copyAction: { controller.copyMeetingTranscript(entry) },
+                                deleteAction: { entryPendingDeletion = entry }
+                            )
+                            .tag(entry.id)
+                        }
+                    }
+                    .listStyle(.sidebar)
+                }
+            }
+            .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
+
+            Divider()
+
+            MeetingDetailView(controller: controller, entry: selectedEntry)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .onAppear {
+            selectedID = selectedID ?? meetingHistoryStore.entries.first?.id
+        }
+        .onChange(of: meetingHistoryStore.entries) { _, _ in
+            if !meetingHistoryStore.entries.contains(where: { $0.id == selectedID }) {
+                selectedID = meetingHistoryStore.entries.first?.id
+            }
+        }
+        .alert("Delete meeting?", isPresented: deleteConfirmationBinding) {
+            Button("Delete", role: .destructive) {
+                if let entryPendingDeletion {
+                    controller.deleteMeetingEntry(id: entryPendingDeletion.id)
+                }
+                entryPendingDeletion = nil
+            }
+            Button("Cancel", role: .cancel) {
+                entryPendingDeletion = nil
+            }
+        } message: {
+            Text("This removes only the selected meeting transcript.")
+        }
+    }
+
+    private var canStartMeeting: Bool {
+        controller.appState.canStartMeetingRecording
+    }
+
+    private var deleteConfirmationBinding: Binding<Bool> {
+        Binding(
+            get: { entryPendingDeletion != nil },
+            set: { isPresented in
+                if !isPresented {
+                    entryPendingDeletion = nil
+                }
+            }
+        )
+    }
+}
+
+private struct MeetingRowView: View {
+    let entry: MeetingHistoryEntry
+    let copyAction: () -> Void
+    let deleteAction: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Label(statusTitle, systemImage: statusIcon)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(statusColor)
+                    .lineLimit(1)
+
+                Spacer()
+
+                Text(entry.createdAt, style: .time)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+
+            Text(entry.previewText)
+                .font(.system(size: 13))
+                .lineLimit(2)
+
+            HStack(spacing: 8) {
+                Text(entry.createdAt, style: .date)
+                Text(formatDuration(entry.duration))
+                if entry.sourceFlags.partial {
+                    Label("Partial", systemImage: "exclamationmark.triangle")
+                }
+            }
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 5)
+        .contextMenu {
+            Button {
+                copyAction()
+            } label: {
+                Label("Copy Transcript", systemImage: "doc.on.doc")
+            }
+            .disabled(entry.transcriptText.trimmed.isEmpty)
+
+            Button(role: .destructive) {
+                deleteAction()
+            } label: {
+                Label("Delete Meeting", systemImage: "trash")
+            }
+        }
+    }
+
+    private var statusTitle: String {
+        entry.sourceFlags.partial ? "Partial" : entry.status.title
+    }
+
+    private var statusIcon: String {
+        switch entry.status {
+        case .completed:
+            return entry.sourceFlags.partial ? "exclamationmark.triangle" : "checkmark.circle"
+        case .partial:
+            return "exclamationmark.triangle"
+        case .failed:
+            return "xmark.octagon"
+        }
+    }
+
+    private var statusColor: Color {
+        switch entry.status {
+        case .completed:
+            return entry.sourceFlags.partial ? .yellow : .green
+        case .partial:
+            return .yellow
+        case .failed:
+            return .red
+        }
+    }
+
+    private func formatDuration(_ duration: TimeInterval) -> String {
+        String(format: "%.1f min", max(0, duration) / 60)
+    }
+}
+
+private struct MeetingDetailView: View {
+    @ObservedObject var controller: AppController
+    let entry: MeetingHistoryEntry?
+
+    var body: some View {
+        Group {
+            if let entry {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(entry.createdAt, format: .dateTime.year().month().day().hour().minute().second())
+                                .font(.headline)
+                            Text(detailSubtitle(for: entry))
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        Button {
+                            controller.insertMeetingTranscript(entry)
+                        } label: {
+                            Label("Insert Transcript", systemImage: "arrowshape.turn.up.forward")
+                        }
+                        .disabled(entry.transcriptText.trimmed.isEmpty)
+
+                        Button {
+                            controller.copyMeetingTranscript(entry)
+                        } label: {
+                            Label("Copy Transcript", systemImage: "doc.on.doc")
+                        }
+                        .disabled(entry.transcriptText.trimmed.isEmpty)
+                    }
+
+                    if let errorMessage = entry.errorMessage {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Processing error")
+                                .font(.subheadline.weight(.semibold))
+                            Text(errorMessage)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                    }
+
+                    HistoryTextSection(
+                        title: "Full transcript",
+                        text: entry.transcriptText,
+                        copyAction: {
+                            controller.copyMeetingTranscript(entry)
+                        }
+                    )
+
+                    MeetingMetadataSection(entry: entry)
+
+                    Spacer(minLength: 0)
+                }
+                .padding(20)
+            } else {
+                ContentUnavailableView(
+                    "Select a meeting",
+                    systemImage: "text.bubble",
+                    description: Text("Saved meeting transcripts will appear here.")
+                )
+            }
+        }
+    }
+
+    private func detailSubtitle(for entry: MeetingHistoryEntry) -> String {
+        "\(entry.status.title) · \(String(format: "%.1f min", entry.duration / 60))"
+    }
+}
+
+private struct MeetingMetadataSection: View {
+    let entry: MeetingHistoryEntry
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Local model metadata")
+                .font(.subheadline.weight(.semibold))
+
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
+                metadataRow("Microphone", entry.sourceFlags.microphoneCaptured ? "Captured" : "Not captured")
+                metadataRow("System audio", entry.sourceFlags.systemAudioCaptured ? "Captured" : "Not captured")
+                metadataRow("Partial", entry.sourceFlags.partial ? "Yes" : "No")
+
+                if let modelMetadata = entry.modelMetadata {
+                    metadataRow("Model", modelMetadata.displayName)
+                    metadataRow("Backend", modelMetadata.backend)
+                    metadataRow("Version", modelMetadata.version)
+                }
+            }
+            .font(.system(size: 12))
+        }
+    }
+
+    private func metadataRow(_ label: String, _ value: String) -> some View {
+        GridRow {
+            Text(label)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .textSelection(.enabled)
+        }
+    }
+}
+
 private struct HistoryView: View {
     @ObservedObject var controller: AppController
     @ObservedObject var historyStore: VoiceHistoryStore
@@ -800,12 +1178,6 @@ private struct HistoryView: View {
                         .font(.headline)
 
                     Spacer()
-
-                    Button {
-                        controller.openHistoryFile()
-                    } label: {
-                        Label("Reveal", systemImage: "folder")
-                    }
 
                     Button(role: .destructive) {
                         showingClearConfirmation = true

@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import SwiftUI
 
@@ -21,7 +22,7 @@ struct VoicePenApp: App {
         MenuBarExtra {
             VoicePenMenuView(controller: controller, softwareUpdateController: softwareUpdateController)
         } label: {
-            Label("VoicePen", systemImage: controller.menuBarSystemImage)
+            VoicePenMenuBarLabel(controller: controller)
         }
         .menuBarExtraStyle(.menu)
 
@@ -56,6 +57,40 @@ struct VoicePenApp: App {
     }
 }
 
+private struct VoicePenMenuBarLabel: View {
+    @ObservedObject var controller: AppController
+    @State private var meetingPulseVisible = true
+
+    private let pulseTimer = Timer.publish(every: 1.4, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        Label("VoicePen", systemImage: systemImage)
+            .foregroundStyle(controller.appState == .meetingRecording ? .red : .primary)
+            .id("\(controller.appState.menuTitle)-\(systemImage)-\(meetingPulseVisible)")
+            .onReceive(pulseTimer) { _ in
+                guard controller.appState == .meetingRecording else {
+                    meetingPulseVisible = true
+                    return
+                }
+
+                meetingPulseVisible.toggle()
+            }
+            .onChange(of: controller.appState) { _, newState in
+                if newState != .meetingRecording {
+                    meetingPulseVisible = true
+                }
+            }
+    }
+
+    private var systemImage: String {
+        guard controller.appState == .meetingRecording else {
+            return controller.menuBarSystemImage
+        }
+
+        return meetingPulseVisible ? "record.circle.fill" : "record.circle"
+    }
+}
+
 private struct VoicePenMenuView: View {
     @ObservedObject var controller: AppController
     @ObservedObject var softwareUpdateController: SoftwareUpdateController
@@ -82,16 +117,46 @@ private struct VoicePenMenuView: View {
             }
         }
 
-        if showsDictationCommands && controller.hasLatestTranscriptionText {
+        if showsMeetingCommands {
+            if controller.appState.canStartMeetingRecording {
+                Button("Start Meeting Recording") {
+                    controller.startMeetingRecording()
+                }
+            }
+
+            if controller.appState == .meetingRecording {
+                Button("Pause Meeting Recording") {
+                    controller.pauseMeetingRecording()
+                }
+            }
+
+            if controller.appState == .meetingPaused {
+                Button("Resume Meeting Recording") {
+                    controller.resumeMeetingRecording()
+                }
+            }
+
+            if controller.appState.isMeetingCaptureActive {
+                Button("Stop Meeting Recording") {
+                    controller.stopMeetingRecording()
+                }
+
+                Button("Cancel Meeting Recording", role: .cancel) {
+                    controller.cancelMeetingRecording()
+                }
+            }
+        }
+
+        if (showsDictationCommands || showsMeetingCommands) && controller.hasLatestTranscriptionText {
             Divider()
         }
 
         if controller.hasLatestTranscriptionText {
-            Button("Copy Last Transcription") {
+            Button("Copy Last Dictation") {
                 controller.copyLastTranscription()
             }
 
-            Button("Retry Insert Last Text") {
+            Button("Insert Last Dictation") {
                 controller.retryInsertLastTranscription()
             }
         }
@@ -124,6 +189,10 @@ private struct VoicePenMenuView: View {
         controller.appState == .ready
             || controller.appState == .recording
             || controller.appState == .transcribing
+    }
+
+    private var showsMeetingCommands: Bool {
+        controller.appState.canStartMeetingRecording || controller.appState.isMeetingCaptureActive
     }
 
     private var pushToTalkHotkeyHint: String {

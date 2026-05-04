@@ -51,11 +51,14 @@ final class AppController: ObservableObject {
     @Published var errorMessage: String?
     @Published var modelDownloadProgress: Double?
     @Published var modelRuntimeState: ModelRuntimeState = .notLoaded
+    @Published var meetingElapsedTime: TimeInterval = 0
+    @Published var meetingSourceStatus: MeetingSourceStatus = .idle
     @Published private(set) var userConfigLoadResult = UserConfigLoadResult(config: UserConfig())
     @Published private(set) var modelManifest: ModelManifest
 
     private let paths: AppPaths
     private let pipeline: DictationPipeline
+    private let meetingPipeline: MeetingPipeline?
     private let hotkey: PushToTalkHotkeyClient
     private let permissions: PermissionsClient
     let dictionaryStore: DictionaryStore
@@ -69,6 +72,7 @@ final class AppController: ObservableObject {
     private let userPrompts: UserPromptPresenter
     private let environmentSettingsStore: AppEnvironmentSettingsStore
     let historyStore: VoiceHistoryStore
+    let meetingHistoryStore: MeetingHistoryStore?
     let settingsStore: AppSettingsStore
 
     private var didStart = false
@@ -76,6 +80,11 @@ final class AppController: ObservableObject {
     private var modelDownloadTask: Task<Void, Never>?
     private var modelWarmupTask: Task<Void, Never>?
     private var transcriptionTask: Task<Void, Never>?
+    private var meetingProcessingTask: Task<Void, Never>?
+    private var meetingStatusTask: Task<Void, Never>?
+    private var meetingStartedAt: Date?
+    private var meetingAccumulatedActiveDuration: TimeInterval = 0
+    private var meetingPauseStartedAt: Date?
     private var didHandleCurrentTranscriptionCancellation = false
     private var isWaitingForCustomShortcut = false
     private var accessibilityPermissionPollingTask: Task<Void, Never>?
@@ -83,6 +92,7 @@ final class AppController: ObservableObject {
 
     private static let microphonePermissionRequiredMessage = "Microphone permission is required to record dictation audio locally."
     private static let accessibilityPermissionRequiredMessage = "Text insertion permission is required so VoicePen can paste text into the active app."
+    private static let systemAudioPermissionRequiredMessage = "System Audio permission is required to capture meeting audio locally."
 
     var recommendedModel: ModelManifestModel {
         modelManifest.recommendedModel
@@ -190,6 +200,14 @@ final class AppController: ObservableObject {
         permissions.hasAccessibilityPermission ? "Allowed" : "Missing"
     }
 
+    var systemAudioPermissionTitle: String {
+        if appState == .missingSystemAudioPermission || !permissions.hasSystemAudioRecordingPermission {
+            return "Missing"
+        }
+
+        return "Requested on start"
+    }
+
     var runningBundleIdentifier: String {
         Bundle.main.bundleIdentifier ?? "Unknown"
     }
@@ -202,9 +220,13 @@ final class AppController: ObservableObject {
         switch appState {
         case .recording:
             "record.circle.fill"
-        case .transcribing, .downloadingModel, .preparingModel:
+        case .meetingRecording:
+            "record.circle.fill"
+        case .meetingPaused:
+            "pause.circle.fill"
+        case .transcribing, .meetingProcessing, .downloadingModel, .preparingModel:
             "waveform"
-        case .missingMicrophonePermission, .missingAccessibilityPermission, .missingModel, .error:
+        case .missingMicrophonePermission, .missingAccessibilityPermission, .missingSystemAudioPermission, .missingModel, .error:
             "exclamationmark.triangle.fill"
         default:
             "mic.fill"
@@ -214,6 +236,7 @@ final class AppController: ObservableObject {
     init(
         paths: AppPaths,
         pipeline: DictationPipeline,
+        meetingPipeline: MeetingPipeline? = nil,
         hotkey: PushToTalkHotkeyClient,
         permissions: PermissionsClient,
         dictionaryStore: DictionaryStore,
@@ -227,11 +250,13 @@ final class AppController: ObservableObject {
         userPrompts: UserPromptPresenter,
         environmentSettingsStore: AppEnvironmentSettingsStore? = nil,
         historyStore: VoiceHistoryStore,
+        meetingHistoryStore: MeetingHistoryStore? = nil,
         settingsStore: AppSettingsStore,
         modelManifest: ModelManifest
     ) {
         self.paths = paths
         self.pipeline = pipeline
+        self.meetingPipeline = meetingPipeline
         self.hotkey = hotkey
         self.permissions = permissions
         self.dictionaryStore = dictionaryStore
@@ -245,6 +270,7 @@ final class AppController: ObservableObject {
         self.userPrompts = userPrompts
         self.environmentSettingsStore = environmentSettingsStore ?? AppEnvironmentSettingsStore()
         self.historyStore = historyStore
+        self.meetingHistoryStore = meetingHistoryStore
         self.settingsStore = settingsStore
         self.modelManifest = modelManifest
     }
@@ -255,6 +281,7 @@ final class AppController: ObservableObject {
         let recommendedModel = modelManifest.recommendedModel
         let dictionaryStore = DictionaryStore(dictionaryURL: paths.dictionaryURL)
         let historyStore = VoiceHistoryStore(historyURL: paths.historyURL)
+        let meetingHistoryStore = MeetingHistoryStore(databaseURL: paths.databaseURL)
         let settingsStore = AppSettingsStore(databaseURL: paths.databaseURL)
         let overlay = BottomOverlayWindowController()
         let recorder = LiveAudioRecordingClient(tempDirectory: paths.tempAudioDirectory)
@@ -291,10 +318,23 @@ final class AppController: ObservableObject {
             },
             minimumRecordingDuration: VoicePenConfig.minimumRecordingDuration
         )
+        let meetingPipeline = MeetingPipeline(
+            recorder: CompositeMeetingRecordingClient(
+                microphoneSource: AVFoundationMicrophoneMeetingAudioSource(tempDirectory: paths.tempAudioDirectory),
+                systemAudioSource: CoreAudioTapSystemOutputMeetingAudioSource(tempDirectory: paths.tempAudioDirectory)
+            ),
+            audioPreprocessor: audioPreprocessor,
+            chunker: AVFoundationMeetingAudioChunker(outputDirectory: paths.tempAudioDirectory),
+            transcriber: transcriber,
+            historyStore: meetingHistoryStore,
+            languageProvider: { settingsStore.transcriptionLanguage },
+            speechPreprocessingModeProvider: { settingsStore.speechPreprocessingMode }
+        )
 
         let controller = AppController(
             paths: paths,
             pipeline: pipeline,
+            meetingPipeline: meetingPipeline,
             hotkey: LivePushToTalkHotkeyClient(settingsStore: settingsStore),
             permissions: LivePermissionsClient(),
             dictionaryStore: dictionaryStore,
@@ -315,6 +355,7 @@ final class AppController: ObservableObject {
             userPrompts: NSAlertUserPromptPresenter(),
             environmentSettingsStore: userConfigStore,
             historyStore: historyStore,
+            meetingHistoryStore: meetingHistoryStore,
             settingsStore: settingsStore,
             modelManifest: modelManifest
         )
@@ -347,6 +388,7 @@ final class AppController: ObservableObject {
             reloadUserConfig()
             try dictionaryStore.load()
             try historyStore.load()
+            try meetingHistoryStore?.load()
             try settingsStore.load(defaultModelId: recommendedModel.id)
             try syncOpenAtLoginState()
             modelWarmup = scheduleModelWarmupIfInstalled()
@@ -424,7 +466,13 @@ final class AppController: ObservableObject {
 
     @discardableResult
     func startRecording() -> Task<Void, Never>? {
-        guard appState != .recording, appState != .transcribing, !isDownloadingModel else { return nil }
+        guard appState != .recording,
+            appState != .transcribing,
+            appState != .meetingRecording,
+            appState != .meetingPaused,
+            appState != .meetingProcessing,
+            !isDownloadingModel
+        else { return nil }
 
         cancelModelWarmup()
         let task = Task {
@@ -505,10 +553,6 @@ final class AppController: ObservableObject {
 
     func openDictionaryFile() {
         NSWorkspace.shared.activateFileViewerSelecting([paths.dictionaryURL])
-    }
-
-    func openHistoryFile() {
-        NSWorkspace.shared.activateFileViewerSelecting([paths.historyURL])
     }
 
     func openUserConfigFile() {
@@ -702,6 +746,20 @@ final class AppController: ObservableObject {
         startAccessibilityPermissionPolling()
     }
 
+    func requestSystemAudioRecordingPermission() {
+        permissions.requestSystemAudioRecordingPermission()
+        openSystemAudioRecordingSettings()
+        refreshPermissionState()
+    }
+
+    func openSystemAudioRecordingSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture") else {
+            return
+        }
+
+        NSWorkspace.shared.open(url)
+    }
+
     func openAccessibilitySettings() {
         guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else {
             return
@@ -711,7 +769,13 @@ final class AppController: ObservableObject {
     }
 
     func refreshPermissionState() {
-        guard appState != .recording, appState != .transcribing, !isDownloadingModel else { return }
+        guard appState != .recording,
+            appState != .transcribing,
+            appState != .meetingRecording,
+            appState != .meetingPaused,
+            appState != .meetingProcessing,
+            !isDownloadingModel
+        else { return }
 
         guard permissions.microphonePermissionStatus == .authorized else {
             appState = .missingMicrophonePermission
@@ -856,7 +920,13 @@ final class AppController: ObservableObject {
     }
 
     func deleteDownloadedModelFiles() {
-        guard !isDownloadingModel, appState != .recording, appState != .transcribing else { return }
+        guard !isDownloadingModel,
+            appState != .recording,
+            appState != .transcribing,
+            appState != .meetingRecording,
+            appState != .meetingPaused,
+            appState != .meetingProcessing
+        else { return }
 
         do {
             let modelDirectory = userModelDirectory
@@ -885,6 +955,206 @@ final class AppController: ObservableObject {
         } catch {
             setError(error)
         }
+    }
+
+    @discardableResult
+    func startMeetingRecording() -> Task<Void, Never>? {
+        guard let meetingPipeline else { return nil }
+        guard
+            appState == .ready
+                || appState == .missingModel
+                || appState == .missingAccessibilityPermission
+        else { return nil }
+        guard acknowledgeMeetingRecordingConsentIfNeeded() else { return nil }
+
+        guard permissions.microphonePermissionStatus == .authorized else {
+            appState = .missingMicrophonePermission
+            errorMessage = Self.microphonePermissionRequiredMessage
+            return nil
+        }
+
+        cancelModelWarmup()
+        let task = Task { [weak self, meetingPipeline] in
+            guard let self else { return }
+            do {
+                appState = .meetingRecording
+                errorMessage = nil
+                meetingStartedAt = Date()
+                meetingAccumulatedActiveDuration = 0
+                meetingPauseStartedAt = nil
+                meetingElapsedTime = 0
+                try await meetingPipeline.start()
+                startMeetingStatusUpdates()
+            } catch {
+                handleMeetingStartError(error)
+            }
+        }
+        return task
+    }
+
+    @discardableResult
+    func pauseMeetingRecording() -> Task<Void, Never>? {
+        guard appState == .meetingRecording, let meetingPipeline else { return nil }
+
+        let task = Task { [weak self, meetingPipeline] in
+            guard let self else { return }
+            do {
+                try await meetingPipeline.pause()
+                meetingAccumulatedActiveDuration = meetingElapsedTime
+                meetingPauseStartedAt = Date()
+                appState = .meetingPaused
+                meetingSourceStatus = meetingPipeline.sourceStatus
+            } catch {
+                setError(error)
+            }
+        }
+        return task
+    }
+
+    @discardableResult
+    func resumeMeetingRecording() -> Task<Void, Never>? {
+        guard appState == .meetingPaused, let meetingPipeline else { return nil }
+
+        let task = Task { [weak self, meetingPipeline] in
+            guard let self else { return }
+            do {
+                try await meetingPipeline.resume()
+                meetingStartedAt = Date()
+                meetingPauseStartedAt = nil
+                appState = .meetingRecording
+                meetingSourceStatus = meetingPipeline.sourceStatus
+            } catch {
+                setError(error)
+            }
+        }
+        return task
+    }
+
+    @discardableResult
+    func stopMeetingRecording() -> Task<Void, Never>? {
+        guard appState == .meetingRecording || appState == .meetingPaused,
+            let meetingPipeline,
+            meetingProcessingTask == nil
+        else { return nil }
+
+        let task = Task { [weak self, meetingPipeline] in
+            guard let self else { return }
+            do {
+                appState = .meetingProcessing
+                stopMeetingStatusUpdates()
+                let entry = try await meetingPipeline.stopAndProcess()
+                meetingElapsedTime = entry.duration
+                updateStateAfterModelChange()
+                errorMessage = nil
+            } catch {
+                stopMeetingStatusUpdates()
+                setError(error)
+            }
+            meetingProcessingTask = nil
+        }
+        meetingProcessingTask = task
+        return task
+    }
+
+    @discardableResult
+    func cancelMeetingRecording() -> Task<Void, Never>? {
+        guard appState == .meetingRecording || appState == .meetingPaused,
+            let meetingPipeline
+        else { return nil }
+
+        let task = Task { [weak self, meetingPipeline] in
+            guard let self else { return }
+            do {
+                try await meetingPipeline.cancel()
+                stopMeetingStatusUpdates()
+                meetingElapsedTime = 0
+                meetingSourceStatus = .idle
+                updateStateAfterModelChange()
+                errorMessage = nil
+            } catch {
+                setError(error)
+            }
+        }
+        return task
+    }
+
+    func copyMeetingTranscript(_ entry: MeetingHistoryEntry) {
+        copyToClipboard(entry.transcriptText)
+    }
+
+    func insertMeetingTranscript(_ entry: MeetingHistoryEntry) {
+        insertText(entry.transcriptText)
+    }
+
+    func deleteMeetingEntry(id: MeetingHistoryEntry.ID) {
+        do {
+            try meetingHistoryStore?.delete(id: id)
+        } catch {
+            setError(error)
+        }
+    }
+
+    private func acknowledgeMeetingRecordingConsentIfNeeded() -> Bool {
+        guard !settingsStore.hasAcknowledgedMeetingRecordingConsent else { return true }
+
+        let response = userPrompts.showAlert(
+            messageText: "Start meeting recording?",
+            informativeText: """
+                VoicePen will record microphone and system audio only after you start Meeting Recording. Transcription runs locally, raw audio is temporary, and meeting output is saved as transcript history.
+                """,
+            style: .informational,
+            buttons: ["Start Recording", "Cancel"],
+            activateBeforeShowing: true
+        )
+
+        guard response == .alertFirstButtonReturn else { return false }
+        do {
+            try settingsStore.updateMeetingRecordingConsentAcknowledged(true)
+            return true
+        } catch {
+            setError(error)
+            return false
+        }
+    }
+
+    private func handleMeetingStartError(_ error: Error) {
+        if let meetingError = error as? MeetingRecordingError,
+            meetingError == .systemAudioPermissionDenied
+        {
+            appState = .missingSystemAudioPermission
+            errorMessage = Self.systemAudioPermissionRequiredMessage
+            return
+        }
+
+        setError(error)
+    }
+
+    private func startMeetingStatusUpdates() {
+        meetingStatusTask?.cancel()
+        meetingStatusTask = Task { @MainActor [weak self] in
+            while let self, !Task.isCancelled {
+                if self.appState == .meetingRecording {
+                    let activeElapsed = Date().timeIntervalSince(self.meetingStartedAt ?? Date())
+                    self.meetingElapsedTime = self.meetingAccumulatedActiveDuration + activeElapsed
+                }
+                let sourceStatus = self.meetingPipeline?.sourceStatus ?? .idle
+                self.meetingSourceStatus = sourceStatus
+                if self.appState == .meetingRecording, sourceStatus.hasFailedSource {
+                    _ = self.stopMeetingRecording()
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+        }
+    }
+
+    private func stopMeetingStatusUpdates() {
+        meetingStatusTask?.cancel()
+        meetingStatusTask = nil
+        meetingStartedAt = nil
+        meetingAccumulatedActiveDuration = 0
+        meetingPauseStartedAt = nil
+        meetingSourceStatus = .idle
     }
 
     func deleteHistoryEntry(id: VoiceHistoryEntry.ID) {

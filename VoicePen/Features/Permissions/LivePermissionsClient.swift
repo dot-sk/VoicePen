@@ -23,6 +23,10 @@ final class LivePermissionsClient: PermissionsClient {
         return AXIsProcessTrustedWithOptions(options)
     }
 
+    var hasSystemAudioRecordingPermission: Bool {
+        true
+    }
+
     func requestAccessibilityPermission() {
         let options = [accessibilityPromptOptionKey: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
@@ -40,5 +44,8 @@ final class LivePermissionsClient: PermissionsClient {
         @unknown default:
             return false
         }
+    }
+
+    func requestSystemAudioRecordingPermission() {
     }
 }
