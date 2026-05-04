@@ -7,11 +7,6 @@ nonisolated protocol LLMClient: Sendable {
 nonisolated struct LLMStructuredRequest: Equatable, Sendable {
     var prompt: String
     var schema: LLMJSONSchema
-
-    init(prompt: String, schema: LLMJSONSchema) {
-        self.prompt = prompt
-        self.schema = schema
-    }
 }
 
 nonisolated struct LLMJSONSchema: Equatable, Sendable {
@@ -84,11 +79,11 @@ nonisolated enum LLMClientError: Error, Equatable, LocalizedError, Sendable {
     var errorDescription: String? {
         switch self {
         case let .configuration(message),
-             let .providerUnavailable(message),
-             let .schemaUnsupported(message),
-             let .timeout(message),
-             let .invalidResponse(message),
-             let .transport(message):
+            let .providerUnavailable(message),
+            let .schemaUnsupported(message),
+            let .timeout(message),
+            let .invalidResponse(message),
+            let .transport(message):
             return message
         case let .provider(statusCode, message):
             return "Provider returned HTTP \(statusCode): \(message)"
@@ -125,11 +120,6 @@ nonisolated enum LLMClientError: Error, Equatable, LocalizedError, Sendable {
 nonisolated struct LLMHTTPResponse: Sendable {
     var data: Data
     var statusCode: Int
-
-    init(data: Data, statusCode: Int) {
-        self.data = data
-        self.statusCode = statusCode
-    }
 }
 
 nonisolated protocol LLMHTTPTransport: Sendable {
@@ -161,10 +151,10 @@ extension URLError {
     var isProviderUnavailable: Bool {
         switch code {
         case .cannotConnectToHost,
-             .cannotFindHost,
-             .dnsLookupFailed,
-             .networkConnectionLost,
-             .notConnectedToInternet:
+            .cannotFindHost,
+            .dnsLookupFailed,
+            .networkConnectionLost,
+            .notConnectedToInternet:
             return true
         default:
             return false

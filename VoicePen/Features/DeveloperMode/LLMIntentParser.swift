@@ -329,11 +329,13 @@ nonisolated final class LLMIntentParser: @unchecked Sendable {
         guard !intents.isEmpty else {
             return .disabled
         }
-        guard LLMIntentCandidateDetector.isCandidate(
-            transcript: transcript,
-            context: context,
-            intents: intents
-        ) else {
+        guard
+            LLMIntentCandidateDetector.isCandidate(
+                transcript: transcript,
+                context: context,
+                intents: intents
+            )
+        else {
             return .disabled
         }
 
@@ -360,7 +362,7 @@ nonisolated final class LLMIntentParser: @unchecked Sendable {
         threshold: Double
     ) -> LLMIntentParserResult {
         guard let data = output.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else {
             return .invalidModelOutput(.invalidJSON)
         }
@@ -416,7 +418,7 @@ nonisolated enum LLMIntentCommandRenderer {
         diagnosticNotes: [String]
     ) -> DeveloperModeProcessingResult? {
         guard context == .terminal,
-              let commandText = commandText(for: intent)
+            let commandText = commandText(for: intent)
         else {
             return nil
         }

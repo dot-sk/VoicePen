@@ -242,11 +242,13 @@ final class DictationPipeline {
         guard config.developer.intentParser.enabled, context != .plain else { return nil }
 
         let intents = LLMIntentRegistry.intents(for: context)
-        guard LLMIntentCandidateDetector.isCandidate(
-            transcript: rawText,
-            context: context,
-            intents: intents
-        ) else {
+        guard
+            LLMIntentCandidateDetector.isCandidate(
+                transcript: rawText,
+                context: context,
+                intents: intents
+            )
+        else {
             return nil
         }
 
@@ -261,7 +263,7 @@ final class DictationPipeline {
 
         switch await parser.parse(transcript: rawText, context: context, config: config) {
         case .disabled,
-             .rejected:
+            .rejected:
             return nil
         case let .invalidModelOutput(reason):
             diagnosticNotes.append("AI command parser returned invalid output: \(reason).")
@@ -270,12 +272,14 @@ final class DictationPipeline {
             diagnosticNotes.append("AI command parser failed: \(error.localizedDescription)")
             return nil
         case let .parsed(intent):
-            guard let rendered = LLMIntentCommandRenderer.render(
-                intent: intent,
-                config: config,
-                context: context,
-                diagnosticNotes: diagnosticNotes
-            ) else {
+            guard
+                let rendered = LLMIntentCommandRenderer.render(
+                    intent: intent,
+                    config: config,
+                    context: context,
+                    diagnosticNotes: diagnosticNotes
+                )
+            else {
                 diagnosticNotes.append("AI command parser returned unsupported intent: \(intent.id).")
                 return nil
             }

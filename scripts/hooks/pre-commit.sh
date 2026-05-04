@@ -32,6 +32,12 @@ while IFS= read -r file; do
     git add "${file}"
 done <<< "${swift_files}"
 
+while IFS= read -r file; do
+    [[ -z "${file}" ]] && continue
+    [[ -f "${file}" ]] || continue
+    xcrun swift-format lint --configuration .swift-format --strict "${file}"
+done <<< "${swift_files}"
+
 if ! command -v swiftlint >/dev/null 2>&1; then
     printf "SwiftLint is required. Install it with: brew install swiftlint\n" >&2
     exit 127

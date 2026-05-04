@@ -25,9 +25,11 @@ enum HotkeyPreference: String, CaseIterable, Identifiable {
 
 extension HotkeyPreference {
     @MainActor
-    func menuBarHint(customShortcutDescription: () -> String? = {
-        KeyboardShortcuts.getShortcut(for: .voicePenPushToTalk)?.description
-    }) -> String {
+    func menuBarHint(
+        customShortcutDescription: () -> String? = {
+            KeyboardShortcuts.getShortcut(for: .voicePenPushToTalk)?.description
+        }
+    ) -> String {
         switch self {
         case .option:
             return "Option"
