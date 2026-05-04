@@ -27,6 +27,14 @@ nonisolated enum LLMIntentParserResult: Equatable, Sendable {
     case invalidModelOutput(LLMInvalidModelOutputReason)
 }
 
+nonisolated protocol LLMIntentParsing: Sendable {
+    func parse(
+        transcript: String,
+        context: ActiveAppContext,
+        config: UserConfig
+    ) async -> LLMIntentParserResult
+}
+
 nonisolated enum LLMIntentRejectionReason: Equatable, Sendable {
     case lowConfidence(confidence: Double, threshold: Double)
     case unsupportedIntent(String)
@@ -254,7 +262,7 @@ nonisolated enum LLMIntentCandidateDetector {
     static func isCandidate(transcript: String, context: ActiveAppContext, intents: [LLMIntentDefinition]) -> Bool {
         guard context != .plain, !intents.isEmpty else { return false }
 
-        let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = transcript.trimmed
         guard !trimmed.isEmpty, trimmed.count <= maximumCharacters else { return false }
 
         let tokens = tokenize(trimmed)
@@ -386,7 +394,7 @@ nonisolated final class LLMIntentParser: @unchecked Sendable {
         }
 
         let rawArgument = object["argumentText"] as? String
-        let argumentText = rawArgument?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let argumentText = rawArgument?.trimmed
         return .parsed(
             CommandIntent(
                 id: intent,
@@ -395,5 +403,80 @@ nonisolated final class LLMIntentParser: @unchecked Sendable {
                 slots: slots
             )
         )
+    }
+}
+
+extension LLMIntentParser: LLMIntentParsing {}
+
+nonisolated enum LLMIntentCommandRenderer {
+    static func render(
+        intent: CommandIntent,
+        config: UserConfig,
+        context: ActiveAppContext,
+        diagnosticNotes: [String]
+    ) -> DeveloperModeProcessingResult? {
+        guard context == .terminal,
+              let commandText = commandText(for: intent)
+        else {
+            return nil
+        }
+
+        return DeveloperModeProcessingResult(
+            text: commandText,
+            insertionAction: config.developer.terminalCommandAction,
+            diagnosticNotes: diagnosticNotes,
+            activeContext: context,
+            matchedCommandID: "llm:\(intent.id)"
+        )
+    }
+
+    private static func commandText(for intent: CommandIntent) -> String? {
+        switch intent.id {
+        case "git.branch.create":
+            guard let branchTopic = intent.argumentText?.trimmed, !branchTopic.isEmpty else {
+                return nil
+            }
+            let branchName = branchName(from: branchTopic, slots: intent.slots)
+            guard !branchName.isEmpty else { return nil }
+            return "git checkout -b \(branchName)"
+        case "git.pull":
+            return "git pull"
+        case "git.push":
+            if let remoteName = allowedRemoteName(intent.slots["remoteName"]) {
+                return "git push \(remoteName)"
+            }
+            return "git push"
+        case "git.commit":
+            guard let message = intent.argumentText?.trimmed, !message.isEmpty else {
+                return nil
+            }
+            return "git commit -m \(shellSingleQuoted(message))"
+        default:
+            return nil
+        }
+    }
+
+    private static func branchName(from argumentText: String, slots: [String: String]) -> String {
+        let topic = CaseFormatter.gitBranch(argumentText)
+        guard let branchKind = allowedBranchKind(slots["branchKind"]) else {
+            return topic
+        }
+        return "\(branchKind)/\(topic)"
+    }
+
+    private static func allowedBranchKind(_ value: String?) -> String? {
+        guard let value = value?.lowercased() else { return nil }
+        let allowed = Set(["feature", "fix", "refactor", "chore", "docs", "test"])
+        return allowed.contains(value) ? value : nil
+    }
+
+    private static func allowedRemoteName(_ value: String?) -> String? {
+        guard let value = value?.lowercased() else { return nil }
+        let allowed = Set(["origin", "upstream"])
+        return allowed.contains(value) ? value : nil
+    }
+
+    private static func shellSingleQuoted(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 }

@@ -21,8 +21,7 @@ nonisolated struct AISettingsSummary: Equatable, Sendable {
         case .openrouter:
             self.baseURL = config.llm.openrouter.baseURL
             self.model = config.llm.openrouter.model
-            self.hasOpenRouterAPIKey =
-                !config.llm.openrouter.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            self.hasOpenRouterAPIKey = !config.llm.openrouter.apiKey.trimmed.isEmpty
         }
     }
 }

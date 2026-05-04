@@ -13,7 +13,7 @@ nonisolated final class OpenRouterLLMClient: LLMClient, @unchecked Sendable {
 
     func completeJSON(_ request: LLMStructuredRequest) async -> Result<String, LLMClientError> {
         guard let url = URL(string: config.baseURL)?.appendingPathComponent("chat/completions") else {
-            return .failure(.configuration("OpenRouter base URL is invalid.").redacted(apiKey: config.apiKey))
+            return .failure(redacted(.configuration("OpenRouter base URL is invalid.")))
         }
 
         do {
@@ -42,11 +42,10 @@ nonisolated final class OpenRouterLLMClient: LLMClient, @unchecked Sendable {
             guard (200..<300).contains(response.statusCode) else {
                 let message = LLMProviderMessage.text(from: response)
                 if response.statusCode == 400, message.lowercased().contains("json_schema") {
-                    return .failure(.schemaUnsupported(message).redacted(apiKey: config.apiKey))
+                    return .failure(redacted(.schemaUnsupported(message)))
                 }
                 return .failure(
-                    .provider(statusCode: response.statusCode, message: message)
-                        .redacted(apiKey: config.apiKey)
+                    redacted(.provider(statusCode: response.statusCode, message: message))
                 )
             }
 
@@ -57,22 +56,27 @@ nonisolated final class OpenRouterLLMClient: LLMClient, @unchecked Sendable {
             return .success(content)
         } catch let error as DecodingError {
             return .failure(
-                .invalidResponse("OpenRouter response JSON could not be decoded: \(error.localizedDescription)")
-                    .redacted(apiKey: config.apiKey)
+                redacted(.invalidResponse("OpenRouter response JSON could not be decoded: \(error.localizedDescription)"))
             )
         } catch let error as URLError where error.code == .timedOut {
-            return .failure(.timeout("OpenRouter request timed out.").redacted(apiKey: config.apiKey))
+            return .failure(redacted(.timeout("OpenRouter request timed out.")))
         } catch let error as URLError where error.isProviderUnavailable {
             return .failure(
-                .providerUnavailable("OpenRouter is not reachable at \(config.baseURL). Check network access or choose another LLM provider.")
-                    .redacted(apiKey: config.apiKey)
+                redacted(
+                    .providerUnavailable(
+                        "OpenRouter is not reachable at \(config.baseURL). Check network access or choose another LLM provider."
+                    )
+                )
             )
         } catch {
             return .failure(
-                .transport("OpenRouter request failed: \(error.localizedDescription)")
-                    .redacted(apiKey: config.apiKey)
+                redacted(.transport("OpenRouter request failed: \(error.localizedDescription)"))
             )
         }
+    }
+
+    private func redacted(_ error: LLMClientError) -> LLMClientError {
+        error.redacted(apiKey: config.apiKey)
     }
 }
 
@@ -121,19 +125,4 @@ nonisolated private struct OpenRouterChatResponse: Decodable {
 
 nonisolated private struct OpenRouterChoice: Decodable {
     var message: OpenRouterMessage
-}
-
-private extension URLError {
-    var isProviderUnavailable: Bool {
-        switch code {
-        case .cannotConnectToHost,
-             .cannotFindHost,
-             .dnsLookupFailed,
-             .networkConnectionLost,
-             .notConnectedToInternet:
-            return true
-        default:
-            return false
-        }
-    }
 }

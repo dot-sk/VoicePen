@@ -98,21 +98,26 @@ nonisolated enum LLMClientError: Error, Equatable, LocalizedError, Sendable {
     func redacted(apiKey: String) -> LLMClientError {
         guard !apiKey.isEmpty else { return self }
 
+        let secrets = [apiKey]
+        return mapMessage { AppLogger.sanitizedForLogging($0, secrets: secrets) }
+    }
+
+    private func mapMessage(_ transform: (String) -> String) -> LLMClientError {
         switch self {
         case let .configuration(message):
-            return .configuration(AppLogger.sanitizedForLogging(message, secrets: [apiKey]))
+            return .configuration(transform(message))
         case let .providerUnavailable(message):
-            return .providerUnavailable(AppLogger.sanitizedForLogging(message, secrets: [apiKey]))
+            return .providerUnavailable(transform(message))
         case let .provider(statusCode, message):
-            return .provider(statusCode: statusCode, message: AppLogger.sanitizedForLogging(message, secrets: [apiKey]))
+            return .provider(statusCode: statusCode, message: transform(message))
         case let .schemaUnsupported(message):
-            return .schemaUnsupported(AppLogger.sanitizedForLogging(message, secrets: [apiKey]))
+            return .schemaUnsupported(transform(message))
         case let .timeout(message):
-            return .timeout(AppLogger.sanitizedForLogging(message, secrets: [apiKey]))
+            return .timeout(transform(message))
         case let .invalidResponse(message):
-            return .invalidResponse(AppLogger.sanitizedForLogging(message, secrets: [apiKey]))
+            return .invalidResponse(transform(message))
         case let .transport(message):
-            return .transport(AppLogger.sanitizedForLogging(message, secrets: [apiKey]))
+            return .transport(transform(message))
         }
     }
 }
@@ -152,13 +157,28 @@ private enum LLMTransportError: Error {
     case invalidHTTPResponse
 }
 
+extension URLError {
+    var isProviderUnavailable: Bool {
+        switch code {
+        case .cannotConnectToHost,
+             .cannotFindHost,
+             .dnsLookupFailed,
+             .networkConnectionLost,
+             .notConnectedToInternet:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
 nonisolated enum LLMRouter {
     static func makeClient(config: LLMConfig, transport: LLMHTTPTransport = LiveLLMHTTPTransport()) -> Result<LLMClient, LLMClientError> {
         switch config.provider {
         case .ollama:
             return .success(OllamaLLMClient(config: config.ollama, transport: transport))
         case .openrouter:
-            guard !config.openrouter.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            guard !config.openrouter.apiKey.trimmed.isEmpty else {
                 return .failure(.configuration("OpenRouter API key is required when llm.provider is openrouter."))
             }
             return .success(OpenRouterLLMClient(config: config.openrouter, transport: transport))

@@ -76,7 +76,7 @@ nonisolated final class UserConfigStore: @unchecked Sendable {
         config.developer.intentParser = intentParser
 
         let normalizedConfig = Self.normalizedConfig(config)
-        let encodedConfig = try TOMLEncoder().encode(normalizedConfig)
+        let encodedConfig = try Self.configEncoder.encode(normalizedConfig)
         try encodedConfig.write(to: configURL, atomically: true, encoding: .utf8)
         setLastValidConfig(normalizedConfig)
         return UserConfigLoadResult(config: normalizedConfig)
@@ -243,16 +243,22 @@ nonisolated final class UserConfigStore: @unchecked Sendable {
         LLMConfig(
             provider: config.provider,
             ollama: OllamaLLMConfig(
-                baseURL: normalizedString(config.ollama.baseURL, fallback: "http://localhost:11434"),
-                model: normalizedString(config.ollama.model, fallback: "gemma4:e2b"),
-                timeoutSeconds: positiveSeconds(config.ollama.timeoutSeconds, fallback: 15),
+                baseURL: normalizedString(config.ollama.baseURL, fallback: OllamaLLMConfig.defaultBaseURL),
+                model: normalizedString(config.ollama.model, fallback: OllamaLLMConfig.defaultModel),
+                timeoutSeconds: positiveSeconds(
+                    config.ollama.timeoutSeconds,
+                    fallback: OllamaLLMConfig.defaultTimeoutSeconds
+                ),
                 think: config.ollama.think
             ),
             openrouter: OpenRouterLLMConfig(
-                baseURL: normalizedString(config.openrouter.baseURL, fallback: "https://openrouter.ai/api/v1"),
-                model: normalizedString(config.openrouter.model, fallback: "google/gemini-2.5-flash-lite"),
-                apiKey: config.openrouter.apiKey.trimmingCharacters(in: .whitespacesAndNewlines),
-                timeoutSeconds: positiveSeconds(config.openrouter.timeoutSeconds, fallback: 20)
+                baseURL: normalizedString(config.openrouter.baseURL, fallback: OpenRouterLLMConfig.defaultBaseURL),
+                model: normalizedString(config.openrouter.model, fallback: OpenRouterLLMConfig.defaultModel),
+                apiKey: config.openrouter.apiKey.trimmed,
+                timeoutSeconds: positiveSeconds(
+                    config.openrouter.timeoutSeconds,
+                    fallback: OpenRouterLLMConfig.defaultTimeoutSeconds
+                )
             )
         )
     }
@@ -260,6 +266,15 @@ nonisolated final class UserConfigStore: @unchecked Sendable {
     private static func normalizedString(_ value: String, fallback: String) -> String {
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return normalized.isEmpty ? fallback : normalized
+    }
+
+    private static var configEncoder: TOMLEncoder {
+        TOMLEncoder(options: [
+            .allowLiteralStrings,
+            .allowMultilineStrings,
+            .allowUnicodeStrings,
+            .indentations
+        ])
     }
 
     private static func positiveSeconds(_ value: Double, fallback: Double) -> Double {

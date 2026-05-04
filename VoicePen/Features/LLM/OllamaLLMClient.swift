@@ -74,18 +74,3 @@ nonisolated enum LLMProviderMessage {
         String(data: response.data, encoding: .utf8) ?? "No response body."
     }
 }
-
-private extension URLError {
-    var isProviderUnavailable: Bool {
-        switch code {
-        case .cannotConnectToHost,
-             .cannotFindHost,
-             .dnsLookupFailed,
-             .networkConnectionLost,
-             .notConnectedToInternet:
-            return true
-        default:
-            return false
-        }
-    }
-}

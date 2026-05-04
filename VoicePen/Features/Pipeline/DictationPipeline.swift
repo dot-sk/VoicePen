@@ -32,6 +32,8 @@ struct DictationPipelineResult: Equatable {
 }
 
 final class DictationPipeline {
+    typealias LLMIntentParserFactory = @Sendable (UserConfig) -> Result<any LLMIntentParsing, LLMClientError>
+
     private let recorder: AudioRecordingClient
     private let audioPreprocessor: AudioPreprocessingClient
     private let transcriber: TranscriptionClient
@@ -43,6 +45,7 @@ final class DictationPipeline {
     private let speechPreprocessingModeProvider: () -> SpeechPreprocessingMode
     private let developerModeOverrideProvider: () -> DeveloperMode?
     private let activeApplicationProvider: () -> ActiveApplicationInfo?
+    private let llmIntentParserFactory: LLMIntentParserFactory
     private let minimumRecordingDuration: TimeInterval
     private var recordingLevelTask: Task<Void, Never>?
 
@@ -58,6 +61,7 @@ final class DictationPipeline {
         speechPreprocessingModeProvider: @escaping () -> SpeechPreprocessingMode = { .off },
         developerModeOverrideProvider: @escaping () -> DeveloperMode? = { nil },
         activeApplicationProvider: @escaping () -> ActiveApplicationInfo? = { nil },
+        llmIntentParserFactory: @escaping LLMIntentParserFactory = DictationPipeline.defaultLLMIntentParserFactory,
         minimumRecordingDuration: TimeInterval = VoicePenConfig.minimumRecordingDuration
     ) {
         self.recorder = recorder
@@ -71,6 +75,7 @@ final class DictationPipeline {
         self.speechPreprocessingModeProvider = speechPreprocessingModeProvider
         self.developerModeOverrideProvider = developerModeOverrideProvider
         self.activeApplicationProvider = activeApplicationProvider
+        self.llmIntentParserFactory = llmIntentParserFactory
         self.minimumRecordingDuration = minimumRecordingDuration
     }
 
@@ -138,7 +143,7 @@ final class DictationPipeline {
         try Task.checkCancellation()
 
         await overlay.update(.transcribing(stage: .normalizing, progress: nil))
-        let normalized = try measure { () throws -> DeveloperModeProcessingResult in
+        let normalized = try await measure { () async throws -> DeveloperModeProcessingResult in
             let configResult = userConfigStore.loadConfig()
             let commandResult = DeveloperModeProcessor.process(
                 text: rawText,
@@ -152,6 +157,16 @@ final class DictationPipeline {
                 return commandResult
             }
 
+            var diagnosticNotes = commandResult.diagnosticNotes
+            if let llmCommandResult = await llmIntentCommandResult(
+                rawText: rawText,
+                config: configResult.config,
+                context: commandResult.activeContext,
+                diagnosticNotes: &diagnosticNotes
+            ) {
+                return llmCommandResult
+            }
+
             let dictionaryText = try dictionaryStore.makeNormalizer()
                 .normalize(rawText)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -160,7 +175,7 @@ final class DictationPipeline {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             return DeveloperModeProcessingResult(
                 text: finalText,
-                diagnosticNotes: commandResult.diagnosticNotes,
+                diagnosticNotes: diagnosticNotes,
                 activeContext: commandResult.activeContext
             )
         }
@@ -216,6 +231,65 @@ final class DictationPipeline {
         let value = try await operation()
         let end = DispatchTime.now().uptimeNanoseconds
         return (value, TimeInterval(end - start) / 1_000_000_000)
+    }
+
+    private func llmIntentCommandResult(
+        rawText: String,
+        config: UserConfig,
+        context: ActiveAppContext,
+        diagnosticNotes: inout [String]
+    ) async -> DeveloperModeProcessingResult? {
+        guard config.developer.intentParser.enabled, context != .plain else { return nil }
+
+        let intents = LLMIntentRegistry.intents(for: context)
+        guard LLMIntentCandidateDetector.isCandidate(
+            transcript: rawText,
+            context: context,
+            intents: intents
+        ) else {
+            return nil
+        }
+
+        let parser: any LLMIntentParsing
+        switch llmIntentParserFactory(config) {
+        case let .success(resolvedParser):
+            parser = resolvedParser
+        case let .failure(error):
+            diagnosticNotes.append("AI command parser could not start: \(error.localizedDescription)")
+            return nil
+        }
+
+        switch await parser.parse(transcript: rawText, context: context, config: config) {
+        case .disabled,
+             .rejected:
+            return nil
+        case let .invalidModelOutput(reason):
+            diagnosticNotes.append("AI command parser returned invalid output: \(reason).")
+            return nil
+        case let .providerFailed(error):
+            diagnosticNotes.append("AI command parser failed: \(error.localizedDescription)")
+            return nil
+        case let .parsed(intent):
+            guard let rendered = LLMIntentCommandRenderer.render(
+                intent: intent,
+                config: config,
+                context: context,
+                diagnosticNotes: diagnosticNotes
+            ) else {
+                diagnosticNotes.append("AI command parser returned unsupported intent: \(intent.id).")
+                return nil
+            }
+            return rendered
+        }
+    }
+
+    nonisolated private static let defaultLLMIntentParserFactory: LLMIntentParserFactory = { config in
+        switch LLMRouter.makeClient(config: config.llm) {
+        case let .success(client):
+            return .success(LLMIntentParser(client: client))
+        case let .failure(error):
+            return .failure(error)
+        }
     }
 
     private func startRecordingLevelUpdates(startedAt: Date) {

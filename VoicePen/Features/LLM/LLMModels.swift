@@ -37,16 +37,21 @@ nonisolated struct LLMConfig: Codable, Equatable, Sendable {
 }
 
 nonisolated struct OllamaLLMConfig: Codable, Equatable, Sendable {
+    static let defaultBaseURL = "http://localhost:11434"
+    static let defaultModel = "gemma4:e2b"
+    static let defaultTimeoutSeconds: Double = 15
+    static let defaultThink = false
+
     var baseURL: String
     var model: String
     var timeoutSeconds: Double
     var think: Bool
 
     init(
-        baseURL: String = "http://localhost:11434",
-        model: String = "gemma4:e2b",
-        timeoutSeconds: Double = 15,
-        think: Bool = false
+        baseURL: String = Self.defaultBaseURL,
+        model: String = Self.defaultModel,
+        timeoutSeconds: Double = Self.defaultTimeoutSeconds,
+        think: Bool = Self.defaultThink
     ) {
         self.baseURL = baseURL
         self.model = model
@@ -63,24 +68,30 @@ nonisolated struct OllamaLLMConfig: Codable, Equatable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL) ?? "http://localhost:11434"
-        self.model = try container.decodeIfPresent(String.self, forKey: .model) ?? "gemma4:e2b"
-        self.timeoutSeconds = try container.decodeDoubleOrIntIfPresent(forKey: .timeoutSeconds) ?? 15
-        self.think = try container.decodeIfPresent(Bool.self, forKey: .think) ?? false
+        self.baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL) ?? Self.defaultBaseURL
+        self.model = try container.decodeIfPresent(String.self, forKey: .model) ?? Self.defaultModel
+        self.timeoutSeconds =
+            try container.decodeDoubleOrIntIfPresent(forKey: .timeoutSeconds) ?? Self.defaultTimeoutSeconds
+        self.think = try container.decodeIfPresent(Bool.self, forKey: .think) ?? Self.defaultThink
     }
 }
 
 nonisolated struct OpenRouterLLMConfig: Codable, Equatable, Sendable {
+    static let defaultBaseURL = "https://openrouter.ai/api/v1"
+    static let defaultModel = "google/gemini-2.5-flash-lite"
+    static let defaultAPIKey = ""
+    static let defaultTimeoutSeconds: Double = 20
+
     var baseURL: String
     var model: String
     var apiKey: String
     var timeoutSeconds: Double
 
     init(
-        baseURL: String = "https://openrouter.ai/api/v1",
-        model: String = "google/gemini-2.5-flash-lite",
-        apiKey: String = "",
-        timeoutSeconds: Double = 20
+        baseURL: String = Self.defaultBaseURL,
+        model: String = Self.defaultModel,
+        apiKey: String = Self.defaultAPIKey,
+        timeoutSeconds: Double = Self.defaultTimeoutSeconds
     ) {
         self.baseURL = baseURL
         self.model = model
@@ -97,12 +108,11 @@ nonisolated struct OpenRouterLLMConfig: Codable, Equatable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.baseURL =
-            try container.decodeIfPresent(String.self, forKey: .baseURL) ?? "https://openrouter.ai/api/v1"
-        self.model =
-            try container.decodeIfPresent(String.self, forKey: .model) ?? "google/gemini-2.5-flash-lite"
-        self.apiKey = try container.decodeIfPresent(String.self, forKey: .apiKey) ?? ""
-        self.timeoutSeconds = try container.decodeDoubleOrIntIfPresent(forKey: .timeoutSeconds) ?? 20
+        self.baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL) ?? Self.defaultBaseURL
+        self.model = try container.decodeIfPresent(String.self, forKey: .model) ?? Self.defaultModel
+        self.apiKey = try container.decodeIfPresent(String.self, forKey: .apiKey) ?? Self.defaultAPIKey
+        self.timeoutSeconds =
+            try container.decodeDoubleOrIntIfPresent(forKey: .timeoutSeconds) ?? Self.defaultTimeoutSeconds
     }
 }
 
