@@ -1401,9 +1401,3 @@ private struct HistoryRawTranscriptDisclosure: View {
         text.trimmed
     }
 }
-
-private extension String {
-    var trimmed: String {
-        trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-}
