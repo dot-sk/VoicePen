@@ -38,12 +38,18 @@ nonisolated struct ModelAccelerationStatus: Equatable {
         guard model.backendKind == .whisperCpp else {
             let modelDirectory = paths.existingModelDirectory(for: model.id)
             let expectedModelDirectory = modelDirectory ?? paths.userModelDirectory(for: model.id)
+            let isPresent: Bool
+            if model.backendKind == .fluidAudio {
+                isPresent = FluidAudioModelInstallation.installedDirectory(model: model, paths: paths) != nil
+            } else {
+                isPresent = modelDirectory.map { ModelArtifactPresence.exists(at: $0, fileManager: fileManager) } ?? false
+            }
             return ModelAccelerationStatus(
                 model: ModelArtifactStatus(
                     id: "model-directory",
                     displayName: model.backendKind == .fluidAudio ? "FluidAudio model" : "Model directory",
                     expectedURL: expectedModelDirectory,
-                    isPresent: modelDirectory.map { artifactExists(at: $0, fileManager: fileManager) } ?? false
+                    isPresent: isPresent
                 ),
                 companionArtifacts: [],
                 backendKind: model.backendKind
@@ -57,7 +63,7 @@ nonisolated struct ModelAccelerationStatus: Equatable {
             id: "model",
             displayName: "GGML model",
             expectedURL: expectedModelURL,
-            isPresent: modelURL.map { artifactExists(at: $0, fileManager: fileManager) } ?? false
+            isPresent: modelURL.map { ModelArtifactPresence.exists(at: $0, fileManager: fileManager) } ?? false
         )
 
         let companionStatuses = model.requiredCompanionArtifacts.map { artifact in
@@ -67,7 +73,7 @@ nonisolated struct ModelAccelerationStatus: Equatable {
                 id: artifact.id,
                 displayName: artifact.displayName,
                 expectedURL: expectedArtifactURL,
-                isPresent: artifactURL.map { artifactExists(at: $0, fileManager: fileManager) } ?? false
+                isPresent: artifactURL.map { ModelArtifactPresence.exists(at: $0, fileManager: fileManager) } ?? false
             )
         }
 
@@ -78,14 +84,22 @@ nonisolated struct ModelAccelerationStatus: Equatable {
         )
     }
 
-    private static func artifactExists(at url: URL, fileManager: FileManager) -> Bool {
+}
+
+nonisolated enum ModelArtifactPresence {
+    static func exists(at url: URL, fileManager: FileManager = .default) -> Bool {
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
             return false
         }
 
         guard isDirectory.boolValue else {
-            return true
+            guard let attributes = try? fileManager.attributesOfItem(atPath: url.path),
+                let size = attributes[.size] as? NSNumber
+            else {
+                return false
+            }
+            return size.int64Value > 0
         }
 
         guard let contents = try? fileManager.contentsOfDirectory(atPath: url.path) else {

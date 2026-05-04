@@ -34,14 +34,16 @@ actor FluidAudioTranscriptionClient {
             return asrManager
         }
 
-        guard let modelDirectory = paths.existingModelDirectory(for: model.id) else {
+        guard let modelDirectory = FluidAudioModelInstallation.installedDirectory(model: model, paths: paths) else {
             let expectedPaths = paths.expectedModelDirectories(for: model.id).map(\.path)
             AppLogger.error("Missing FluidAudio model. Expected paths: \(expectedPaths.joined(separator: ", "))")
             throw TranscriptionError.modelMissing(expectedPaths: expectedPaths)
         }
 
         do {
-            let version = try parakeetVersion(for: model)
+            guard let version = FluidAudioModelInstallation.parakeetVersion(for: model) else {
+                throw TranscriptionError.unsupportedModel(model.id)
+            }
             let models = try await AsrModels.load(
                 from: modelDirectory,
                 version: version
@@ -55,17 +57,6 @@ actor FluidAudioTranscriptionClient {
             throw error
         } catch {
             throw TranscriptionError.modelLoadFailed(error.localizedDescription)
-        }
-    }
-
-    private func parakeetVersion(for model: ModelManifestModel) throws -> AsrModelVersion {
-        switch model.id {
-        case "parakeet-tdt-0.6b-v3":
-            return .v3
-        case "parakeet-tdt-0.6b-v2":
-            return .v2
-        default:
-            throw TranscriptionError.unsupportedModel(model.id)
         }
     }
 

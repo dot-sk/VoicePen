@@ -51,6 +51,7 @@ final class AppController: ObservableObject {
     @Published var errorMessage: String?
     @Published var modelDownloadProgress: Double?
     @Published var modelRuntimeState: ModelRuntimeState = .notLoaded
+    @Published private(set) var userConfigLoadResult = UserConfigLoadResult(config: UserConfig())
     @Published private(set) var modelManifest: ModelManifest
 
     private let paths: AppPaths
@@ -134,7 +135,7 @@ final class AppController: ObservableObject {
         case .whisperCpp:
             selectedModel.isInstalled(paths: paths)
         case .fluidAudio:
-            paths.existingModelDirectory(for: selectedModel.id) != nil
+            FluidAudioModelInstallation.isInstalled(model: selectedModel, paths: paths)
         case .unsupported:
             paths.existingModelDirectory(for: selectedModel.id) != nil
         }
@@ -343,7 +344,7 @@ final class AppController: ObservableObject {
         do {
             try paths.createRequiredDirectories()
             try paths.cleanOldTemporaryAudioFiles()
-            environmentSettingsStore.applyEnvironment()
+            reloadUserConfig()
             try dictionaryStore.load()
             try historyStore.load()
             try settingsStore.load(defaultModelId: recommendedModel.id)
@@ -519,12 +520,47 @@ final class AppController: ObservableObject {
         }
     }
 
+    @discardableResult
+    func reloadUserConfig() -> UserConfigLoadResult {
+        let result = environmentSettingsStore.loadConfig()
+        applyEnvironment(result.config.env)
+        userConfigLoadResult = result
+        return result
+    }
+
+    func updateLLMSettings(_ update: (inout LLMConfig) -> Void) throws {
+        var config = userConfigLoadResult.config
+        update(&config.llm)
+        try saveLLMAndIntentParserSettings(config)
+    }
+
+    func updateDeveloperIntentParserSettings(_ update: (inout DeveloperIntentParserConfig) -> Void) throws {
+        var config = userConfigLoadResult.config
+        update(&config.developer.intentParser)
+        try saveLLMAndIntentParserSettings(config)
+    }
+
+    private func saveLLMAndIntentParserSettings(_ config: UserConfig) throws {
+        let result = try environmentSettingsStore.saveAISettings(
+            llm: config.llm,
+            intentParser: config.developer.intentParser
+        )
+        applyEnvironment(result.config.env)
+        userConfigLoadResult = result
+    }
+
     func copyToClipboard(_ text: String) {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
 
         clipboard.clearContents()
         _ = clipboard.setString(trimmedText, forType: .string)
+    }
+
+    private func applyEnvironment(_ environment: [String: String]) {
+        for (key, value) in environment {
+            setenv(key, value, 1)
+        }
     }
 
     func copyLastTranscription() {
@@ -778,15 +814,22 @@ final class AppController: ObservableObject {
         return task
     }
 
-    func cancelModelDownload() {
-        guard isDownloadingModel else { return }
+    @discardableResult
+    func cancelModelDownload() -> Task<Void, Never>? {
+        guard isDownloadingModel else { return nil }
 
         let task = modelDownloadTask
         clearActiveModelDownload()
         task?.cancel()
         overlay.show(.done(message: "Download canceled"))
         overlay.hide(after: 1.0)
-        updateStateAfterModelChange()
+        updateStateAfterIncompleteModelDownload()
+
+        let cleanupTask = Task { [weak self] in
+            guard let self else { return }
+            updateStateAfterIncompleteModelDownload()
+        }
+        return cleanupTask
     }
 
     private func handleModelDownloadEvent(_ event: ModelDownloadEvent) {
@@ -1118,6 +1161,23 @@ final class AppController: ObservableObject {
 
         errorMessage = nil
         appState = isModelInstalled ? .ready : .missingModel
+    }
+
+    private func updateStateAfterIncompleteModelDownload() {
+        guard permissions.microphonePermissionStatus == .authorized else {
+            appState = .missingMicrophonePermission
+            errorMessage = Self.microphonePermissionRequiredMessage
+            return
+        }
+
+        guard permissions.hasAccessibilityPermission else {
+            appState = .missingAccessibilityPermission
+            errorMessage = Self.accessibilityPermissionRequiredMessage
+            return
+        }
+
+        errorMessage = nil
+        appState = .missingModel
     }
 }
 

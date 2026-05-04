@@ -3,9 +3,11 @@ id: SPEC-001
 status: implemented
 updated: 2026-05-04
 tests:
+  - VoicePenTests/Hotkey/HotkeyPreferenceTests.swift
   - VoicePenTests/Pipeline/DictationPipelineTests.swift
   - VoicePenTests/TextOutput/TextOutputNormalizerTests.swift
   - VoicePenTests/App/AppControllerTests.swift
+  - VoicePenTests/App/VoicePenAppCommandTests.swift
 ---
 
 # Push-To-Talk Dictation Pipeline
@@ -30,6 +32,7 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 - When transcription fails, VoicePen shall propagate the error and never insert partial text.
 - When the user records or changes a custom push-to-talk shortcut, VoicePen shall install that shortcut without requiring an app restart or another hotkey preference change.
 - When the custom shortcut preference is selected before a shortcut has been recorded, VoicePen shall surface that the shortcut is missing without entering a persistent fatal error state.
+- When VoicePen shows its menu bar extra menu, it shall group related commands with separators, hide dictation or text actions that are not available in the current state, omit idle status text, and include the configured push-to-talk hotkey hint on visible dictation commands.
 
 ## Examples
 
@@ -43,12 +46,14 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 | Transcription error | Transcriber throws | Error propagates and nothing is inserted |
 | Custom shortcut recorded | User selects custom shortcut and records Ctrl-E | Holding Ctrl-E starts push-to-talk without restarting VoicePen |
 | Empty custom shortcut | User selects custom shortcut before recording one | VoicePen reports that the shortcut is missing and becomes active once a shortcut is recorded |
+| Menu bar extra while idle with no text | Open VoicePen menu bar extra | Shows the available dictation action with its hotkey hint, app/config actions, and quit without idle status text or disabled text actions |
 
 ## Test Mapping
 
 - Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers recording start, short recording skip, preprocessing, glossary/language routing, normalization, global output cleanup, insertion, silent audio, empty transcription, and error propagation.
 - Automated: `VoicePenTests/TextOutput/TextOutputNormalizerTests.swift` covers global output character replacements.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers reinstalling the push-to-talk hotkey when a custom shortcut is recorded after the custom preference is selected.
+- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers menu bar extra command grouping, hiding unavailable menu actions, omitting idle status text, and showing push-to-talk hotkey hints.
 - Manual: verify the menu bar app records while the configured hotkey is held and pastes final text into the active app when Accessibility permission is granted.
 - Manual: hold the configured push-to-talk hotkey and verify the white microphone level bar changes height without moving left or right inside the red capsule.
 - Manual: select the custom push-to-talk shortcut, record Ctrl-E, hold Ctrl-E for the configured hold duration, and verify recording starts without restarting VoicePen.

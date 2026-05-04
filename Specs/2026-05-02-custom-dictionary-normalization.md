@@ -25,6 +25,7 @@ Dictionary entries contain a canonical form and variants. VoicePen imports entri
 - When CSV input contains `canonical,variants`, VoicePen shall import canonical terms and split variants on semicolons.
 - When CSV input contains any parsed entry without at least one non-empty variant, VoicePen shall reject the entire import without changing the existing dictionary.
 - When dictionary entries are edited, VoicePen shall store, load, replace, and filter them locally.
+- When the user clicks Add in the dictionary editor, VoicePen shall open an empty editable term draft on the first click even if another term was selected.
 - When a prompt glossary is built, VoicePen shall produce deterministic, language-aware output that respects configured limits.
 - When transcribed text contains configured variants, VoicePen shall replace them with canonical terms while preserving unrelated text.
 - When dictionary data is empty or invalid, VoicePen shall fail predictably without corrupting existing data.
@@ -46,6 +47,7 @@ Dictionary entries contain a canonical form and variants. VoicePen imports entri
 - Automated: CSV import tests cover rejection of canonical-only or partially valid imports without dictionary corruption.
 - Automated: `VoicePenTests/Dictionary/PromptGlossaryBuilderTests.swift` covers glossary ordering, language, and limits.
 - Automated: `VoicePenTests/Dictionary/TermNormalizerTests.swift` and `VoicePenTests/Dictionary/DictionaryEntryFilterTests.swift` cover replacement and filtering behavior.
+- Manual: with an existing dictionary term selected, click Add once and verify the editor immediately shows an empty draft instead of the previously selected term.
 - Manual: import a small CSV in the app and verify a configured spoken variant is inserted as the canonical term.
 
 ## Notes

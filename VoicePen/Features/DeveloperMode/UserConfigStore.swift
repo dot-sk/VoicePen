@@ -65,6 +65,23 @@ nonisolated final class UserConfigStore: @unchecked Sendable {
         try ensureUserConfigExists()
     }
 
+    func saveAISettings(
+        llm: LLMConfig,
+        intentParser: DeveloperIntentParserConfig
+    ) throws -> UserConfigLoadResult {
+        try ensureUserConfigExists()
+        let text = try String(contentsOf: configURL, encoding: .utf8)
+        var config = try Self.parseConfig(text)
+        config.llm = llm
+        config.developer.intentParser = intentParser
+
+        let normalizedConfig = Self.normalizedConfig(config)
+        let encodedConfig = try Self.configEncoder.encode(normalizedConfig)
+        try encodedConfig.write(to: configURL, atomically: true, encoding: .utf8)
+        setLastValidConfig(normalizedConfig)
+        return UserConfigLoadResult(config: normalizedConfig)
+    }
+
     static func defaultConfigURL(fileManager: FileManager = .default) -> URL {
         fileManager.homeDirectoryForCurrentUser
             .appendingPathComponent(".voicepen", isDirectory: true)
@@ -172,6 +189,7 @@ nonisolated final class UserConfigStore: @unchecked Sendable {
         let rawConfig = try TOMLDecoder().decode(RawUserConfig.self, from: table)
         return UserConfig(
             env: rawConfig.env ?? [:],
+            llm: rawConfig.llm ?? LLMConfig(),
             developer: rawConfig.developer ?? DeveloperConfig(),
             aliases: rawConfig.aliases ?? UserAliasesConfig(),
             commands: rawConfig.commands ?? UserCommandsConfig()
@@ -181,6 +199,7 @@ nonisolated final class UserConfigStore: @unchecked Sendable {
     private static func normalizedConfig(_ config: UserConfig) -> UserConfig {
         UserConfig(
             env: normalizedEnvironment(config.env),
+            llm: normalizedLLMConfig(config.llm),
             developer: config.developer,
             aliases: UserAliasesConfig(
                 common: normalizedAliases(config.aliases.common),
@@ -219,12 +238,55 @@ nonisolated final class UserConfigStore: @unchecked Sendable {
             )
         }
     }
+
+    private static func normalizedLLMConfig(_ config: LLMConfig) -> LLMConfig {
+        LLMConfig(
+            provider: config.provider,
+            ollama: OllamaLLMConfig(
+                baseURL: normalizedString(config.ollama.baseURL, fallback: OllamaLLMConfig.defaultBaseURL),
+                model: normalizedString(config.ollama.model, fallback: OllamaLLMConfig.defaultModel),
+                timeoutSeconds: positiveSeconds(
+                    config.ollama.timeoutSeconds,
+                    fallback: OllamaLLMConfig.defaultTimeoutSeconds
+                ),
+                think: config.ollama.think
+            ),
+            openrouter: OpenRouterLLMConfig(
+                baseURL: normalizedString(config.openrouter.baseURL, fallback: OpenRouterLLMConfig.defaultBaseURL),
+                model: normalizedString(config.openrouter.model, fallback: OpenRouterLLMConfig.defaultModel),
+                apiKey: config.openrouter.apiKey.trimmed,
+                timeoutSeconds: positiveSeconds(
+                    config.openrouter.timeoutSeconds,
+                    fallback: OpenRouterLLMConfig.defaultTimeoutSeconds
+                )
+            )
+        )
+    }
+
+    private static func normalizedString(_ value: String, fallback: String) -> String {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? fallback : normalized
+    }
+
+    private static var configEncoder: TOMLEncoder {
+        TOMLEncoder(options: [
+            .allowLiteralStrings,
+            .allowMultilineStrings,
+            .allowUnicodeStrings,
+            .indentations
+        ])
+    }
+
+    private static func positiveSeconds(_ value: Double, fallback: Double) -> Double {
+        value > 0 ? value : fallback
+    }
 }
 
 typealias AppEnvironmentSettingsStore = UserConfigStore
 
 nonisolated private struct RawUserConfig: Decodable {
     var env: [String: String]?
+    var llm: LLMConfig?
     var developer: DeveloperConfig?
     var aliases: UserAliasesConfig?
     var commands: UserCommandsConfig?

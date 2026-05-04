@@ -1,8 +1,9 @@
 ---
 id: SPEC-004
 status: implemented
-updated: 2026-05-03
+updated: 2026-05-04
 tests:
+  - VoicePenTests/App/VoicePenAppCommandTests.swift
   - VoicePenTests/Persistence/DatabaseMigratorTests.swift
   - VoicePenTests/Settings/AppSettingsStoreTests.swift
   - VoicePenTests/Settings/UserConfigStoreTests.swift
@@ -34,13 +35,16 @@ VoicePen stores app data in a local SQLite database under Application Support, m
 - When the History UI is shown, VoicePen shall show an approximate local storage size for saved history without exposing transcription content.
 - When VoicePen shows total transcribed audio time, it shall also show an approximate time-saved estimate by comparing recognized word count against a professional typing baseline.
 - When VoicePen shows usage stats, it shall also show lightweight progress signals: active streak, words dictated today, best dictation day, the latest reached milestone, and the next milestone.
+- When VoicePen computes usage milestones, it shall use a progressive ladder that mixes early wins, lifetime word volume, dictation count, active streak, best-day volume, and time saved so a single high-volume day cannot unlock the full ladder.
 - When VoicePen computes active streak, it shall count consecutive local calendar days with at least one countable history entry, allowing the streak to remain active before today's first dictation when yesterday had activity.
 - When VoicePen computes words dictated today and best dictation day, it shall use countable history entries and each entry's recognized word count.
 - When the user clicks a visible history entry, VoicePen shall select that entry, show it as active in the list, and update the detail pane to that entry.
 - When the user copies text from a visible history row, VoicePen shall temporarily replace that row's copy icon with a checkmark so the completed copy action is visible.
+- When a history row has actions such as copy or delete, VoicePen shall keep hover controls available for pointer users and also expose the same actions through a row context menu and accessibility actions.
 - When the history list shows a successful entry, VoicePen shall use a green checkmark without repeating a success label; non-success entries shall show a status or error reason.
 - When the user opens a history entry detail, VoicePen shall show the final text immediately and keep the raw transcript in an expandable section.
 - When the Open VoicePen at login setting is displayed, VoicePen shall reflect the current macOS login item status instead of only the last saved preference.
+- When the main settings window shows its sidebar, VoicePen shall keep a flat settings list ordered with primary dictation settings before history, permissions, and app information.
 - When tests touch persistence, they shall use temporary data paths rather than real user data directories.
 
 ## Examples
@@ -58,17 +62,21 @@ VoicePen stores app data in a local SQLite database under Application Support, m
 | History storage display | History has saved rows | UI shows approximate local history storage size |
 | Usage time saved | History contains completed dictations with recognized text | General settings shows estimated time saved versus manual typing at the professional typing baseline |
 | Lightweight progress stats | History contains entries across multiple days | General settings shows current streak, today's words, best day, latest reached milestone, and next milestone |
+| Single high-volume day | One day contains thousands of dictated words | Early volume and daily-record milestones may unlock, but longer streak and elite lifetime milestones remain locked |
 | History selection | Click an older visible history row | Row becomes active and the detail pane shows that row |
 | History row copy feedback | Copy a row with final text | The row copy icon temporarily changes from copy to checkmark |
+| History row actions | Secondary-click or use accessibility actions on a history row | Copy text and delete session are available without relying on hover-only controls |
 | History success status | Entry inserted successfully | Row shows a green checkmark without `Insert attempted` text |
 | History problem status | Entry is empty or failed | Row shows the status or error reason next to the status icon |
 | History detail text | Selected entry has final and raw text | Final text is visible; raw transcript is available under a disclosure |
 | Open at login external change | macOS Login Items status changes outside VoicePen | VoicePen refreshes the toggle to the current system status |
+| Settings sidebar | Open main VoicePen window | Primary dictation sections appear before history, permissions, and app information in a flat settings list |
 | Test storage | Persistence test run | Temporary directory is used |
 
 ## Test Mapping
 
 - Automated: `VoicePenTests/Persistence/DatabaseMigratorTests.swift` covers schema migration.
+- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers main window sidebar ordering and history row context/accessibility actions.
 - Automated: `VoicePenTests/Settings/AppSettingsStoreTests.swift` and `VoicePenTests/Settings/UserConfigStoreTests.swift` cover settings persistence and normalization.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers launch-at-login updates and synchronization with current macOS login item status.
 - Automated: `VoicePenTests/History/VoiceHistoryStoreTests.swift` covers unlimited local history rows, batch text compression, text payload eviction, storage stats, ordering, deletion, clearing, and persisted history metadata.
@@ -76,6 +84,7 @@ VoicePen stores app data in a local SQLite database under Application Support, m
 - Manual: open General settings with several history entries and verify the progress stats appear near the usage summary without success popups.
 - Manual: open History with at least two entries, click a non-selected entry, and verify the row becomes active and the detail pane changes to that entry.
 - Manual: hover a completed History row, copy it with the row copy button or double-click, and verify the row copy icon temporarily changes to a checkmark while the clipboard receives the row text.
+- Manual: secondary-click a completed History row and verify Copy Text and Delete Session are available; verify keyboard or VoiceOver accessibility actions expose the same actions.
 - Manual: verify successful History rows show only a green checkmark status, while empty or failed rows show a textual reason.
 - Manual: select a completed History entry and verify final text is visible immediately while raw transcript is collapsed under a disclosure that can be expanded.
 - Manual: verify README local data paths match where a running development build creates its database.

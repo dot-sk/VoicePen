@@ -5,6 +5,17 @@ import UniformTypeIdentifiers
 struct VoicePenMainWindow: View {
     @ObservedObject var controller: AppController
     @State private var selectedSection: VoicePenSettingsSection? = .general
+    private let sidebarSections: [VoicePenSettingsSection] = [
+        .general,
+        .model,
+        .modes,
+        .dictionary,
+        .ai,
+        .history,
+        .config,
+        .permissions,
+        .about
+    ]
 
     var body: some View {
         NavigationSplitView {
@@ -31,7 +42,7 @@ struct VoicePenMainWindow: View {
                 }
 
                 Section("Settings") {
-                    ForEach(VoicePenSettingsSection.allCases) { section in
+                    ForEach(sidebarSections) { section in
                         NavigationLink(value: section) {
                             Label(section.title, systemImage: section.systemImage)
                         }
@@ -62,15 +73,21 @@ struct VoicePenMainWindow: View {
     private func detailView(for section: VoicePenSettingsSection) -> some View {
         switch section {
         case .general:
-            GeneralSettingsView(controller: controller, historyStore: controller.historyStore)
+            GeneralSettingsView(
+                controller: controller,
+                historyStore: controller.historyStore,
+                settingsStore: controller.settingsStore
+            )
         case .permissions:
             PermissionsSettingsView(controller: controller)
         case .model:
             ModelSettingsView(controller: controller, settingsStore: controller.settingsStore)
         case .modes:
             ModesSettingsView(controller: controller, settingsStore: controller.settingsStore)
-        case .shortcuts:
-            ShortcutsSettingsView(controller: controller, settingsStore: controller.settingsStore)
+        case .ai:
+            AISettingsView(controller: controller)
+        case .config:
+            ConfigSettingsView(controller: controller)
         case .dictionary:
             DictionaryEditorView(controller: controller, dictionaryStore: controller.dictionaryStore)
         case .history:
@@ -85,6 +102,7 @@ private struct DictionaryEditorView: View {
     @ObservedObject var controller: AppController
     @ObservedObject var dictionaryStore: DictionaryStore
     @State private var selectedID: String?
+    @State private var isCreatingNewEntry = false
     @State private var draft = TermEntryDraft()
     @State private var message: String?
     @State private var showingDeleteConfirmation = false
@@ -94,6 +112,7 @@ private struct DictionaryEditorView: View {
     @State private var pendingImportPreview: PendingDictionaryImportPreview?
 
     private var selectedEntry: TermEntry? {
+        guard !isCreatingNewEntry else { return nil }
         guard let selectedID else { return filteredEntries.first }
         return filteredEntries.first { $0.id == selectedID } ?? filteredEntries.first
     }
@@ -262,9 +281,13 @@ private struct DictionaryEditorView: View {
             loadSelectedEntry()
         }
         .onChange(of: selectedID) { _, _ in
+            if selectedID != nil {
+                isCreatingNewEntry = false
+            }
             loadSelectedEntry()
         }
         .onChange(of: dictionaryStore.entries) { _, entries in
+            guard !isCreatingNewEntry else { return }
             guard !entries.contains(where: { $0.id == selectedID }) else {
                 ensureSelectedEntryIsVisible()
                 return
@@ -314,12 +337,14 @@ private struct DictionaryEditorView: View {
     }
 
     private func ensureSelectedEntryIsVisible() {
+        guard !isCreatingNewEntry else { return }
         guard !filteredEntries.contains(where: { $0.id == selectedID }) else { return }
         selectedID = filteredEntries.first?.id
         loadSelectedEntry()
     }
 
     private func createNewEntry() {
+        isCreatingNewEntry = true
         selectedID = nil
         draft = TermEntryDraft(
             id: UUID().uuidString,
@@ -333,6 +358,7 @@ private struct DictionaryEditorView: View {
         do {
             let entry = draft.makeEntry()
             try dictionaryStore.upsertEntry(entry)
+            isCreatingNewEntry = false
             selectedID = entry.id
             message = "Saved"
         } catch {
@@ -343,6 +369,7 @@ private struct DictionaryEditorView: View {
     private func deleteDraft() {
         do {
             try dictionaryStore.deleteEntry(id: draft.id)
+            isCreatingNewEntry = false
             selectedID = dictionaryStore.entries.first?.id
             message = "Deleted"
         } catch {
@@ -1009,8 +1036,9 @@ private struct HistoryRowView: View {
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(isCopyConfirmed ? .green : .secondary)
-                .opacity((isHovered || isCopyConfirmed) && !entry.bestText.trimmed.isEmpty ? 1 : 0)
-                .disabled((!isHovered && !isCopyConfirmed) || entry.bestText.trimmed.isEmpty)
+                .opacity((isHovered || isCopyConfirmed) && hasCopyableText ? 1 : 0)
+                .disabled(!hasCopyableText)
+                .allowsHitTesting(isHovered || isCopyConfirmed)
                 .help(isCopyConfirmed ? "Copied" : "Copy text")
                 .animation(.snappy(duration: 0.15), value: isCopyConfirmed)
 
@@ -1023,7 +1051,7 @@ private struct HistoryRowView: View {
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
                 .opacity(isHovered ? 1 : 0)
-                .disabled(!isHovered)
+                .allowsHitTesting(isHovered)
                 .help("Delete session")
             }
 
@@ -1053,11 +1081,37 @@ private struct HistoryRowView: View {
         .simultaneousGesture(
             TapGesture(count: 2)
                 .onEnded {
-                    guard !entry.bestText.trimmed.isEmpty else { return }
+                    guard hasCopyableText else { return }
                     copyAction()
                 }
         )
+        .contextMenu {
+            if hasCopyableText {
+                Button {
+                    copyAction()
+                } label: {
+                    Label("Copy Text", systemImage: "doc.on.doc")
+                }
+            }
+
+            Button(role: .destructive) {
+                deleteAction()
+            } label: {
+                Label("Delete Session", systemImage: "trash")
+            }
+        }
+        .accessibilityAction(named: Text("Copy Text")) {
+            guard hasCopyableText else { return }
+            copyAction()
+        }
+        .accessibilityAction(named: Text("Delete Session")) {
+            deleteAction()
+        }
         .onHover { isHovered = $0 }
+    }
+
+    private var hasCopyableText: Bool {
+        !entry.bestText.trimmed.isEmpty
     }
 
     private var iconName: String {
@@ -1345,11 +1399,5 @@ private struct HistoryRawTranscriptDisclosure: View {
 
     private var trimmedText: String {
         text.trimmed
-    }
-}
-
-private extension String {
-    var trimmed: String {
-        trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

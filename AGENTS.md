@@ -23,6 +23,18 @@ Write an ADR in `Docs/adr/` only for technical decisions that are expensive to
 reverse: architecture, persistence shape, model/backend strategy,
 privacy/security posture, distribution, or dependencies.
 
+## Settings Screens
+
+Settings screens should use one shared app/settings controller path for reading
+and writing persistent settings. Controls should bind to the current published
+settings state and write changes back through the controller immediately, using
+the same persistence path as related settings screens.
+
+Do not introduce per-screen draft models, local reload/apply flows, or bespoke
+file-writing helpers for ordinary settings. Use local `@State` only for
+ephemeral UI state such as transient errors, confirmation dialogs, search text,
+or selection.
+
 ## Branch And Commit Conventions
 
 Use short, descriptive branch names in lowercase `kebab-case`. Prefer a common
@@ -59,10 +71,11 @@ Follow `Docs/testing.md` for local test layering and async test style. Prefer
 task handles, explicit async checkpoints, continuations, clocks, or schedulers
 over polling sleeps in unit tests.
 
-Do not add copywriting snapshot tests. For labels, disclosures, prompts,
+Do not add tests that verify copywriting, marketing text, explanatory prose, or
+exact wording of settings/help text. For labels, disclosures, prompts,
 diagnostics, or other user-facing text, test the behavior contract: that text is
-passed, surfaced, or includes a required signal. Avoid asserting full prose
-unless exact wording is itself the product requirement.
+passed, surfaced, or includes a required semantic signal. Avoid asserting full
+prose unless exact wording is itself the product requirement.
 
 Prefer positive assertions over negative substring checks. For prompts and other
 generated text, assert the required structure and signals that must be present;

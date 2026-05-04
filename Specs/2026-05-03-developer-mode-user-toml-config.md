@@ -1,8 +1,9 @@
 ---
 id: SPEC-008
 status: implemented
-updated: 2026-05-03
+updated: 2026-05-04
 tests:
+  - VoicePenTests/App/VoicePenAppCommandTests.swift
   - VoicePenTests/Settings/UserConfigStoreTests.swift
   - VoicePenTests/DeveloperMode/ActiveAppContextClassifierTests.swift
   - VoicePenTests/DeveloperMode/DeveloperModeProcessorTests.swift
@@ -30,9 +31,15 @@ VoicePen reads a single user-editable TOML file at `~/.voicepen/config.toml`, cr
 - When config parsing fails, VoicePen shall keep using the last valid config and add a diagnostic note to the current history entry without marking dictation as failed.
 - When the user has selected Plain, Auto, Writing Code, or Terminal in the UI, VoicePen shall use that mode instead of `[developer].mode`.
 - When the settings window is open, VoicePen shall show Plain, Auto, Writing Code, and Terminal mode selection in a dedicated Modes settings tab rather than General settings.
+- When the settings window is open, VoicePen shall order settings sections by expected use frequency and meaning: everyday app and transcription controls first, workflow configuration next, advanced config/permissions/about last.
+- When the settings window is open, VoicePen shall show push-to-talk shortcut controls in General settings instead of a separate Shortcuts settings section.
 - When the UI shows Writing Code, VoicePen shall keep storing and reading the compatible TOML mode value `developer`.
-- When the Modes settings tab is open, VoicePen shall show a short user-facing description of what modes do and a per-mode explanation for Plain, Auto, Writing Code, and Terminal, including a terminal command example.
-- When the user chooses to open the config file from Modes settings, VoicePen shall ensure `~/.voicepen/config.toml` exists and then open it with the system default editor.
+- When the Modes settings tab is open, VoicePen shall show a short user-facing summary of mode routing plus a note that AI settings are needed for full supported command parsing; detailed behavior for Plain, Auto, Writing Code, and Terminal shall live in separate per-mode sections, including a terminal command example.
+- When the settings window is open, VoicePen shall expose TOML file path, reload, diagnostics, and open-file controls only in a dedicated Config settings tab.
+- When the user chooses to open the config file from Config settings, VoicePen shall ensure `~/.voicepen/config.toml` exists and then open it with the system default editor.
+- When the user chooses to reload config from Config settings, VoicePen shall reread `~/.voicepen/config.toml`, refresh settings displays backed by user config, and surface config diagnostics in the Config tab.
+- When the user switches to Config settings, VoicePen shall refresh TOML-backed settings after the settings view update rather than synchronously publishing during SwiftUI view construction.
+- When the user presses the standard macOS Settings shortcut `Command + ,`, VoicePen shall ensure `~/.voicepen/config.toml` exists and then open it with the system default editor.
 - When no UI mode override exists, VoicePen shall use `[developer].mode`; `auto` shall classify the active app as terminal, developer, or plain.
 - When aliases are applied, VoicePen shall apply `aliases.common` in all contexts, then active-context aliases, case-insensitively, longest-first, and only across word boundaries.
 - When common and context aliases conflict, the active-context alias shall win.
@@ -69,17 +76,24 @@ VoicePen reads a single user-editable TOML file at `~/.voicepen/config.toml`, cr
 | Feature branch | `create feature branch Developer Mode Config` | `git checkout -b feature/developer_mode_config` |
 | Dictionary conflict | User dictionary maps `гит` differently, terminal command says `гит status` | Command still matches via TOML alias and inserts `git status --short --branch` |
 | Plain app | Unknown foreground app in auto mode | Normal dictation text is inserted |
+| Standard settings shortcut | User presses `Command + ,` | User TOML config is created if needed and opened in the default editor |
 
 ## Test Mapping
 
+- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers `Command + ,` being wired to opening the user TOML config.
+- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers settings sidebar ordering, push-to-talk controls living in General, and the dedicated Config settings tab.
 - Automated: `VoicePenTests/Settings/UserConfigStoreTests.swift` covers default TOML creation, non-overwrite, env normalization, config reload, and invalid-config fallback diagnostics.
 - Automated: `VoicePenTests/DeveloperMode/ActiveAppContextClassifierTests.swift` covers terminal, developer, and plain active app classification.
-- Automated: `VoicePenTests/DeveloperMode/DeveloperModeProcessorTests.swift` covers aliases, command matching, longest triggers, filters, branch formatting, action gating, command-like diagnostics, and user-facing mode description signals.
+- Automated: `VoicePenTests/DeveloperMode/DeveloperModeProcessorTests.swift` covers aliases, command matching, longest triggers, filters, branch formatting, action gating, and command-like diagnostics.
 - Automated: `VoicePenTests/Settings/AppSettingsStoreTests.swift` covers persisted UI mode override.
 - Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers per-dictation config reload and history diagnostics passing through pipeline results.
 - Automated: `VoicePenTests/History/VoiceHistoryStoreTests.swift` covers persistence of diagnostic notes.
-- Manual: open Settings, verify mode selection, the short modes overview, and per-mode explanations appear under the Modes tab and no longer appear under General.
-- Manual: use Open Config File from Modes settings with no existing `~/.voicepen/config.toml`, verify the default file is created and opens in the system default editor.
+- Manual: open Settings, verify push-to-talk hotkey and hold-duration controls appear under General with no separate Shortcuts sidebar item.
+- Manual: open Settings, verify the Modes overview is short, mentions AI setup for full command parsing, and leaves detailed behavior to the per-mode explanations under the Modes tab.
+- Manual: open Settings, verify Config contains the config path, Reload Config, Open Config File, and any parse diagnostics, while Modes and AI do not show config file controls.
+- Manual: switch between Settings sections including Config and verify the console does not log a SwiftUI warning about publishing changes from within view updates.
+- Manual: use Open Config File from Config settings with no existing `~/.voicepen/config.toml`, verify the default file is created and opens in the system default editor.
+- Manual: press `Command + ,` with VoicePen active and verify the same config file opens.
 - Manual: edit `~/.voicepen/config.toml`, add one custom alias and one custom terminal command, keep VoicePen running, dictate both, and verify the next dictation uses the edited config.
 
 ## Notes
