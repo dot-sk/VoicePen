@@ -20,7 +20,13 @@ Developers need VoicePen to turn spoken technical intent into predictable text o
 
 ## Behavior
 
-VoicePen reads a single user-editable TOML file at `~/.voicepen/config.toml`, creates it from a bundled default when missing, applies configured aliases before command matching, and processes terminal commands from explicit trigger allowlists. The config is reloaded for each dictation. The UI labels the developer text mode as Writing Code while preserving the TOML value `developer`, and automatic mode classifies the active app as terminal, developer, or plain.
+VoicePen defaults to plain dictation. When the Modes feature flag is enabled,
+VoicePen reads a single user-editable TOML file at `~/.voicepen/config.toml`,
+creates it from a bundled default when missing, applies configured aliases before
+command matching, and processes terminal commands from explicit trigger
+allowlists. The config is reloaded for each dictation. The UI labels the
+developer text mode as Writing Code while preserving the TOML value `developer`,
+and automatic mode classifies the active app as terminal, developer, or plain.
 
 ## Acceptance Criteria
 
@@ -29,6 +35,8 @@ VoicePen reads a single user-editable TOML file at `~/.voicepen/config.toml`, cr
 - When `[env]` contains proxy values, VoicePen shall normalize and apply them like existing environment settings.
 - When a dictation is processed, VoicePen shall reread `~/.voicepen/config.toml` without requiring an app restart.
 - When config parsing fails, VoicePen shall keep using the last valid config and add a diagnostic note to the current history entry without marking dictation as failed.
+- When the Modes feature flag is disabled, VoicePen shall hide the Modes settings section and process dictation as plain text without reading TOML mode, aliases, commands, or UI mode override.
+- When the Modes feature flag is disabled, VoicePen shall not call the LLM intent parser because developer and terminal contexts are unavailable.
 - When the user has selected Plain, Auto, Writing Code, or Terminal in the UI, VoicePen shall use that mode instead of `[developer].mode`.
 - When the settings window is open, VoicePen shall show Plain, Auto, Writing Code, and Terminal mode selection in a dedicated Modes settings tab rather than General settings.
 - When the settings window is open, VoicePen shall order settings sections by expected use frequency and meaning: everyday app and transcription controls first, workflow configuration next, advanced config/permissions/about last.
@@ -84,11 +92,13 @@ VoicePen reads a single user-editable TOML file at `~/.voicepen/config.toml`, cr
 
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers `Command + ,` being wired to opening the user TOML config.
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers settings sidebar ordering, push-to-talk controls living in General, and the dedicated Config settings tab.
+- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers hiding Modes and AI sidebar entries behind feature flags.
 - Automated: `VoicePenTests/Settings/UserConfigStoreTests.swift` covers default TOML creation, non-overwrite, env normalization, config reload, readable UTF-8 autosave, and invalid-config fallback diagnostics.
 - Automated: `VoicePenTests/DeveloperMode/ActiveAppContextClassifierTests.swift` covers terminal, developer, and plain active app classification.
 - Automated: `VoicePenTests/DeveloperMode/DeveloperModeProcessorTests.swift` covers aliases, command matching, longest triggers, filters, branch formatting, action gating, and command-like diagnostics.
 - Automated: `VoicePenTests/Settings/AppSettingsStoreTests.swift` covers persisted UI mode override.
 - Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers per-dictation config reload and history diagnostics passing through pipeline results.
+- Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers plain dictation behavior when the Modes feature flag is disabled.
 - Automated: `VoicePenTests/History/VoiceHistoryStoreTests.swift` covers persistence of diagnostic notes.
 - Manual: open Settings, verify push-to-talk hotkey and hold-duration controls appear under General with no separate Shortcuts sidebar item.
 - Manual: open Settings, verify the Modes overview is short, mentions AI setup for full command parsing, and leaves detailed behavior to the per-mode explanations under the Modes tab.

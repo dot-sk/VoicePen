@@ -1,37 +1,46 @@
 import Foundation
 
 final class MeetingPipeline {
-    static let maximumMeetingDuration: TimeInterval = 120 * 60
+    static let maximumMeetingDuration: TimeInterval = VoicePenConfig.meetingMaximumRecordingDuration
     static let chunkDuration: TimeInterval = 60
 
     private let recorder: MeetingRecordingClient
     private let audioPreprocessor: AudioPreprocessingClient
+    private let voiceLevelingProcessor: VoiceLevelingProcessor
     private let chunker: MeetingAudioChunker
     private let transcriber: TranscriptionClient
     private let historyStore: MeetingHistoryStore
+    private let recoveryAudioStore: MeetingRecoveryAudioStore?
     private let languageProvider: () -> String
     private let speechPreprocessingModeProvider: () -> SpeechPreprocessingMode
+    private let meetingVoiceLevelingEnabledProvider: () -> Bool
     private let fileManager: FileManager
     private let chunkProcessingTimeout: Duration
 
     init(
         recorder: MeetingRecordingClient,
         audioPreprocessor: AudioPreprocessingClient = PassthroughAudioPreprocessingClient(),
+        voiceLevelingProcessor: VoiceLevelingProcessor = PassthroughVoiceLevelingProcessor(),
         chunker: MeetingAudioChunker = PassthroughMeetingAudioChunker(),
         transcriber: TranscriptionClient,
         historyStore: MeetingHistoryStore,
+        recoveryAudioStore: MeetingRecoveryAudioStore? = nil,
         languageProvider: @escaping () -> String = { VoicePenConfig.defaultLanguage },
         speechPreprocessingModeProvider: @escaping () -> SpeechPreprocessingMode = { .off },
+        meetingVoiceLevelingEnabledProvider: @escaping () -> Bool = { false },
         chunkProcessingTimeout: Duration = VoicePenConfig.meetingChunkProcessingTimeout,
         fileManager: FileManager = .default
     ) {
         self.recorder = recorder
         self.audioPreprocessor = audioPreprocessor
+        self.voiceLevelingProcessor = voiceLevelingProcessor
         self.chunker = chunker
         self.transcriber = transcriber
         self.historyStore = historyStore
+        self.recoveryAudioStore = recoveryAudioStore
         self.languageProvider = languageProvider
         self.speechPreprocessingModeProvider = speechPreprocessingModeProvider
+        self.meetingVoiceLevelingEnabledProvider = meetingVoiceLevelingEnabledProvider
         self.fileManager = fileManager
         self.chunkProcessingTimeout = chunkProcessingTimeout
     }
@@ -42,14 +51,6 @@ final class MeetingPipeline {
 
     func start() async throws {
         try await recorder.start()
-    }
-
-    func pause() async throws {
-        try await recorder.pause()
-    }
-
-    func resume() async throws {
-        try await recorder.resume()
     }
 
     func cancel() async throws {
@@ -74,6 +75,7 @@ final class MeetingPipeline {
             try removeTemporaryAudioFiles(cleanupURLs)
             return entry
         } catch is CancellationError {
+            _ = try? saveFailedEntry(recording: recording, error: TranscriptionError.transcriptionTimedOut)
             try removeTemporaryAudioFiles(cleanupURLs)
             throw CancellationError()
         } catch {
@@ -83,21 +85,83 @@ final class MeetingPipeline {
         }
     }
 
+    func retryProcessing(_ entry: MeetingHistoryEntry) async throws -> MeetingHistoryEntry {
+        guard let recoveryAudio = entry.recoveryAudio else {
+            throw MeetingRecordingError.recoveryAudioUnavailable
+        }
+        try recoveryAudioStore?.validate(recoveryAudio)
+
+        let recording = MeetingRecordingResult(
+            startedAt: entry.createdAt.addingTimeInterval(-recoveryAudio.duration),
+            endedAt: entry.createdAt,
+            chunks: recoveryAudio.chunks,
+            sourceFlags: recoveryAudio.sourceFlags,
+            errorMessage: nil,
+            duration: recoveryAudio.duration
+        )
+
+        var cleanupURLs: [URL] = []
+        do {
+            let chunkingResult = try await chunker.split(
+                recording.chunks,
+                maximumDuration: Self.maximumMeetingDuration,
+                chunkDuration: Self.chunkDuration
+            )
+            cleanupURLs.append(contentsOf: chunkingResult.temporaryURLs)
+            let retryEntry = try await processRecording(
+                recording,
+                chunks: chunkingResult.chunks,
+                entryID: entry.id,
+                existingTranscript: entry.transcriptText,
+                existingRecoveryAudio: recoveryAudio
+            )
+            try removeTemporaryAudioFiles(cleanupURLs)
+            if retryEntry.status == .completed {
+                try recoveryAudioStore?.remove(recoveryAudio)
+            }
+            return retryEntry
+        } catch is CancellationError {
+            _ = try? saveFailedEntry(
+                recording: recording,
+                error: TranscriptionError.transcriptionTimedOut,
+                entryID: entry.id,
+                existingTranscript: entry.transcriptText,
+                recoveryAudio: recoveryAudio
+            )
+            try removeTemporaryAudioFiles(cleanupURLs)
+            throw CancellationError()
+        } catch {
+            let failedEntry = try saveFailedEntry(
+                recording: recording,
+                error: error,
+                entryID: entry.id,
+                existingTranscript: entry.transcriptText,
+                recoveryAudio: recoveryAudio
+            )
+            try removeTemporaryAudioFiles(cleanupURLs)
+            return failedEntry
+        }
+    }
+
     private func processRecording(
         _ recording: MeetingRecordingResult,
-        chunks: [MeetingAudioChunk]
+        chunks: [MeetingAudioChunk],
+        entryID: UUID = UUID(),
+        existingTranscript: String = "",
+        existingRecoveryAudio: MeetingRecoveryAudioManifest? = nil
     ) async throws -> MeetingHistoryEntry {
         guard !chunks.isEmpty else {
             throw MeetingRecordingError.noCapturedAudio
         }
 
-        var timings = MeetingPipelineTimings(recording: chunks.reduce(0) { $0 + $1.duration })
+        var timings = MeetingPipelineTimings(recording: cappedDuration(recording.duration))
         let language = TranscriptionLanguageResolver.resolve(languageProvider())
         let mode = speechPreprocessingModeProvider()
+        let meetingVoiceLevelingEnabled = meetingVoiceLevelingEnabledProvider()
         let orderedChunks = chunks.sorted(by: chunkOrder)
         var transcriptParts: [String] = []
         var modelMetadata: VoiceTranscriptionModelMetadata?
-        var skippedSilentChunkCount = 0
+        var skippedChunkCount = 0
 
         for chunk in orderedChunks {
             try Task.checkCancellation()
@@ -106,7 +170,12 @@ final class MeetingPipeline {
                     timeout: chunkProcessingTimeout,
                     timeoutError: { TranscriptionError.transcriptionTimedOut },
                     operation: {
-                        try await self.processChunk(chunk, mode: mode, language: language)
+                        try await self.processChunk(
+                            chunk,
+                            mode: mode,
+                            language: language,
+                            voiceLevelingEnabled: meetingVoiceLevelingEnabled
+                        )
                     }
                 )
 
@@ -114,11 +183,13 @@ final class MeetingPipeline {
                 timings.transcription = (timings.transcription ?? 0) + processedChunk.transcription
                 modelMetadata = modelMetadata ?? processedChunk.modelMetadata
 
-                if !processedChunk.text.isEmpty {
+                if processedChunk.text.isEmpty {
+                    skippedChunkCount += 1
+                } else {
                     transcriptParts.append(processedChunk.text)
                 }
             } catch AudioPreprocessingError.noSpeechDetected {
-                skippedSilentChunkCount += 1
+                skippedChunkCount += 1
                 continue
             } catch TranscriptionError.transcriptionTimedOut {
                 guard !transcriptParts.isEmpty else {
@@ -129,27 +200,45 @@ final class MeetingPipeline {
                     transcriptParts: transcriptParts,
                     error: TranscriptionError.transcriptionTimedOut,
                     timings: timings,
-                    modelMetadata: modelMetadata
+                    modelMetadata: modelMetadata,
+                    entryID: entryID,
+                    existingTranscript: existingTranscript,
+                    existingRecoveryAudio: existingRecoveryAudio
                 )
             }
         }
 
-        guard skippedSilentChunkCount < orderedChunks.count else {
+        guard skippedChunkCount < orderedChunks.count else {
             throw AudioPreprocessingError.noSpeechDetected
         }
 
         let transcript = transcriptParts.joined(separator: "\n")
-        let status: MeetingRecordingStatus = recording.sourceFlags.partial ? .partial : .completed
+        let durationExceeded = durationLimitExceeded(recording)
+        let status: MeetingRecordingStatus = recording.sourceFlags.partial || durationExceeded ? .partial : .completed
+        let sourceFlags = MeetingSourceFlags(
+            microphoneCaptured: recording.sourceFlags.microphoneCaptured,
+            systemAudioCaptured: recording.sourceFlags.systemAudioCaptured,
+            partial: status == .partial
+        )
+        let recoveryAudio: MeetingRecoveryAudioManifest?
+        if status == .completed {
+            recoveryAudio = nil
+        } else {
+            recoveryAudio =
+                try existingRecoveryAudio
+                ?? recoveryAudioStore?.retain(recording: recording, entryID: entryID, createdAt: recording.endedAt)
+        }
         let entry = MeetingHistoryEntry(
-            id: UUID(),
+            id: entryID,
             createdAt: recording.endedAt,
             duration: timings.recording ?? 0,
             transcriptText: transcript,
             status: status,
-            sourceFlags: recording.sourceFlags,
-            errorMessage: recording.errorMessage,
+            sourceFlags: sourceFlags,
+            errorMessage: errorMessage(recording: recording, processingError: durationExceeded ? MeetingRecordingError.durationLimitExceeded : nil),
             timings: timings,
-            modelMetadata: modelMetadata
+            modelMetadata: modelMetadata,
+            recoveryAudio: recoveryAudio
         )
         try historyStore.append(entry)
         return entry
@@ -158,22 +247,37 @@ final class MeetingPipeline {
     private func processChunk(
         _ chunk: MeetingAudioChunk,
         mode: SpeechPreprocessingMode,
-        language: String
+        language: String,
+        voiceLevelingEnabled: Bool
     ) async throws -> MeetingProcessedChunk {
         let preprocessed = try await measure {
             try await audioPreprocessor.preprocess(audioURL: chunk.url, mode: mode)
         }
 
+        var transcriptionAudioURL = preprocessed.value
+        if voiceLevelingEnabled {
+            do {
+                transcriptionAudioURL = try await voiceLevelingProcessor.process(audioURL: preprocessed.value)
+            } catch {
+                AppLogger.info("Meeting voice leveling skipped: \(error.localizedDescription)")
+            }
+        }
+
         let transcription = try await measure {
-            try await transcriber.transcribe(
-                audioURL: preprocessed.value,
+            defer {
+                removeTemporaryAudioFileIfNeeded(transcriptionAudioURL, preserving: preprocessed.value)
+            }
+
+            return try await transcriber.transcribe(
+                audioURL: transcriptionAudioURL,
                 glossaryPrompt: "",
                 language: language
             )
         }
 
+        let sanitizedText = MeetingTranscriptSanitizer.sanitize(transcription.value.text).trimmed
         return MeetingProcessedChunk(
-            text: transcription.value.text.trimmed,
+            text: sanitizedText,
             preprocessing: preprocessed.elapsed,
             transcription: transcription.elapsed,
             modelMetadata: transcription.value.modelMetadata
@@ -185,23 +289,31 @@ final class MeetingPipeline {
         transcriptParts: [String],
         error: Error,
         timings: MeetingPipelineTimings,
-        modelMetadata: VoiceTranscriptionModelMetadata?
+        modelMetadata: VoiceTranscriptionModelMetadata?,
+        entryID: UUID = UUID(),
+        existingTranscript: String = "",
+        existingRecoveryAudio: MeetingRecoveryAudioManifest? = nil
     ) throws -> MeetingHistoryEntry {
+        let transcript = transcriptParts.joined(separator: "\n")
+        let recoveryAudio =
+            try existingRecoveryAudio
+            ?? recoveryAudioStore?.retain(recording: recording, entryID: entryID, createdAt: recording.endedAt)
         let flags = MeetingSourceFlags(
             microphoneCaptured: recording.sourceFlags.microphoneCaptured,
             systemAudioCaptured: recording.sourceFlags.systemAudioCaptured,
             partial: true
         )
         let entry = MeetingHistoryEntry(
-            id: UUID(),
+            id: entryID,
             createdAt: recording.endedAt,
             duration: timings.recording ?? cappedDuration(recording.duration),
-            transcriptText: transcriptParts.joined(separator: "\n"),
+            transcriptText: transcript.isEmpty ? existingTranscript : transcript,
             status: .partial,
             sourceFlags: flags,
-            errorMessage: error.localizedDescription,
+            errorMessage: errorMessage(recording: recording, processingError: error),
             timings: timings,
-            modelMetadata: modelMetadata
+            modelMetadata: modelMetadata,
+            recoveryAudio: recoveryAudio
         )
         try historyStore.append(entry)
         return entry
@@ -209,24 +321,31 @@ final class MeetingPipeline {
 
     private func saveFailedEntry(
         recording: MeetingRecordingResult,
-        error: Error
+        error: Error,
+        entryID: UUID = UUID(),
+        existingTranscript: String = "",
+        recoveryAudio: MeetingRecoveryAudioManifest? = nil
     ) throws -> MeetingHistoryEntry {
         let duration = cappedDuration(recording.duration)
+        let retainedAudio =
+            try recoveryAudio
+            ?? recoveryAudioStore?.retain(recording: recording, entryID: entryID, createdAt: recording.endedAt)
         let flags = MeetingSourceFlags(
             microphoneCaptured: recording.sourceFlags.microphoneCaptured,
             systemAudioCaptured: recording.sourceFlags.systemAudioCaptured,
             partial: true
         )
         let entry = MeetingHistoryEntry(
-            id: UUID(),
+            id: entryID,
             createdAt: recording.endedAt,
             duration: duration,
-            transcriptText: "",
+            transcriptText: existingTranscript,
             status: .failed,
             sourceFlags: flags,
-            errorMessage: error.localizedDescription,
+            errorMessage: errorMessage(recording: recording, processingError: error),
             timings: MeetingPipelineTimings(recording: duration),
-            modelMetadata: nil
+            modelMetadata: nil,
+            recoveryAudio: retainedAudio
         )
         try historyStore.append(entry)
         return entry
@@ -234,6 +353,23 @@ final class MeetingPipeline {
 
     private func cappedDuration(_ duration: TimeInterval) -> TimeInterval {
         min(duration, Self.maximumMeetingDuration)
+    }
+
+    private func durationLimitExceeded(_ recording: MeetingRecordingResult) -> Bool {
+        recording.duration > Self.maximumMeetingDuration
+    }
+
+    private func errorMessage(recording: MeetingRecordingResult, processingError: Error?) -> String? {
+        let messages = [
+            durationLimitExceeded(recording) ? MeetingRecordingError.durationLimitExceeded.localizedDescription : nil,
+            recording.errorMessage,
+            processingError?.localizedDescription
+        ]
+        .compactMap { $0?.trimmed }
+        .filter { !$0.isEmpty }
+
+        guard !messages.isEmpty else { return nil }
+        return Array(NSOrderedSet(array: messages)).compactMap { $0 as? String }.joined(separator: " ")
     }
 
     private func chunkOrder(_ lhs: MeetingAudioChunk, _ rhs: MeetingAudioChunk) -> Bool {
@@ -251,6 +387,16 @@ final class MeetingPipeline {
         case .systemAudio:
             return 1
         }
+    }
+
+    private func removeTemporaryAudioFileIfNeeded(_ url: URL, preserving preservedURL: URL) {
+        guard url != preservedURL,
+            fileManager.fileExists(atPath: url.path)
+        else {
+            return
+        }
+
+        try? fileManager.removeItem(at: url)
     }
 
     private func removeTemporaryAudioFiles(_ urls: [URL]) throws {

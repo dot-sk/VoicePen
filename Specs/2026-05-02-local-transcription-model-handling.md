@@ -19,11 +19,18 @@ VoicePen needs usable offline transcription while model files are large, backend
 
 ## Behavior
 
-VoicePen loads a bundled model manifest, selects a compatible local model, routes transcription and downloads by backend, checks required artifacts, supports proxy settings for model downloads, and reports acceleration diagnostics. It does not provide cloud fallback transcription, automatic downloads without confirmation, or public model marketplace behavior.
+VoicePen loads a bundled model manifest, presents compatible local models with
+plain-language selection names, selects a compatible local model, routes
+transcription and downloads by backend, checks required artifacts, supports
+proxy settings for model downloads, and reports acceleration diagnostics. It
+does not provide cloud fallback transcription, automatic downloads without
+confirmation, or public model marketplace behavior.
 
 ## Acceptance Criteria
 
 - When the saved selected model is missing or incompatible, VoicePen shall use the recommended model.
+- When VoicePen shows local transcription model choices, it shall identify Whisper large as the best multilingual option, Parakeet v3 as the fast multilingual option, and Parakeet v2 as the fast English-only option.
+- When VoicePen shows model details, it shall show whether the selected model is multilingual or English-only.
 - When a Whisper.cpp model is selected, VoicePen shall require the expected model and Core ML companion artifacts before accelerated transcription.
 - When a Whisper.cpp model is installed by download, VoicePen shall treat it as installed only after the full download set validates and a completed-download marker is written.
 - When a transcription request runs, VoicePen shall route it to the backend that matches the selected model.
@@ -35,13 +42,15 @@ VoicePen loads a bundled model manifest, selects a compatible local model, route
 - When a FluidAudio model is selected, VoicePen shall treat it as installed only when its completed-download marker exists and FluidAudio reports the model files present for that version.
 - When FluidAudio reports progress for internal cache or compile steps, VoicePen shall keep visible download progress monotonic and switch non-download work to preparing/validating state.
 - When proxy settings exist in the local environment settings file, VoicePen shall use them for model downloads.
-- When diagnostics are copied, VoicePen shall report installed state, backend/source, version, size, and artifact status.
+- When diagnostics are copied, VoicePen shall report installed state, language support, backend/source, version, size, and artifact status.
 
 ## Examples
 
 | Case | Input | Expected |
 | --- | --- | --- |
 | Missing saved model | Unknown selected model id | Recommended model is selected |
+| Model picker | User opens Model settings | Model choices show Best/Fast and Multilingual/English-only categories |
+| Model language detail | User selects any bundled model | Model details show Multilingual or English only |
 | Whisper.cpp artifact missing | Model exists without Core ML companion | Acceleration is unavailable |
 | Blocked download | Network/proxy failure leaves a model file without a completed-download marker | Model remains Missing and Download Model remains available |
 | Known download progress | Downloader reports 42% progress | Model settings shows determinate progress at the same fraction |
@@ -57,7 +66,7 @@ VoicePen loads a bundled model manifest, selects a compatible local model, route
 ## Test Mapping
 
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers failed, canceled, and timed-out model downloads leaving the model missing and retryable, plus warmup timeout recovery.
-- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers that Model settings renders known download progress as determinate linear progress.
+- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers that Model settings renders known download progress as determinate linear progress and shows user-facing model language support.
 - Automated: `VoicePenTests/Transcription/FluidAudioModelDownloadClientTests.swift` covers FluidAudio installed-state checks and monotonic Parakeet progress despite FluidAudio cache and compile progress callbacks.
 - Automated: `VoicePenTests/Transcription/WhisperCppTranscriptionClientTests.swift` covers artifact, acceleration, empty artifact, and completed-download marker checks.
 - Automated: `VoicePenTests/Transcription/ModelDownloadProxyConfigurationTests.swift` covers proxy configuration.

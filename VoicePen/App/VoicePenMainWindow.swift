@@ -5,18 +5,27 @@ import UniformTypeIdentifiers
 struct VoicePenMainWindow: View {
     @ObservedObject var controller: AppController
     @State private var selectedSection: VoicePenSettingsSection? = .general
-    private let sidebarSections: [VoicePenSettingsSection] = [
-        .general,
-        .meetings,
-        .modes,
-        .ai,
-        .dictionary,
-        .model,
-        .history,
-        .config,
-        .permissions,
-        .about
-    ]
+    private var sidebarSections: [VoicePenSettingsSection] {
+        var sections: [VoicePenSettingsSection] = [
+            .general,
+            .meetings
+        ]
+        if VoicePenConfig.modesFeatureEnabled {
+            sections.append(.modes)
+        }
+        if VoicePenConfig.aiFeatureEnabled {
+            sections.append(.ai)
+        }
+        sections.append(contentsOf: [
+            .dictionary,
+            .model,
+            .history,
+            .config,
+            .permissions,
+            .about
+        ])
+        return sections
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -792,42 +801,30 @@ private struct MeetingRecordingPanel: View {
     var body: some View {
         if showsPanel {
             HStack(spacing: 16) {
-                Label(formatDuration(controller.meetingElapsedTime), systemImage: "record.circle.fill")
-                    .font(.system(size: 13, weight: .semibold))
-                    .monospacedDigit()
+                HStack(spacing: 8) {
+                    if controller.appState == .meetingRecording {
+                        RecordingPulseDot()
+                    }
 
-                Label(controller.meetingSourceStatus.microphone.title, systemImage: "mic")
-                Label(controller.meetingSourceStatus.systemAudio.title, systemImage: "waveform")
-
-                Spacer()
+                    Label(formatDuration(controller.meetingElapsedTime), systemImage: "record.circle.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .monospacedDigit()
+                }
 
                 if controller.appState == .meetingRecording {
-                    Button {
-                        controller.pauseMeetingRecording()
-                    } label: {
-                        Label("Pause Meeting Recording", systemImage: "pause.fill")
-                    }
-                } else if controller.appState == .meetingPaused {
-                    Button {
-                        controller.resumeMeetingRecording()
-                    } label: {
-                        Label("Resume Meeting Recording", systemImage: "play.fill")
-                    }
+                    Label(meetingLimitText, systemImage: "timer")
                 }
 
-                Button {
-                    controller.stopMeetingRecording()
-                } label: {
-                    Label("Stop Meeting Recording", systemImage: "stop.fill")
+                if controller.appState == .meetingProcessing {
+                    ProgressView()
+                        .controlSize(.small)
+                    Label("Processing Transcript", systemImage: "waveform")
+                } else {
+                    Label(controller.meetingSourceStatus.microphone.title, systemImage: "mic")
+                    Label(controller.meetingSourceStatus.systemAudio.title, systemImage: "waveform")
                 }
-                .disabled(controller.appState == .meetingProcessing)
 
-                Button(role: .destructive) {
-                    controller.cancelMeetingRecording()
-                } label: {
-                    Label("Cancel Meeting Recording", systemImage: "xmark")
-                }
-                .disabled(controller.appState == .meetingProcessing)
+                Spacer()
             }
             .font(.system(size: 12))
             .padding(.horizontal, 18)
@@ -854,6 +851,44 @@ private struct MeetingRecordingPanel: View {
         }
         return String(format: "%02d:%02d", minutes, seconds)
     }
+
+    private var meetingLimitText: String {
+        let minutes = Int((VoicePenConfig.meetingMaximumRecordingDuration / 60).rounded())
+        return "Limit \(minutes) min"
+    }
+}
+
+private struct RecordingPulseDot: View {
+    @State private var isDimmed = false
+
+    var body: some View {
+        Circle()
+            .fill(.red)
+            .frame(width: 8, height: 8)
+            .opacity(isDimmed ? 0.35 : 1)
+            .scaleEffect(isDimmed ? 0.75 : 1.1)
+            .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isDimmed)
+            .onAppear {
+                isDimmed = true
+            }
+            .accessibilityHidden(true)
+    }
+}
+
+private struct RecordingPulseIcon: View {
+    let systemName: String
+    @State private var isDimmed = false
+
+    var body: some View {
+        Image(systemName: systemName)
+            .foregroundStyle(.red)
+            .opacity(isDimmed ? 0.45 : 1)
+            .scaleEffect(isDimmed ? 0.92 : 1.08)
+            .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isDimmed)
+            .onAppear {
+                isDimmed = true
+            }
+    }
 }
 
 private struct MeetingsView: View {
@@ -878,12 +913,7 @@ private struct MeetingsView: View {
 
                     Spacer()
 
-                    Button {
-                        controller.startMeetingRecording()
-                    } label: {
-                        Label("Start", systemImage: "record.circle")
-                    }
-                    .disabled(!canStartMeeting)
+                    meetingRecordingControls
                 }
                 .padding([.horizontal, .top], 16)
                 .padding(.bottom, 10)
@@ -900,6 +930,7 @@ private struct MeetingsView: View {
                         ForEach(meetingHistoryStore.entries) { entry in
                             MeetingRowView(
                                 entry: entry,
+                                retryAction: { controller.retryMeetingProcessing(entry) },
                                 copyAction: { controller.copyMeetingTranscript(entry) },
                                 deleteAction: { entryPendingDeletion = entry }
                             )
@@ -943,6 +974,37 @@ private struct MeetingsView: View {
         controller.appState.canStartMeetingRecording
     }
 
+    @ViewBuilder
+    private var meetingRecordingControls: some View {
+        if controller.appState.isMeetingCaptureActive {
+            Button(role: .destructive) {
+                controller.cancelMeetingRecording()
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.borderless)
+            .help("Cancel Meeting Recording")
+            .accessibilityLabel("Cancel Meeting Recording")
+
+            Button {
+                controller.stopMeetingRecording()
+            } label: {
+                HStack(spacing: 5) {
+                    RecordingPulseIcon(systemName: "stop.fill")
+                    Text("Stop")
+                }
+            }
+            .accessibilityLabel("Stop")
+        } else {
+            Button {
+                controller.startMeetingRecording()
+            } label: {
+                Label("Start", systemImage: "record.circle")
+            }
+            .disabled(!canStartMeeting)
+        }
+    }
+
     private var deleteConfirmationBinding: Binding<Bool> {
         Binding(
             get: { entryPendingDeletion != nil },
@@ -957,6 +1019,7 @@ private struct MeetingsView: View {
 
 private struct MeetingRowView: View {
     let entry: MeetingHistoryEntry
+    let retryAction: () -> Void
     let copyAction: () -> Void
     let deleteAction: () -> Void
 
@@ -981,16 +1044,22 @@ private struct MeetingRowView: View {
 
             HStack(spacing: 8) {
                 Text(entry.createdAt, style: .date)
-                Text(formatDuration(entry.duration))
-                if entry.sourceFlags.partial {
-                    Label("Partial", systemImage: "exclamationmark.triangle")
-                }
+                Text(MeetingDurationFormatter.historyText(entry.duration))
             }
             .font(.system(size: 11))
             .foregroundStyle(.secondary)
         }
         .padding(.vertical, 5)
         .contextMenu {
+            if entry.recoveryAudio != nil {
+                Button {
+                    retryAction()
+                } label: {
+                    Label("Retry Processing", systemImage: "arrow.clockwise")
+                }
+                .disabled(!isRecoveryAudioAvailable)
+            }
+
             Button {
                 copyAction()
             } label: {
@@ -1007,13 +1076,13 @@ private struct MeetingRowView: View {
     }
 
     private var statusTitle: String {
-        entry.sourceFlags.partial ? "Partial" : entry.status.title
+        entry.status.title
     }
 
     private var statusIcon: String {
         switch entry.status {
         case .completed:
-            return entry.sourceFlags.partial ? "exclamationmark.triangle" : "checkmark.circle"
+            return "checkmark.circle"
         case .partial:
             return "exclamationmark.triangle"
         case .failed:
@@ -1024,7 +1093,7 @@ private struct MeetingRowView: View {
     private var statusColor: Color {
         switch entry.status {
         case .completed:
-            return entry.sourceFlags.partial ? .yellow : .green
+            return .green
         case .partial:
             return .yellow
         case .failed:
@@ -1032,8 +1101,11 @@ private struct MeetingRowView: View {
         }
     }
 
-    private func formatDuration(_ duration: TimeInterval) -> String {
-        String(format: "%.1f min", max(0, duration) / 60)
+    private var isRecoveryAudioAvailable: Bool {
+        guard let recoveryAudio = entry.recoveryAudio else {
+            return false
+        }
+        return recoveryAudio.isAvailableForRetry()
     }
 }
 
@@ -1056,6 +1128,17 @@ private struct MeetingDetailView: View {
 
                         Spacer()
 
+                        if entry.recoveryAudio != nil {
+                            Button {
+                                controller.retryMeetingProcessing(entry)
+                            } label: {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                            .disabled(!isRecoveryAudioAvailable(entry))
+                            .help("Retry Processing")
+                            .accessibilityLabel("Retry Processing")
+                        }
+
                         Button {
                             controller.insertMeetingTranscript(entry)
                         } label: {
@@ -1066,9 +1149,21 @@ private struct MeetingDetailView: View {
                         Button {
                             controller.copyMeetingTranscript(entry)
                         } label: {
-                            Label("Copy Transcript", systemImage: "doc.on.doc")
+                            Image(systemName: "doc.on.doc")
                         }
                         .disabled(entry.transcriptText.trimmed.isEmpty)
+                        .help("Copy Transcript")
+                        .accessibilityLabel("Copy Transcript")
+                    }
+
+                    if let recoveryAudio = entry.recoveryAudio {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(recoveryAudioStatusTitle(for: recoveryAudio))
+                                .font(.subheadline.weight(.semibold))
+                            Text(recoveryAudioStatusMessage(for: recoveryAudio))
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
                     }
 
                     if let errorMessage = entry.errorMessage {
@@ -1105,7 +1200,49 @@ private struct MeetingDetailView: View {
     }
 
     private func detailSubtitle(for entry: MeetingHistoryEntry) -> String {
-        "\(entry.status.title) · \(String(format: "%.1f min", entry.duration / 60))"
+        "\(entry.status.title) · \(MeetingDurationFormatter.historyText(entry.duration))"
+    }
+
+    private func isRecoveryAudioAvailable(_ entry: MeetingHistoryEntry) -> Bool {
+        guard let recoveryAudio = entry.recoveryAudio else {
+            return false
+        }
+        return recoveryAudio.isAvailableForRetry()
+    }
+
+    private func recoveryAudioStatusTitle(for recoveryAudio: MeetingRecoveryAudioManifest) -> String {
+        !recoveryAudio.isAvailableForRetry()
+            ? "Audio unavailable"
+            : "Audio saved locally for retry"
+    }
+
+    private func recoveryAudioStatusMessage(for recoveryAudio: MeetingRecoveryAudioManifest) -> String {
+        if recoveryAudio.isExpired(at: Date()) {
+            return "The 7-day retry window has expired."
+        }
+
+        if !recoveryAudio.hasAvailableAudio() {
+            return "The saved audio files are missing."
+        }
+
+        return "Retry is available until \(recoveryAudio.expiresAt.formatted(date: .abbreviated, time: .shortened))."
+    }
+}
+
+private enum MeetingDurationFormatter {
+    static func historyText(_ duration: TimeInterval) -> String {
+        let seconds = max(0, duration)
+        if seconds < 60 {
+            return "\(displayedSeconds(seconds)) sec"
+        }
+        return String(format: "%.1f min", seconds / 60)
+    }
+
+    private static func displayedSeconds(_ seconds: TimeInterval) -> Int {
+        guard seconds > 0 else {
+            return 0
+        }
+        return max(1, Int(seconds.rounded()))
     }
 }
 
@@ -1114,22 +1251,38 @@ private struct MeetingMetadataSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Local model metadata")
+            Text("Processing")
                 .font(.subheadline.weight(.semibold))
 
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
                 metadataRow("Microphone", entry.sourceFlags.microphoneCaptured ? "Captured" : "Not captured")
                 metadataRow("System audio", entry.sourceFlags.systemAudioCaptured ? "Captured" : "Not captured")
-                metadataRow("Partial", entry.sourceFlags.partial ? "Yes" : "No")
-
-                if let modelMetadata = entry.modelMetadata {
-                    metadataRow("Model", modelMetadata.displayName)
-                    metadataRow("Backend", modelMetadata.backend)
-                    metadataRow("Version", modelMetadata.version)
-                }
+                metadataRow("Incomplete", entry.sourceFlags.partial ? "Yes" : "No")
+                metadataRow("Decoded by", decodedByText)
+                metadataRow("Processing time", processingTimeText)
             }
             .font(.system(size: 12))
         }
+    }
+
+    private var decodedByText: String {
+        entry.modelMetadata?.displayName ?? "Unknown"
+    }
+
+    private var processingTimeText: String {
+        let total = [entry.timings?.preprocessing, entry.timings?.transcription]
+            .compactMap { $0 }
+            .reduce(0, +)
+
+        guard total > 0 else {
+            return "Unknown"
+        }
+
+        if total < 1 {
+            return "\(Int((total * 1_000).rounded())) ms"
+        }
+
+        return String(format: "%.2f s", total)
     }
 
     private func metadataRow(_ label: String, _ value: String) -> some View {
@@ -1149,7 +1302,7 @@ private struct HistoryView: View {
     @State private var showingClearConfirmation = false
     @State private var entryPendingDeletion: VoiceHistoryEntry?
     @State private var searchText = ""
-    @State private var statusFilter = HistoryStatusFilter.all
+    @State private var isShowingOlderHistory = false
     @State private var copiedEntryID: VoiceHistoryEntry.ID?
     @State private var copyFeedbackResetTask: Task<Void, Never>?
 
@@ -1163,11 +1316,20 @@ private struct HistoryView: View {
     }
 
     private var filteredEntries: [VoiceHistoryEntry] {
-        VoiceHistoryFilter(
-            query: searchText,
-            status: statusFilter.status
-        )
-        .filteredEntries(from: historyStore.entries)
+        VoiceHistoryFilter(query: searchText)
+            .filteredEntries(from: historyStore.entries)
+    }
+
+    private var ageGroups: VoiceHistoryEntryAgeGroups {
+        VoiceHistoryEntryAgeGroups(entries: filteredEntries, now: Date())
+    }
+
+    private var recentEntries: [VoiceHistoryEntry] {
+        ageGroups.recent
+    }
+
+    private var olderEntries: [VoiceHistoryEntry] {
+        ageGroups.older
     }
 
     var body: some View {
@@ -1191,27 +1353,8 @@ private struct HistoryView: View {
 
                 if !historyStore.entries.isEmpty {
                     VStack(spacing: 8) {
-                        HStack(spacing: 8) {
-                            Label(historyStore.storageStats.formattedTextPayloadSize, systemImage: "internaldrive")
-                                .foregroundStyle(.secondary)
-
-                            Text("history text")
-                                .foregroundStyle(.secondary)
-
-                            Spacer()
-                        }
-                        .font(.caption)
-
                         TextField("Search history", text: $searchText)
                             .textFieldStyle(.roundedBorder)
-
-                        Picker("Status", selection: $statusFilter) {
-                            ForEach(HistoryStatusFilter.allCases) { filter in
-                                Text(filter.title).tag(filter)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
                     }
                     .padding(.horizontal, 16)
                     .padding(.bottom, 10)
@@ -1228,29 +1371,37 @@ private struct HistoryView: View {
                     ContentUnavailableView(
                         "No matching sessions",
                         systemImage: "magnifyingglass",
-                        description: Text("Try another search or status filter.")
+                        description: Text("Try another search.")
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     List(selection: $selectedID) {
-                        ForEach(filteredEntries) { entry in
-                            HistoryRowView(
-                                entry: entry,
-                                isCopyConfirmed: copiedEntryID == entry.id,
-                                selectAction: {
-                                    selectedID = entry.id
-                                },
-                                copyAction: {
-                                    copyHistoryEntry(entry)
-                                },
-                                deleteAction: {
-                                    entryPendingDeletion = entry
-                                }
-                            )
-                            .tag(entry.id)
+                        if !recentEntries.isEmpty {
+                            Section("Recent") {
+                                historyRows(recentEntries)
+                            }
                         }
-                        .onDelete { offsets in
-                            deleteEntries(at: offsets)
+
+                        if !olderEntries.isEmpty {
+                            Section {
+                                DisclosureGroup(isExpanded: $isShowingOlderHistory) {
+                                    historyRows(olderEntries)
+                                } label: {
+                                    HStack {
+                                        Text("Older")
+                                            .font(.subheadline.weight(.semibold))
+
+                                        Spacer()
+
+                                        Text(olderEntries.count.formatted())
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .contentShape(Rectangle())
+                                    .padding(.vertical, 3)
+                                }
+                            }
                         }
                     }
                     .listStyle(.sidebar)
@@ -1275,19 +1426,16 @@ private struct HistoryView: View {
         .onChange(of: searchText) { _, _ in
             ensureSelectedEntryIsVisible()
         }
-        .onChange(of: statusFilter) { _, _ in
-            ensureSelectedEntryIsVisible()
-        }
         .onDisappear {
             copyFeedbackResetTask?.cancel()
         }
-        .alert("Clear voice history?", isPresented: $showingClearConfirmation) {
+        .alert("Are you sure?", isPresented: $showingClearConfirmation) {
             Button("Clear", role: .destructive) {
                 controller.clearHistory()
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes saved transcription history from VoicePen.")
+            Text("This removes all saved transcription history from VoicePen.")
         }
         .alert("Delete voice session?", isPresented: deleteConfirmationBinding) {
             Button("Delete", role: .destructive) {
@@ -1315,8 +1463,30 @@ private struct HistoryView: View {
         )
     }
 
-    private func deleteEntries(at offsets: IndexSet) {
-        let entries = filteredEntries
+    @ViewBuilder
+    private func historyRows(_ entries: [VoiceHistoryEntry]) -> some View {
+        ForEach(entries) { entry in
+            HistoryRowView(
+                entry: entry,
+                isCopyConfirmed: copiedEntryID == entry.id,
+                selectAction: {
+                    selectedID = entry.id
+                },
+                copyAction: {
+                    copyHistoryEntry(entry)
+                },
+                deleteAction: {
+                    entryPendingDeletion = entry
+                }
+            )
+            .tag(entry.id)
+        }
+        .onDelete { offsets in
+            deleteEntries(at: offsets, in: entries)
+        }
+    }
+
+    private func deleteEntries(at offsets: IndexSet, in entries: [VoiceHistoryEntry]) {
         for index in offsets {
             guard entries.indices.contains(index) else { continue }
             controller.deleteHistoryEntry(id: entries[index].id)
@@ -1343,41 +1513,6 @@ private struct HistoryView: View {
     private func ensureSelectedEntryIsVisible() {
         guard !filteredEntries.contains(where: { $0.id == selectedID }) else { return }
         selectedID = filteredEntries.first?.id
-    }
-}
-
-private enum HistoryStatusFilter: String, CaseIterable, Identifiable {
-    case all
-    case insertAttempted
-    case empty
-    case failed
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .all:
-            return "All"
-        case .insertAttempted:
-            return VoiceHistoryStatus.insertAttempted.title
-        case .empty:
-            return VoiceHistoryStatus.empty.title
-        case .failed:
-            return VoiceHistoryStatus.failed.title
-        }
-    }
-
-    var status: VoiceHistoryStatus? {
-        switch self {
-        case .all:
-            return nil
-        case .insertAttempted:
-            return .insertAttempted
-        case .empty:
-            return .empty
-        case .failed:
-            return .failed
-        }
     }
 }
 
@@ -1541,6 +1676,7 @@ private struct HistoryRowView: View {
 private struct HistoryDetailView: View {
     @ObservedObject var controller: AppController
     let entry: VoiceHistoryEntry?
+    @State private var expandedRawTranscriptEntryIDs: Set<VoiceHistoryEntry.ID> = []
 
     var body: some View {
         Group {
@@ -1561,16 +1697,11 @@ private struct HistoryDetailView: View {
                         Button {
                             controller.insertText(entry.bestText)
                         } label: {
-                            Label("Insert Again", systemImage: "arrowshape.turn.up.forward")
+                            Image(systemName: "arrow.clockwise")
                         }
                         .disabled(entry.bestText.trimmed.isEmpty)
-
-                        Button {
-                            controller.copyToClipboard(entry.bestText)
-                        } label: {
-                            Label("Copy Best Text", systemImage: "doc.on.doc")
-                        }
-                        .disabled(entry.bestText.trimmed.isEmpty)
+                        .help("Insert Again")
+                        .accessibilityLabel("Insert Again")
                     }
 
                     if let errorMessage = entry.errorMessage {
@@ -1602,6 +1733,7 @@ private struct HistoryDetailView: View {
                     )
 
                     HistoryRawTranscriptDisclosure(
+                        isExpanded: rawTranscriptExpansionBinding(for: entry.id),
                         text: entry.rawText,
                         copyAction: {
                             controller.copyToClipboard(entry.rawText)
@@ -1628,6 +1760,23 @@ private struct HistoryDetailView: View {
             return "\(entry.status.title) · \(String(format: "%.1fs", duration))"
         }
         return entry.status.title
+    }
+
+    private func rawTranscriptExpansionBinding(for entryID: VoiceHistoryEntry.ID) -> Binding<Bool> {
+        Binding(
+            get: {
+                expandedRawTranscriptEntryIDs.contains(entryID)
+            },
+            set: { isExpanded in
+                var expandedEntryIDs = expandedRawTranscriptEntryIDs
+                if isExpanded {
+                    expandedEntryIDs.insert(entryID)
+                } else {
+                    expandedEntryIDs.remove(entryID)
+                }
+                expandedRawTranscriptEntryIDs = expandedEntryIDs
+            }
+        )
     }
 }
 
@@ -1694,9 +1843,11 @@ private struct HistoryTextSection: View {
                 Button {
                     copyAction()
                 } label: {
-                    Label("Copy", systemImage: "doc.on.doc")
+                    Image(systemName: "doc.on.doc")
                 }
                 .disabled(trimmedText.isEmpty)
+                .help("Copy")
+                .accessibilityLabel("Copy")
             }
 
             ScrollView {
@@ -1726,11 +1877,12 @@ private struct HistoryTextSection: View {
 }
 
 private struct HistoryRawTranscriptDisclosure: View {
+    let isExpanded: Binding<Bool>
     let text: String
     let copyAction: () -> Void
 
     var body: some View {
-        DisclosureGroup {
+        DisclosureGroup(isExpanded: isExpanded) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Spacer()
@@ -1738,9 +1890,11 @@ private struct HistoryRawTranscriptDisclosure: View {
                     Button {
                         copyAction()
                     } label: {
-                        Label("Copy", systemImage: "doc.on.doc")
+                        Image(systemName: "doc.on.doc")
                     }
                     .disabled(trimmedText.isEmpty)
+                    .help("Copy")
+                    .accessibilityLabel("Copy")
                 }
 
                 ScrollView {
@@ -1762,6 +1916,8 @@ private struct HistoryRawTranscriptDisclosure: View {
         } label: {
             Text("Raw transcript")
                 .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+                .contentShape(Rectangle())
         }
     }
 

@@ -572,6 +572,10 @@ nonisolated struct VoiceHistoryStorageStats: Equatable, Sendable {
         Self.formattedByteCount(databaseFileBytes)
     }
 
+    var formattedDiskUsageSize: String {
+        formattedDatabaseFileSize
+    }
+
     private static func formattedByteCount(_ byteCount: Int) -> String {
         ByteCountFormatter.string(fromByteCount: Int64(max(0, byteCount)), countStyle: .file)
     }

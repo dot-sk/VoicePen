@@ -41,13 +41,18 @@ final class DictationPipeline {
     private let inserter: TextInsertionClient
     private let overlay: OverlayPresenter
     private let userConfigStore: UserConfigStore
+    private let inputGainController: DefaultInputGainControlling
     private let languageProvider: () -> String
     private let speechPreprocessingModeProvider: () -> SpeechPreprocessingMode
+    private let boostDictationInputGainProvider: () -> Bool
+    private let developerModesEnabledProvider: () -> Bool
+    private let llmIntentParserEnabledProvider: () -> Bool
     private let developerModeOverrideProvider: () -> DeveloperMode?
     private let activeApplicationProvider: () -> ActiveApplicationInfo?
     private let llmIntentParserFactory: LLMIntentParserFactory
     private let minimumRecordingDuration: TimeInterval
     private var recordingLevelTask: Task<Void, Never>?
+    private var activeInputGainRestoreToken: DefaultInputGainRestoreToken?
 
     init(
         recorder: AudioRecordingClient,
@@ -57,8 +62,12 @@ final class DictationPipeline {
         inserter: TextInsertionClient,
         overlay: OverlayPresenter,
         userConfigStore: UserConfigStore = UserConfigStore(),
+        inputGainController: DefaultInputGainControlling = NoOpDefaultInputGainController(),
         languageProvider: @escaping () -> String = { VoicePenConfig.defaultLanguage },
         speechPreprocessingModeProvider: @escaping () -> SpeechPreprocessingMode = { .off },
+        boostDictationInputGainProvider: @escaping () -> Bool = { false },
+        developerModesEnabledProvider: @escaping () -> Bool = { true },
+        llmIntentParserEnabledProvider: @escaping () -> Bool = { true },
         developerModeOverrideProvider: @escaping () -> DeveloperMode? = { nil },
         activeApplicationProvider: @escaping () -> ActiveApplicationInfo? = { nil },
         llmIntentParserFactory: @escaping LLMIntentParserFactory = DictationPipeline.defaultLLMIntentParserFactory,
@@ -71,8 +80,12 @@ final class DictationPipeline {
         self.inserter = inserter
         self.overlay = overlay
         self.userConfigStore = userConfigStore
+        self.inputGainController = inputGainController
         self.languageProvider = languageProvider
         self.speechPreprocessingModeProvider = speechPreprocessingModeProvider
+        self.boostDictationInputGainProvider = boostDictationInputGainProvider
+        self.developerModesEnabledProvider = developerModesEnabledProvider
+        self.llmIntentParserEnabledProvider = llmIntentParserEnabledProvider
         self.developerModeOverrideProvider = developerModeOverrideProvider
         self.activeApplicationProvider = activeApplicationProvider
         self.llmIntentParserFactory = llmIntentParserFactory
@@ -80,7 +93,18 @@ final class DictationPipeline {
     }
 
     func start() async throws {
-        try recorder.startRecording()
+        activeInputGainRestoreToken =
+            boostDictationInputGainProvider()
+            ? inputGainController.boostDefaultInputGain()
+            : nil
+
+        do {
+            try recorder.startRecording()
+        } catch {
+            restoreInputGainIfNeeded()
+            throw error
+        }
+
         let startedAt = Date()
         await overlay.show(.recording(startedAt: startedAt, level: nil))
         startRecordingLevelUpdates(startedAt: startedAt)
@@ -88,6 +112,9 @@ final class DictationPipeline {
 
     func stopAndProcess() async throws -> DictationPipelineResult {
         stopRecordingLevelUpdates()
+        defer {
+            restoreInputGainIfNeeded()
+        }
 
         guard let recording = try recorder.stopRecording() else {
             overlay.hide(after: 0.1)
@@ -144,6 +171,10 @@ final class DictationPipeline {
 
         await overlay.update(.transcribing(stage: .normalizing, progress: nil))
         let normalized = try await measure { () async throws -> DeveloperModeProcessingResult in
+            guard developerModesEnabledProvider() else {
+                return try plainProcessingResult(rawText)
+            }
+
             let configResult = userConfigStore.loadConfig()
             let commandResult = DeveloperModeProcessor.process(
                 text: rawText,
@@ -239,6 +270,7 @@ final class DictationPipeline {
         context: ActiveAppContext,
         diagnosticNotes: inout [String]
     ) async -> DeveloperModeProcessingResult? {
+        guard llmIntentParserEnabledProvider() else { return nil }
         guard config.developer.intentParser.enabled, context != .plain else { return nil }
 
         let intents = LLMIntentRegistry.intents(for: context)
@@ -287,6 +319,13 @@ final class DictationPipeline {
         }
     }
 
+    private func plainProcessingResult(_ rawText: String) throws -> DeveloperModeProcessingResult {
+        let finalText = try dictionaryStore.makeNormalizer()
+            .normalize(rawText)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return DeveloperModeProcessingResult(text: finalText, activeContext: .plain)
+    }
+
     nonisolated private static let defaultLLMIntentParserFactory: LLMIntentParserFactory = { config in
         switch LLMRouter.makeClient(config: config.llm) {
         case let .success(client):
@@ -315,6 +354,15 @@ final class DictationPipeline {
     private func stopRecordingLevelUpdates() {
         recordingLevelTask?.cancel()
         recordingLevelTask = nil
+    }
+
+    private func restoreInputGainIfNeeded() {
+        guard let token = activeInputGainRestoreToken else {
+            return
+        }
+
+        activeInputGainRestoreToken = nil
+        inputGainController.restoreDefaultInputGain(token)
     }
 
     private func glossaryPrompt(recording: RecordingResult, language: String) throws -> String {

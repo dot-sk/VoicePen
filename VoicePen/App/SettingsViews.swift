@@ -136,9 +136,10 @@ struct GeneralSettingsView: View {
         )
     }
 
-    private var transcribedAudioCaption: String {
+    private var transcribedTotalCaption: String {
+        let word = stats.totalWordCount == 1 ? "word" : "words"
         let sessionWord = stats.transcribedSessionCount == 1 ? "session" : "sessions"
-        return "Transcribed audio time in \(stats.transcribedSessionCount) \(sessionWord)"
+        return "Transcribed \(stats.totalWordCount.formatted()) \(word) in \(stats.transcribedSessionCount.formatted()) \(sessionWord)"
     }
 
     private var estimatedTimeSavedCaption: String {
@@ -146,7 +147,7 @@ struct GeneralSettingsView: View {
     }
 
     private var historyStorageCaption: String {
-        "\(historyStore.storageStats.formattedTextPayloadSize) text, \(historyStore.storageStats.formattedDatabaseFileSize) database"
+        historyStore.storageStats.formattedDiskUsageSize
     }
 
     private var todayWordsText: String {
@@ -171,7 +172,7 @@ struct GeneralSettingsView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.55)
 
-                    Text(transcribedAudioCaption)
+                    Text(transcribedTotalCaption)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.secondary)
 
@@ -266,8 +267,8 @@ struct GeneralSettingsView: View {
             Section {
                 LabeledContent("Status", value: controller.appState.menuTitle)
                 LabeledContent("Privacy", value: "Offline only, 0 analytics")
-                LabeledContent("History storage", value: historyStorageCaption)
-                LabeledContent("History database", value: controller.historyURL.path)
+                LabeledContent("Storage", value: historyStorageCaption)
+                LabeledContent("Database", value: controller.historyURL.path)
                 Toggle(
                     "Open VoicePen at login",
                     isOn: Binding(
@@ -443,9 +444,14 @@ struct ModesSettingsView: View {
 struct AISettingsView: View {
     @ObservedObject var controller: AppController
     @State private var saveError: String?
+    @State private var ollamaAvailability: OllamaAvailabilityViewState = .checking
 
     private var currentConfig: UserConfig {
         controller.userConfigLoadResult.config
+    }
+
+    private var ollamaAvailabilityTaskID: String {
+        "\(currentConfig.llm.provider.rawValue)|\(currentConfig.llm.ollama.baseURL)"
     }
 
     private var provider: Binding<LLMProvider> {
@@ -528,6 +534,11 @@ struct AISettingsView: View {
 
             if currentConfig.llm.provider == .ollama {
                 Section {
+                    OllamaAvailabilityRow(status: ollamaAvailability) {
+                        Task {
+                            await refreshOllamaAvailability(debounce: false)
+                        }
+                    }
                     TextField("Base URL", text: ollamaBaseURL)
                     TextField("Model", text: ollamaModel)
                 } header: {
@@ -559,6 +570,9 @@ struct AISettingsView: View {
         }
         .formStyle(.grouped)
         .padding(18)
+        .task(id: ollamaAvailabilityTaskID) {
+            await refreshOllamaAvailability(debounce: true)
+        }
     }
 
     private func persistAISettings(_ update: (inout LLMConfig) -> Void) {
@@ -578,13 +592,134 @@ struct AISettingsView: View {
             }
         }
     }
+
+    @MainActor
+    private func refreshOllamaAvailability(debounce: Bool) async {
+        guard currentConfig.llm.provider == .ollama else {
+            ollamaAvailability = .checking
+            return
+        }
+
+        let ollamaConfig = currentConfig.llm.ollama
+        ollamaAvailability = .checking
+
+        if debounce {
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled else { return }
+        }
+
+        let timeoutSeconds = min(max(ollamaConfig.timeoutSeconds, 0.5), 2)
+        let result = await OllamaAvailabilityClient().check(
+            baseURL: ollamaConfig.baseURL,
+            timeoutSeconds: timeoutSeconds
+        )
+        guard !Task.isCancelled else { return }
+
+        ollamaAvailability = OllamaAvailabilityViewState(result)
+    }
+}
+
+private struct OllamaAvailabilityRow: View {
+    let status: OllamaAvailabilityViewState
+    let refresh: () -> Void
+
+    var body: some View {
+        HStack {
+            Label(status.title, systemImage: status.systemImage)
+                .foregroundStyle(status.color)
+
+            Spacer()
+
+            Button {
+                refresh()
+            } label: {
+                Image(systemName: "arrow.clockwise")
+            }
+            .buttonStyle(.borderless)
+            .help("Check Ollama availability")
+            .accessibilityLabel("Check Ollama availability")
+        }
+    }
+}
+
+private enum OllamaAvailabilityViewState: Equatable {
+    case checking
+    case available
+    case unavailable(String)
+
+    init(_ availability: OllamaAvailability) {
+        switch availability {
+        case .available:
+            self = .available
+        case let .unavailable(message):
+            self = .unavailable(message)
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .checking:
+            return "Checking Ollama"
+        case .available:
+            return "Ollama available"
+        case .unavailable:
+            return "Ollama unavailable"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .checking:
+            return "clock"
+        case .available:
+            return "checkmark.circle.fill"
+        case .unavailable:
+            return "xmark.circle.fill"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .checking:
+            return .secondary
+        case .available:
+            return .green
+        case .unavailable:
+            return .red
+        }
+    }
 }
 
 struct ConfigSettingsView: View {
     @ObservedObject var controller: AppController
 
+    private var boostDictationInputGain: Binding<Bool> {
+        Binding(
+            get: { controller.settingsStore.boostDictationInputGain },
+            set: { controller.updateBoostDictationInputGain($0) }
+        )
+    }
+
+    private var meetingVoiceLevelingEnabled: Binding<Bool> {
+        Binding(
+            get: { controller.settingsStore.meetingVoiceLevelingEnabled },
+            set: { controller.updateMeetingVoiceLevelingEnabled($0) }
+        )
+    }
+
     var body: some View {
         Form {
+            Section {
+                Toggle("Boost microphone level during dictation", isOn: boostDictationInputGain)
+                Toggle("Meeting voice leveling", isOn: meetingVoiceLevelingEnabled)
+            } header: {
+                Text("Audio")
+            } footer: {
+                Text(
+                    "VoicePen uses the macOS default microphone. Dictation can temporarily raise supported input levels while recording. Meeting audio can use system dynamics and peak limiting before local transcription; if processing is unavailable, VoicePen continues with ordinary audio."
+                )
+            }
+
             Section {
                 LabeledContent("Config file", value: controller.userConfigURL.path)
                 LabeledContent(
@@ -717,6 +852,7 @@ struct ModelSettingsView: View {
                 .pickerStyle(.menu)
 
                 LabeledContent("Model ID", value: controller.selectedModel.id)
+                LabeledContent("Languages", value: controller.selectedModel.languageSupportLabel)
                 LabeledContent("Backend", value: controller.selectedModel.sourceKind)
                 LabeledContent("Version", value: controller.selectedModel.version)
                 LabeledContent("Size", value: controller.selectedModel.sizeLabel)

@@ -10,7 +10,7 @@ nonisolated enum MeetingRecordingStatus: String, CaseIterable, Codable, Equatabl
         case .completed:
             return "Completed"
         case .partial:
-            return "Partial"
+            return "Partial Transcript"
         case .failed:
             return "Failed"
         }
@@ -49,6 +49,26 @@ nonisolated struct MeetingPipelineTimings: Codable, Equatable, Sendable {
     }
 }
 
+nonisolated struct MeetingRecoveryAudioManifest: Codable, Equatable, Sendable {
+    var createdAt: Date
+    var expiresAt: Date
+    var duration: TimeInterval
+    var sourceFlags: MeetingSourceFlags
+    var chunks: [MeetingAudioChunk]
+
+    func isExpired(at date: Date) -> Bool {
+        date >= expiresAt
+    }
+
+    func hasAvailableAudio(fileManager: FileManager = .default) -> Bool {
+        !chunks.isEmpty && chunks.allSatisfy { fileManager.fileExists(atPath: $0.url.path) }
+    }
+
+    func isAvailableForRetry(at date: Date = Date(), fileManager: FileManager = .default) -> Bool {
+        !isExpired(at: date) && hasAvailableAudio(fileManager: fileManager)
+    }
+}
+
 nonisolated struct MeetingHistoryEntry: Codable, Identifiable, Equatable, Sendable {
     var id: UUID
     var createdAt: Date
@@ -60,7 +80,36 @@ nonisolated struct MeetingHistoryEntry: Codable, Identifiable, Equatable, Sendab
     var timings: MeetingPipelineTimings?
     var modelMetadata: VoiceTranscriptionModelMetadata?
     var recognizedWordCount: Int?
+    var recoveryAudio: MeetingRecoveryAudioManifest?
     var isTextPayloadEvicted: Bool = false
+
+    init(
+        id: UUID,
+        createdAt: Date,
+        duration: TimeInterval,
+        transcriptText: String,
+        status: MeetingRecordingStatus,
+        sourceFlags: MeetingSourceFlags,
+        errorMessage: String?,
+        timings: MeetingPipelineTimings?,
+        modelMetadata: VoiceTranscriptionModelMetadata?,
+        recognizedWordCount: Int? = nil,
+        recoveryAudio: MeetingRecoveryAudioManifest? = nil,
+        isTextPayloadEvicted: Bool = false
+    ) {
+        self.id = id
+        self.createdAt = createdAt
+        self.duration = duration
+        self.transcriptText = transcriptText
+        self.status = status
+        self.sourceFlags = sourceFlags
+        self.errorMessage = errorMessage
+        self.timings = timings
+        self.modelMetadata = modelMetadata
+        self.recognizedWordCount = recognizedWordCount
+        self.recoveryAudio = recoveryAudio
+        self.isTextPayloadEvicted = isTextPayloadEvicted
+    }
 
     var previewText: String {
         let trimmed = transcriptText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -87,7 +136,6 @@ nonisolated enum MeetingSourceKind: String, Codable, Equatable, Sendable {
 nonisolated enum MeetingSourceHealth: String, Codable, Equatable, Sendable {
     case unavailable
     case capturing
-    case paused
     case failed
 
     var title: String {
@@ -96,8 +144,6 @@ nonisolated enum MeetingSourceHealth: String, Codable, Equatable, Sendable {
             return "Unavailable"
         case .capturing:
             return "Capturing"
-        case .paused:
-            return "Paused"
         case .failed:
             return "Failed"
         }
@@ -133,11 +179,24 @@ nonisolated struct MeetingRecordingResult: Equatable, Sendable {
     var startedAt: Date
     var endedAt: Date
     var chunks: [MeetingAudioChunk]
+    var duration: TimeInterval
     var sourceFlags: MeetingSourceFlags
     var errorMessage: String?
 
-    var duration: TimeInterval {
-        chunks.reduce(0) { $0 + max(0, $1.duration) }
+    init(
+        startedAt: Date,
+        endedAt: Date,
+        chunks: [MeetingAudioChunk],
+        sourceFlags: MeetingSourceFlags,
+        errorMessage: String?,
+        duration: TimeInterval? = nil
+    ) {
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.chunks = chunks
+        self.duration = max(0, duration ?? endedAt.timeIntervalSince(startedAt))
+        self.sourceFlags = sourceFlags
+        self.errorMessage = errorMessage
     }
 
     var temporaryAudioURLs: [URL] {
@@ -153,6 +212,8 @@ enum MeetingRecordingError: LocalizedError, Equatable {
     case systemAudioPermissionDenied
     case captureTimedOut
     case captureFailed(String)
+    case recoveryAudioUnavailable
+    case recoveryAudioExpired
 
     var errorDescription: String? {
         switch self {
@@ -163,13 +224,18 @@ enum MeetingRecordingError: LocalizedError, Equatable {
         case .noCapturedAudio:
             return "No meeting audio was captured."
         case .durationLimitExceeded:
-            return "Meeting recording reached the 120 minute limit."
+            let minutes = Int((VoicePenConfig.meetingMaximumRecordingDuration / 60).rounded())
+            return "Meeting recording reached the \(minutes) minute limit."
         case .systemAudioPermissionDenied:
             return "System Audio permission is required to capture meeting audio."
         case .captureTimedOut:
             return "Meeting audio capture did not start in time."
         case let .captureFailed(message):
             return "Meeting audio capture failed: \(message)"
+        case .recoveryAudioUnavailable:
+            return "Meeting audio is no longer available for retry."
+        case .recoveryAudioExpired:
+            return "Meeting audio retry window has expired."
         }
     }
 }

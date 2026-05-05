@@ -9,6 +9,8 @@ final class AppSettingsStore: ObservableObject {
     @Published private(set) var speechPreprocessingMode: SpeechPreprocessingMode
     @Published private(set) var hotkeyPreference: HotkeyPreference
     @Published private(set) var hotkeyHoldDuration: TimeInterval
+    @Published private(set) var boostDictationInputGain: Bool
+    @Published private(set) var meetingVoiceLevelingEnabled: Bool
     @Published private(set) var openAtLogin: Bool
     @Published private(set) var developerModeOverride: DeveloperMode?
     @Published private(set) var hasAcknowledgedMeetingRecordingConsent: Bool
@@ -24,6 +26,8 @@ final class AppSettingsStore: ObservableObject {
         self.speechPreprocessingMode = .off
         self.hotkeyPreference = .option
         self.hotkeyHoldDuration = VoicePenConfig.defaultHotkeyHoldDuration
+        self.boostDictationInputGain = true
+        self.meetingVoiceLevelingEnabled = true
         self.openAtLogin = false
         self.developerModeOverride = nil
         self.hasAcknowledgedMeetingRecordingConsent = false
@@ -39,11 +43,26 @@ final class AppSettingsStore: ObservableObject {
             let holdDuration =
                 try fetchValue(forKey: Self.hotkeyHoldDurationKey, from: database)
                 ?? String(VoicePenConfig.defaultHotkeyHoldDuration)
+            let boostDictationInputGain =
+                try fetchValue(forKey: Self.boostDictationInputGainKey, from: database)
+                ?? "true"
+            let meetingVoiceLeveling =
+                try fetchValue(forKey: Self.meetingVoiceLevelingEnabledKey, from: database)
+                ?? "true"
             let openAtLogin = try fetchValue(forKey: Self.openAtLoginKey, from: database) ?? "false"
             let developerModeOverride = try fetchValue(forKey: Self.developerModeOverrideKey, from: database)
             let meetingConsent = try fetchValue(forKey: Self.meetingConsentKey, from: database) ?? "false"
             return (
-                language, modelId, preprocessing, hotkey, holdDuration, openAtLogin, developerModeOverride, meetingConsent
+                language,
+                modelId,
+                preprocessing,
+                hotkey,
+                holdDuration,
+                boostDictationInputGain,
+                meetingVoiceLeveling,
+                openAtLogin,
+                developerModeOverride,
+                meetingConsent
             )
         }
         transcriptionLanguage = Self.normalizeLanguage(values.0)
@@ -51,9 +70,11 @@ final class AppSettingsStore: ObservableObject {
         speechPreprocessingMode = Self.normalizeSpeechPreprocessingMode(values.2)
         hotkeyPreference = Self.normalizeHotkeyPreference(values.3)
         hotkeyHoldDuration = Self.normalizeHotkeyHoldDuration(values.4)
-        openAtLogin = Self.normalizeBoolean(values.5)
-        developerModeOverride = Self.normalizeDeveloperModeOverride(values.6)
-        hasAcknowledgedMeetingRecordingConsent = Self.normalizeBoolean(values.7)
+        boostDictationInputGain = Self.normalizeBoolean(values.5)
+        meetingVoiceLevelingEnabled = Self.normalizeBoolean(values.6)
+        openAtLogin = Self.normalizeBoolean(values.7)
+        developerModeOverride = Self.normalizeDeveloperModeOverride(values.8)
+        hasAcknowledgedMeetingRecordingConsent = Self.normalizeBoolean(values.9)
     }
 
     func updateTranscriptionLanguage(_ language: String) throws {
@@ -97,6 +118,22 @@ final class AppSettingsStore: ObservableObject {
             try setValue(String(normalizedDuration), forKey: Self.hotkeyHoldDurationKey, in: database)
         }
         hotkeyHoldDuration = normalizedDuration
+    }
+
+    func updateBoostDictationInputGain(_ isEnabled: Bool) throws {
+        try withDatabase { database in
+            try DatabaseMigrator.migrate(database)
+            try setValue(String(isEnabled), forKey: Self.boostDictationInputGainKey, in: database)
+        }
+        boostDictationInputGain = isEnabled
+    }
+
+    func updateMeetingVoiceLevelingEnabled(_ isEnabled: Bool) throws {
+        try withDatabase { database in
+            try DatabaseMigrator.migrate(database)
+            try setValue(String(isEnabled), forKey: Self.meetingVoiceLevelingEnabledKey, in: database)
+        }
+        meetingVoiceLevelingEnabled = isEnabled
     }
 
     func updateOpenAtLogin(_ isEnabled: Bool) throws {
@@ -247,6 +284,8 @@ final class AppSettingsStore: ObservableObject {
     private static let languageKey = "transcription.language"
     private static let selectedModelKey = "transcription.selectedModelId"
     private static let speechPreprocessingKey = "audio.speechPreprocessingMode"
+    private static let boostDictationInputGainKey = "audio.boostDictationInputGain"
+    private static let meetingVoiceLevelingEnabledKey = "audio.meetingVoiceLevelingEnabled"
     private static let hotkeyPreferenceKey = "hotkey.preference"
     private static let hotkeyHoldDurationKey = "hotkey.holdDuration"
     private static let openAtLoginKey = "app.openAtLogin"

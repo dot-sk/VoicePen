@@ -83,6 +83,10 @@ nonisolated struct AppPaths: @unchecked Sendable {
             .appendingPathComponent(VoicePenConfig.appSupportFolderName, isDirectory: true)
     }
 
+    var meetingRecoveryDirectory: URL {
+        applicationSupportDirectory.appendingPathComponent("MeetingRecovery", isDirectory: true)
+    }
+
     var expectedModelDirectories: [URL] {
         [bundledModelDirectory, userModelDirectory].compactMap { $0 }
     }
@@ -103,6 +107,7 @@ nonisolated struct AppPaths: @unchecked Sendable {
         try fileManager.createDirectory(at: applicationSupportDirectory, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: userModelsDirectory, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: tempAudioDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: meetingRecoveryDirectory, withIntermediateDirectories: true)
     }
 
     func existingModelDirectory() -> URL? {

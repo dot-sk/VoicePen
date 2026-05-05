@@ -37,6 +37,17 @@ nonisolated struct ModelManifestModel: Codable, Equatable, Identifiable {
             || language == "auto"
     }
 
+    var languageSupportLabel: String {
+        let normalizedCodes = Set(supportedLanguageCodes.map { $0.lowercased() })
+        if normalizedCodes.contains("multilingual") {
+            return "Multilingual"
+        }
+        if normalizedCodes == ["en"] {
+            return "English only"
+        }
+        return supportedLanguageCodes.map { $0.uppercased() }.sorted().joined(separator: ", ")
+    }
+
     var localArtifactFileName: String {
         artifactFileName ?? "\(id).bin"
     }

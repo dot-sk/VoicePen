@@ -42,6 +42,7 @@ prompt or registry logic.
 - Settings shall expose an AI section that displays and edits the current LLM provider plus the active provider's everyday connection settings.
 - The AI settings section shall make provider configuration distinct from per-feature enablement: configuring a provider shall not imply that dictation will be sent to AI.
 - When the selected provider is Ollama, the AI settings section shall show Ollama base URL and model fields and shall hide OpenRouter fields.
+- When the selected provider is Ollama, the AI settings section shall show a red or green availability indicator based on whether the configured Ollama base URL responds to a lightweight local ping.
 - When the selected provider is OpenRouter, the AI settings section shall show OpenRouter base URL, model, and API key fields and shall hide Ollama fields.
 - The AI settings section shall automatically save changes to LLM provider and active provider connection settings back to `~/.voicepen/config.toml` without requiring Save or Discard buttons.
 - When the user switches the selected AI provider, VoicePen shall save the provider change after the current SwiftUI view update rather than synchronously publishing from the provider picker update.
@@ -61,15 +62,16 @@ prompt or registry logic.
 | OpenRouter key in AI settings | `api_key = "sk-or-secret"` | AI settings shows `API key: Configured` and never displays the key |
 | Edit provider in AI settings | User changes provider to OpenRouter | TOML `[llm]` settings are updated without using generic config file controls or a Save button |
 | Provider switch in AI settings | User selects OpenRouter | OpenRouter fields replace Ollama fields in the provider settings block |
+| Ollama availability | Ollama is selected in AI settings | A green indicator is shown when the configured Ollama server responds; a red indicator is shown when it is unreachable |
 | Developer command parsing | User wants to enable AI command parsing | User changes the setting in Modes, not AI |
 | Advanced settings | User wants to tune `timeout_seconds` or `think` | User edits `~/.voicepen/config.toml` through Config settings |
 | Config controls | User wants to open or reload TOML | Config settings owns the action, AI settings only reflects loaded values |
 
 ## Test Mapping
 
-- Automated: `VoicePenTests/LLM/LLMClientTests.swift` covers Ollama and OpenRouter request shape, status failures, timeouts, invalid JSON, strict schema unsupported errors, unreachable provider errors, and API key redaction.
+- Automated: `VoicePenTests/LLM/LLMClientTests.swift` covers Ollama and OpenRouter request shape, Ollama availability ping behavior, status failures, timeouts, invalid JSON, strict schema unsupported errors, unreachable provider errors, and API key redaction.
 - Automated: `VoicePenTests/Settings/UserConfigStoreTests.swift` covers default LLM provider config, OpenRouter empty-key config validation, AI settings summary values, immediate settings persistence while preserving TOML-only advanced values, and OpenRouter API key status without exposing the key.
-- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers that the settings sidebar exposes the AI section, routes it to the AI settings view, writes provider-specific controls through shared settings bindings, defers provider picker persistence until after the current view update, shows active provider controls, leaves Developer command parsing in Modes, and keeps generic config controls in Config settings.
+- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers that the settings sidebar exposes the AI section, routes it to the AI settings view, writes provider-specific controls through shared settings bindings, defers provider picker persistence until after the current view update, shows active provider controls and Ollama availability UI, leaves Developer command parsing in Modes, and keeps generic config controls in Config settings.
 - Manual: edit LLM values in Settings > AI, switch between Ollama and OpenRouter, then open Settings > Config > Open Config File and verify the TOML values changed immediately while provider timeout and Ollama thinking remain whatever TOML configured.
 
 ## Notes

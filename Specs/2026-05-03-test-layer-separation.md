@@ -1,7 +1,7 @@
 ---
 id: SPEC-007
 status: implemented
-updated: 2026-05-03
+updated: 2026-05-05
 tests:
   - VoicePenTests/App/AppControllerTests.swift
   - VoicePenIntegrationTests/VoicePenIntegrationHostTests.swift
@@ -36,6 +36,8 @@ available through an explicit command.
   the dedicated spec-validation job even if the same change also affects code.
 - When a pull request or main-branch push changes code-impacting files, VoicePen
   CI shall run code-quality checks, unit tests, and dead-code analysis.
+- When a release-branch pull request changes code-impacting files, VoicePen CI
+  shall keep code-quality checks and unit tests but skip dead-code analysis.
 - When a developer installs Git hooks, VoicePen shall use Lefthook as the hook
   runner while keeping `make` commands as the source of truth.
 - When a developer pushes commits with no code-impacting changes, the local
@@ -58,6 +60,7 @@ available through an explicit command.
 | Docs-only PR | Change only `README.md`, `Docs/`, `Specs/`, or `AGENTS.md` | CI skips code-quality checks, unit tests, and dead-code analysis |
 | Spec and code PR | Change both `Specs/` and code-impacting files | CI runs the dedicated spec-validation job and the code-quality jobs |
 | Code PR | Change `VoicePen/`, `VoicePenTests/`, package files, scripts, or CI workflow | CI runs code-quality checks, unit tests, and dead-code analysis |
+| Release PR | Open `release/v1.1.0` into `main` after normal feature PRs are green | CI runs code-quality checks and unit tests without the Dead Code job |
 | Hook install | `make install-hooks` | Lefthook installs the configured Git hooks |
 | Docs-only push | Push commits that only touch docs or specs | Pre-push skips `make test` |
 | Code push | Push commits that touch Swift, package, project, script, or CI files | Pre-push runs `make test` |
@@ -72,8 +75,9 @@ available through an explicit command.
   from Git hook environments.
 - Automated: `make integration-test` verifies the hosted app integration target.
 - Automated: `.github/workflows/ci.yml` gates code-quality checks, unit tests,
-  and dead-code analysis on code-impacting changed paths while running the
-  dedicated spec-validation job for spec changes.
+  and dead-code analysis on code-impacting changed paths, skips dead-code
+  analysis for `release/v*` pull requests, and runs the dedicated
+  spec-validation job for spec changes.
 - Automated: `scripts/code-impacting-changes.sh` is shared by CI and local
   hooks to classify changed paths.
 - Manual: run `make install-hooks` in a checkout with Lefthook installed and

@@ -13,6 +13,7 @@
 - [SPEC-009 Experimental LLM Intent Parser](2026-05-04-experimental-llm-intent-parser.md)
 - [SPEC-010 Structured LLM Provider Layer](2026-05-04-structured-llm-provider-layer.md)
 - [SPEC-011 Meeting Recording Mode](2026-05-05-meeting-recording-mode.md)
+- [SPEC-012 Audio Settings And Voice Processing](2026-05-05-audio-settings-voice-processing.md)
 
 ## Templates
 

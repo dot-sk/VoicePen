@@ -8,8 +8,6 @@ protocol MeetingAudioSourceClient: AnyObject {
     var level: Double? { get }
 
     func start(at offset: TimeInterval) async throws
-    func pause(at offset: TimeInterval) async throws
-    func resume(at offset: TimeInterval) async throws
     func stop(at offset: TimeInterval) async throws -> [MeetingAudioChunk]
     func cancel() async throws
 }
@@ -19,9 +17,6 @@ final class CompositeMeetingRecordingClient: MeetingRecordingClient {
     private let systemAudioSource: MeetingAudioSourceClient
 
     private var startedAt: Date?
-    private var activeStartedAt: Date?
-    private var activeDuration: TimeInterval = 0
-    private var isPaused = false
     private var partial = false
     private var errorMessages: [String] = []
 
@@ -46,9 +41,6 @@ final class CompositeMeetingRecordingClient: MeetingRecordingClient {
         guard startedAt == nil else { throw MeetingRecordingError.alreadyRecording }
 
         startedAt = Date()
-        activeStartedAt = startedAt
-        activeDuration = 0
-        isPaused = false
         partial = false
         errorMessages = []
 
@@ -69,36 +61,13 @@ final class CompositeMeetingRecordingClient: MeetingRecordingClient {
         }
     }
 
-    func pause() async throws {
-        guard startedAt != nil else { throw MeetingRecordingError.notRecording }
-        guard !isPaused else { return }
-
-        addActiveDuration()
-        activeStartedAt = nil
-        isPaused = true
-        try await pauseSource(microphoneSource)
-        try await pauseSource(systemAudioSource)
-    }
-
-    func resume() async throws {
-        guard startedAt != nil else { throw MeetingRecordingError.notRecording }
-        guard isPaused else { return }
-
-        try await microphoneSource.resume(at: activeDuration)
-        try await systemAudioSource.resume(at: activeDuration)
-        activeStartedAt = Date()
-        isPaused = false
-    }
-
     func stop() async throws -> MeetingRecordingResult {
         guard let startedAt else { throw MeetingRecordingError.notRecording }
-        if !isPaused {
-            addActiveDuration()
-        }
         let endedAt = Date()
+        let duration = max(0, endedAt.timeIntervalSince(startedAt))
 
-        let microphoneChunks = await stopSource(microphoneSource)
-        let systemAudioChunks = await stopSource(systemAudioSource)
+        let microphoneChunks = await stopSource(microphoneSource, at: duration)
+        let systemAudioChunks = await stopSource(systemAudioSource, at: duration)
         let chunks = microphoneChunks + systemAudioChunks
         let sourceFlags = MeetingSourceFlags(
             microphoneCaptured: !microphoneChunks.isEmpty,
@@ -117,7 +86,8 @@ final class CompositeMeetingRecordingClient: MeetingRecordingClient {
             endedAt: endedAt,
             chunks: chunks,
             sourceFlags: sourceFlags,
-            errorMessage: errorMessage
+            errorMessage: errorMessage,
+            duration: duration
         )
     }
 
@@ -145,19 +115,9 @@ final class CompositeMeetingRecordingClient: MeetingRecordingClient {
         cleanupState()
     }
 
-    private func pauseSource(_ source: MeetingAudioSourceClient) async throws {
+    private func stopSource(_ source: MeetingAudioSourceClient, at offset: TimeInterval) async -> [MeetingAudioChunk] {
         do {
-            try await source.pause(at: activeDuration)
-        } catch {
-            partial = true
-            errorMessages.append(error.localizedDescription)
-            throw error
-        }
-    }
-
-    private func stopSource(_ source: MeetingAudioSourceClient) async -> [MeetingAudioChunk] {
-        do {
-            return try await source.stop(at: activeDuration)
+            return try await source.stop(at: offset)
         } catch {
             partial = true
             errorMessages.append(error.localizedDescription)
@@ -165,15 +125,8 @@ final class CompositeMeetingRecordingClient: MeetingRecordingClient {
         }
     }
 
-    private func addActiveDuration() {
-        activeDuration += Date().timeIntervalSince(activeStartedAt ?? Date())
-    }
-
     private func cleanupState() {
         startedAt = nil
-        activeStartedAt = nil
-        activeDuration = 0
-        isPaused = false
     }
 }
 
@@ -208,16 +161,6 @@ final class AVFoundationMicrophoneMeetingAudioSource: MeetingAudioSourceClient {
         guard engine == nil else { throw MeetingRecordingError.alreadyRecording }
         chunks = []
         recordingError = nil
-        try startSegment(at: offset)
-    }
-
-    func pause(at offset: TimeInterval) async throws {
-        guard engine != nil else { throw MeetingRecordingError.notRecording }
-        try finishSegment(at: offset, healthAfterStop: .paused)
-    }
-
-    func resume(at offset: TimeInterval) async throws {
-        guard engine == nil else { return }
         try startSegment(at: offset)
     }
 
@@ -394,16 +337,6 @@ final class CoreAudioSystemOutputSource: MeetingAudioSourceClient {
     func start(at offset: TimeInterval) async throws {
         guard aggregateDevice == nil else { throw MeetingRecordingError.alreadyRecording }
         chunks = []
-        try startSegment(at: offset)
-    }
-
-    func pause(at offset: TimeInterval) async throws {
-        guard aggregateDevice != nil else { throw MeetingRecordingError.notRecording }
-        try finishSegment(at: offset, healthAfterStop: .paused)
-    }
-
-    func resume(at offset: TimeInterval) async throws {
-        guard aggregateDevice == nil else { return }
         try startSegment(at: offset)
     }
 
