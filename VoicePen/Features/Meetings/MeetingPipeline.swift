@@ -12,6 +12,7 @@ final class MeetingPipeline {
     private let languageProvider: () -> String
     private let speechPreprocessingModeProvider: () -> SpeechPreprocessingMode
     private let fileManager: FileManager
+    private let chunkProcessingTimeout: Duration
 
     init(
         recorder: MeetingRecordingClient,
@@ -21,6 +22,7 @@ final class MeetingPipeline {
         historyStore: MeetingHistoryStore,
         languageProvider: @escaping () -> String = { VoicePenConfig.defaultLanguage },
         speechPreprocessingModeProvider: @escaping () -> SpeechPreprocessingMode = { .off },
+        chunkProcessingTimeout: Duration = VoicePenConfig.meetingChunkProcessingTimeout,
         fileManager: FileManager = .default
     ) {
         self.recorder = recorder
@@ -31,6 +33,7 @@ final class MeetingPipeline {
         self.languageProvider = languageProvider
         self.speechPreprocessingModeProvider = speechPreprocessingModeProvider
         self.fileManager = fileManager
+        self.chunkProcessingTimeout = chunkProcessingTimeout
     }
 
     var sourceStatus: MeetingSourceStatus {
@@ -84,45 +87,50 @@ final class MeetingPipeline {
         _ recording: MeetingRecordingResult,
         chunks: [MeetingAudioChunk]
     ) async throws -> MeetingHistoryEntry {
-        let cappedChunks = chunks
-        guard !cappedChunks.isEmpty else {
+        guard !chunks.isEmpty else {
             throw MeetingRecordingError.noCapturedAudio
         }
 
-        var timings = MeetingPipelineTimings(recording: cappedChunks.reduce(0) { $0 + $1.duration })
+        var timings = MeetingPipelineTimings(recording: chunks.reduce(0) { $0 + $1.duration })
         let language = TranscriptionLanguageResolver.resolve(languageProvider())
         let mode = speechPreprocessingModeProvider()
-        let orderedChunks = cappedChunks.sorted(by: chunkOrder)
+        let orderedChunks = chunks.sorted(by: chunkOrder)
         var transcriptParts: [String] = []
         var modelMetadata: VoiceTranscriptionModelMetadata?
         var skippedSilentChunkCount = 0
 
         for chunk in orderedChunks {
             try Task.checkCancellation()
-            let preprocessed: (value: URL, elapsed: TimeInterval)
             do {
-                preprocessed = try await measure {
-                    try await audioPreprocessor.preprocess(audioURL: chunk.url, mode: mode)
+                let processedChunk = try await AsyncOperationTimeout.run(
+                    timeout: chunkProcessingTimeout,
+                    timeoutError: { TranscriptionError.transcriptionTimedOut },
+                    operation: {
+                        try await self.processChunk(chunk, mode: mode, language: language)
+                    }
+                )
+
+                timings.preprocessing = (timings.preprocessing ?? 0) + processedChunk.preprocessing
+                timings.transcription = (timings.transcription ?? 0) + processedChunk.transcription
+                modelMetadata = modelMetadata ?? processedChunk.modelMetadata
+
+                if !processedChunk.text.isEmpty {
+                    transcriptParts.append(processedChunk.text)
                 }
             } catch AudioPreprocessingError.noSpeechDetected {
                 skippedSilentChunkCount += 1
                 continue
-            }
-            timings.preprocessing = (timings.preprocessing ?? 0) + preprocessed.elapsed
-
-            let transcription = try await measure {
-                try await transcriber.transcribe(
-                    audioURL: preprocessed.value,
-                    glossaryPrompt: "",
-                    language: language
+            } catch TranscriptionError.transcriptionTimedOut {
+                guard !transcriptParts.isEmpty else {
+                    throw TranscriptionError.transcriptionTimedOut
+                }
+                return try savePartialEntry(
+                    recording: recording,
+                    transcriptParts: transcriptParts,
+                    error: TranscriptionError.transcriptionTimedOut,
+                    timings: timings,
+                    modelMetadata: modelMetadata
                 )
-            }
-            timings.transcription = (timings.transcription ?? 0) + transcription.elapsed
-            modelMetadata = modelMetadata ?? transcription.value.modelMetadata
-
-            let text = transcription.value.text.trimmed
-            if !text.isEmpty {
-                transcriptParts.append(text)
             }
         }
 
@@ -140,6 +148,58 @@ final class MeetingPipeline {
             status: status,
             sourceFlags: recording.sourceFlags,
             errorMessage: recording.errorMessage,
+            timings: timings,
+            modelMetadata: modelMetadata
+        )
+        try historyStore.append(entry)
+        return entry
+    }
+
+    private func processChunk(
+        _ chunk: MeetingAudioChunk,
+        mode: SpeechPreprocessingMode,
+        language: String
+    ) async throws -> MeetingProcessedChunk {
+        let preprocessed = try await measure {
+            try await audioPreprocessor.preprocess(audioURL: chunk.url, mode: mode)
+        }
+
+        let transcription = try await measure {
+            try await transcriber.transcribe(
+                audioURL: preprocessed.value,
+                glossaryPrompt: "",
+                language: language
+            )
+        }
+
+        return MeetingProcessedChunk(
+            text: transcription.value.text.trimmed,
+            preprocessing: preprocessed.elapsed,
+            transcription: transcription.elapsed,
+            modelMetadata: transcription.value.modelMetadata
+        )
+    }
+
+    private func savePartialEntry(
+        recording: MeetingRecordingResult,
+        transcriptParts: [String],
+        error: Error,
+        timings: MeetingPipelineTimings,
+        modelMetadata: VoiceTranscriptionModelMetadata?
+    ) throws -> MeetingHistoryEntry {
+        let flags = MeetingSourceFlags(
+            microphoneCaptured: recording.sourceFlags.microphoneCaptured,
+            systemAudioCaptured: recording.sourceFlags.systemAudioCaptured,
+            partial: true
+        )
+        let entry = MeetingHistoryEntry(
+            id: UUID(),
+            createdAt: recording.endedAt,
+            duration: timings.recording ?? cappedDuration(recording.duration),
+            transcriptText: transcriptParts.joined(separator: "\n"),
+            status: .partial,
+            sourceFlags: flags,
+            errorMessage: error.localizedDescription,
             timings: timings,
             modelMetadata: modelMetadata
         )
@@ -205,4 +265,11 @@ final class MeetingPipeline {
         let end = DispatchTime.now().uptimeNanoseconds
         return (value, TimeInterval(end - start) / 1_000_000_000)
     }
+}
+
+private struct MeetingProcessedChunk: Sendable {
+    var text: String
+    var preprocessing: TimeInterval
+    var transcription: TimeInterval
+    var modelMetadata: VoiceTranscriptionModelMetadata?
 }

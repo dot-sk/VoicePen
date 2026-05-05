@@ -71,6 +71,11 @@ final class AppController: ObservableObject {
     private let launchAtLogin: LaunchAtLoginClient
     private let userPrompts: UserPromptPresenter
     private let environmentSettingsStore: AppEnvironmentSettingsStore
+    private let dictationProcessingTimeout: Duration
+    private let modelDownloadTimeout: Duration
+    private let modelWarmupTimeout: Duration
+    private let meetingCaptureStartTimeout: Duration
+    private let meetingProcessingTimeout: Duration
     let historyStore: VoiceHistoryStore
     let meetingHistoryStore: MeetingHistoryStore?
     let settingsStore: AppSettingsStore
@@ -80,7 +85,11 @@ final class AppController: ObservableObject {
     private var modelDownloadTask: Task<Void, Never>?
     private var modelWarmupTask: Task<Void, Never>?
     private var transcriptionTask: Task<Void, Never>?
+    private var transcriptionTimeoutTask: Task<Void, Never>?
+    private var activeTranscriptionID: UUID?
     private var meetingProcessingTask: Task<Void, Never>?
+    private var meetingProcessingTimeoutTask: Task<Void, Never>?
+    private var activeMeetingProcessingID: UUID?
     private var meetingStatusTask: Task<Void, Never>?
     private var meetingStartedAt: Date?
     private var meetingAccumulatedActiveDuration: TimeInterval = 0
@@ -249,6 +258,11 @@ final class AppController: ObservableObject {
         launchAtLogin: LaunchAtLoginClient? = nil,
         userPrompts: UserPromptPresenter,
         environmentSettingsStore: AppEnvironmentSettingsStore? = nil,
+        dictationProcessingTimeout: Duration = VoicePenConfig.dictationProcessingTimeout,
+        modelDownloadTimeout: Duration = VoicePenConfig.modelDownloadTimeout,
+        modelWarmupTimeout: Duration = VoicePenConfig.modelWarmupTimeout,
+        meetingCaptureStartTimeout: Duration = VoicePenConfig.meetingCaptureStartTimeout,
+        meetingProcessingTimeout: Duration = VoicePenConfig.meetingProcessingTimeout,
         historyStore: VoiceHistoryStore,
         meetingHistoryStore: MeetingHistoryStore? = nil,
         settingsStore: AppSettingsStore,
@@ -269,6 +283,11 @@ final class AppController: ObservableObject {
         self.launchAtLogin = launchAtLogin ?? NoOpLaunchAtLoginClient()
         self.userPrompts = userPrompts
         self.environmentSettingsStore = environmentSettingsStore ?? AppEnvironmentSettingsStore()
+        self.dictationProcessingTimeout = dictationProcessingTimeout
+        self.modelDownloadTimeout = modelDownloadTimeout
+        self.modelWarmupTimeout = modelWarmupTimeout
+        self.meetingCaptureStartTimeout = meetingCaptureStartTimeout
+        self.meetingProcessingTimeout = meetingProcessingTimeout
         self.historyStore = historyStore
         self.meetingHistoryStore = meetingHistoryStore
         self.settingsStore = settingsStore
@@ -321,7 +340,7 @@ final class AppController: ObservableObject {
         let meetingPipeline = MeetingPipeline(
             recorder: CompositeMeetingRecordingClient(
                 microphoneSource: AVFoundationMicrophoneMeetingAudioSource(tempDirectory: paths.tempAudioDirectory),
-                systemAudioSource: CoreAudioTapSystemOutputMeetingAudioSource(tempDirectory: paths.tempAudioDirectory)
+                systemAudioSource: CoreAudioSystemOutputSource(tempDirectory: paths.tempAudioDirectory)
             ),
             audioPreprocessor: audioPreprocessor,
             chunker: AVFoundationMeetingAudioChunker(outputDirectory: paths.tempAudioDirectory),
@@ -492,11 +511,12 @@ final class AppController: ObservableObject {
         guard appState == .recording, transcriptionTask == nil else { return nil }
 
         didHandleCurrentTranscriptionCancellation = false
+        let transcriptionID = UUID()
+        activeTranscriptionID = transcriptionID
         let task = Task { [weak self] in
             guard let self else { return }
             defer {
-                transcriptionCancellationKeyMonitor.uninstall()
-                transcriptionTask = nil
+                finishTranscriptionProcessing(id: transcriptionID)
             }
 
             do {
@@ -504,8 +524,10 @@ final class AppController: ObservableObject {
                 transcriptionCancellationKeyMonitor.install { [weak self] in
                     self?.cancelTranscription()
                 }
+                startTranscriptionTimeoutMonitor(id: transcriptionID)
                 let result = try await pipeline.stopAndProcess()
                 try Task.checkCancellation()
+                guard activeTranscriptionID == transcriptionID else { return }
                 lastRawText = result.rawText
                 lastFinalText = result.finalText
                 recordHistory(for: result)
@@ -525,7 +547,7 @@ final class AppController: ObservableObject {
     func cancelTranscription() {
         guard appState == .transcribing else { return }
         transcriptionTask?.cancel()
-        transcriptionTask = nil
+        finishTranscriptionProcessing(id: activeTranscriptionID)
         handleTranscriptionCancellation()
     }
 
@@ -844,15 +866,23 @@ final class AppController: ObservableObject {
         errorMessage = nil
         overlay.show(.transcribing(stage: .loadingModel, progress: nil))
         let model = selectedModel
+        let modelDownloader = self.modelDownloader
+        let modelDownloadTimeout = self.modelDownloadTimeout
 
         let task = Task {
             do {
-                let modelURL = try await modelDownloader.downloadModel(model) { [weak self] event in
-                    Task { @MainActor [weak self] in
-                        guard self?.activeModelDownloadID == downloadID else { return }
-                        self?.handleModelDownloadEvent(event)
+                let modelURL = try await AsyncOperationTimeout.run(
+                    timeout: modelDownloadTimeout,
+                    timeoutError: { ModelDownloadError.downloadTimedOut(model.id) },
+                    operation: {
+                        try await modelDownloader.downloadModel(model) { [weak self] event in
+                            Task { @MainActor [weak self] in
+                                guard self?.activeModelDownloadID == downloadID else { return }
+                                self?.handleModelDownloadEvent(event)
+                            }
+                        }
                     }
-                }
+                )
 
                 guard activeModelDownloadID == downloadID else { return }
                 clearActiveModelDownload()
@@ -974,6 +1004,7 @@ final class AppController: ObservableObject {
         }
 
         cancelModelWarmup()
+        let meetingCaptureStartTimeout = self.meetingCaptureStartTimeout
         let task = Task { [weak self, meetingPipeline] in
             guard let self else { return }
             do {
@@ -983,7 +1014,13 @@ final class AppController: ObservableObject {
                 meetingAccumulatedActiveDuration = 0
                 meetingPauseStartedAt = nil
                 meetingElapsedTime = 0
-                try await meetingPipeline.start()
+                try await AsyncOperationTimeout.run(
+                    timeout: meetingCaptureStartTimeout,
+                    timeoutError: { MeetingRecordingError.captureTimedOut },
+                    operation: {
+                        try await meetingPipeline.start()
+                    }
+                )
                 startMeetingStatusUpdates()
             } catch {
                 handleMeetingStartError(error)
@@ -1037,20 +1074,28 @@ final class AppController: ObservableObject {
             meetingProcessingTask == nil
         else { return nil }
 
+        let processingID = UUID()
+        activeMeetingProcessingID = processingID
         let task = Task { [weak self, meetingPipeline] in
             guard let self else { return }
+            defer {
+                finishMeetingProcessing(id: processingID)
+            }
+
             do {
                 appState = .meetingProcessing
                 stopMeetingStatusUpdates()
+                startMeetingProcessingTimeoutMonitor(id: processingID)
                 let entry = try await meetingPipeline.stopAndProcess()
+                guard activeMeetingProcessingID == processingID else { return }
                 meetingElapsedTime = entry.duration
                 updateStateAfterModelChange()
                 errorMessage = nil
             } catch {
+                guard activeMeetingProcessingID == processingID else { return }
                 stopMeetingStatusUpdates()
                 setError(error)
             }
-            meetingProcessingTask = nil
         }
         meetingProcessingTask = task
         return task
@@ -1194,12 +1239,19 @@ final class AppController: ObservableObject {
 
         let model = selectedModel
         let language = TranscriptionLanguageResolver.resolve(settingsStore.transcriptionLanguage)
+        let modelWarmupTimeout = self.modelWarmupTimeout
         modelWarmupTask?.cancel()
         modelRuntimeState = .warming(modelId: model.id)
         let task = Task { @MainActor [weak self, modelWarmupClient] in
             do {
                 AppLogger.info("Warming up model \(model.id)")
-                try await modelWarmupClient.warmUp(model: model, language: language)
+                try await AsyncOperationTimeout.run(
+                    timeout: modelWarmupTimeout,
+                    timeoutError: { TranscriptionError.modelWarmupTimedOut },
+                    operation: {
+                        try await modelWarmupClient.warmUp(model: model, language: language)
+                    }
+                )
                 guard !Task.isCancelled else { return }
                 self?.modelRuntimeState = .ready(modelId: model.id)
                 AppLogger.info("Model warmup completed for \(model.id)")
@@ -1316,6 +1368,72 @@ final class AppController: ObservableObject {
         overlay.show(.done(message: "Canceled"))
         overlay.hide(after: 0.7)
         updateStateAfterModelChange()
+    }
+
+    private func startTranscriptionTimeoutMonitor(id: UUID) {
+        transcriptionTimeoutTask?.cancel()
+        let timeout = dictationProcessingTimeout
+        transcriptionTimeoutTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: timeout)
+            } catch {
+                return
+            }
+
+            self?.handleTranscriptionTimeout(id: id)
+        }
+    }
+
+    private func handleTranscriptionTimeout(id: UUID) {
+        guard activeTranscriptionID == id, appState == .transcribing else { return }
+
+        AppLogger.error("Dictation processing timed out")
+        didHandleCurrentTranscriptionCancellation = true
+        transcriptionTask?.cancel()
+        finishTranscriptionProcessing(id: id)
+        handleTranscriptionError(.transcriptionTimedOut)
+    }
+
+    private func finishTranscriptionProcessing(id: UUID?) {
+        guard activeTranscriptionID == id else { return }
+
+        transcriptionCancellationKeyMonitor.uninstall()
+        transcriptionTimeoutTask?.cancel()
+        transcriptionTimeoutTask = nil
+        transcriptionTask = nil
+        activeTranscriptionID = nil
+    }
+
+    private func startMeetingProcessingTimeoutMonitor(id: UUID) {
+        meetingProcessingTimeoutTask?.cancel()
+        let timeout = meetingProcessingTimeout
+        meetingProcessingTimeoutTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: timeout)
+            } catch {
+                return
+            }
+
+            self?.handleMeetingProcessingTimeout(id: id)
+        }
+    }
+
+    private func handleMeetingProcessingTimeout(id: UUID) {
+        guard activeMeetingProcessingID == id, appState == .meetingProcessing else { return }
+
+        AppLogger.error("Meeting processing timed out")
+        meetingProcessingTask?.cancel()
+        finishMeetingProcessing(id: id)
+        setError(TranscriptionError.transcriptionTimedOut)
+    }
+
+    private func finishMeetingProcessing(id: UUID?) {
+        guard activeMeetingProcessingID == id else { return }
+
+        meetingProcessingTimeoutTask?.cancel()
+        meetingProcessingTimeoutTask = nil
+        meetingProcessingTask = nil
+        activeMeetingProcessingID = nil
     }
 
     private func setError(_ error: Error) {

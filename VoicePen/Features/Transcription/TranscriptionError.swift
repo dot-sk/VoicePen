@@ -5,6 +5,8 @@ enum TranscriptionError: LocalizedError, Equatable {
     case modelLoadFailed(String)
     case accelerationUnavailable(modelId: String, message: String)
     case transcriptionFailed(String)
+    case transcriptionTimedOut
+    case modelWarmupTimedOut
     case emptyResult
     case unsupportedModel(String)
 
@@ -22,6 +24,10 @@ enum TranscriptionError: LocalizedError, Equatable {
             "VoicePen cannot run \(modelId) without Core ML acceleration: \(message)"
         case let .transcriptionFailed(message):
             "VoicePen transcription failed: \(message)"
+        case .transcriptionTimedOut:
+            "VoicePen transcription timed out. Please try again."
+        case .modelWarmupTimedOut:
+            "VoicePen model warmup timed out. Recording can still retry the model."
         case .emptyResult:
             "VoicePen received an empty transcription."
         case let .unsupportedModel(modelId):
@@ -39,6 +45,10 @@ enum TranscriptionError: LocalizedError, Equatable {
             "Acceleration unavailable"
         case .transcriptionFailed:
             "Transcription failed"
+        case .transcriptionTimedOut:
+            "Transcription timed out"
+        case .modelWarmupTimedOut:
+            "Model warmup timed out"
         case .emptyResult:
             "Empty transcription"
         case .unsupportedModel:

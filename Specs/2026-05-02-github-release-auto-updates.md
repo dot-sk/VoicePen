@@ -1,7 +1,7 @@
 ---
 id: SPEC-006
 status: implemented
-updated: 2026-05-03
+updated: 2026-05-05
 tests:
   - VoicePenTests/Updates/SoftwareUpdateConfigurationTests.swift
   - VoicePenTests/Updates/AppcastGenerationTests.swift
@@ -70,6 +70,8 @@ update-signing material.
 - When release publishing packages app archives across versions, it shall sign
   the app bundle with a stable macOS code signing identity so macOS privacy
   permissions can remain associated with VoicePen across updater installs.
+- When release publishing packages a production app archive, it shall verify the
+  final code signature before uploading the archive.
 - When a development build is run locally, it shall use a distinct bundle
   identifier, display name, and Application Support folder from the release app
   so macOS privacy permissions and local state do not conflict with production
@@ -89,6 +91,7 @@ update-signing material.
 | First updater rollout | User has a pre-updater build installed | User manually installs the transition build once; later updates use the updater. |
 | Local development run | Debug build is launched from Xcode or `make run` | macOS sees `VoicePen Dev` with a development bundle identifier and separate local data folder. |
 | Release packaging | Release build is archived for GitHub Releases | macOS sees production `VoicePen` with the production bundle identifier and local data folder. |
+| Release signing | Tagged release workflow packages the app | The app is signed with the configured identity and passes code signature verification before upload. |
 | Release tag publishing | `make publish-release VERSION=1.1.0` after preparing `release/v1.1.0` | The `v1.1.0` tag is pushed from `release/v1.1.0`. |
 | Release PR not green | `make publish-release VERSION=1.1.0` while the release PR has pending or failed checks | Publishing stops before creating or pushing `v1.1.0`. |
 | Release metadata mismatch | `make publish-release VERSION=1.1.0` while the branch contains another marketing version or a non-incremented build | Publishing stops before creating or pushing `v1.1.0`. |
@@ -110,8 +113,9 @@ update-signing material.
   non-incremented builds before tagging, and confirm a valid tag points to the
   release branch commit.
 - Automated: `VoicePenTests/Updates/SoftwareUpdateConfigurationTests.swift`
-  verifies the package target signs the app bundle before archiving it and the
-  release workflow imports a stable macOS signing identity from GitHub Secrets.
+  verifies the package target signs and verifies the app bundle before archiving
+  it and the release workflow imports a stable macOS signing identity from GitHub
+  Secrets.
 - Automated: `VoicePenTests/Updates/SoftwareUpdateConfigurationTests.swift`
   verifies Debug and Release use separate app identity and local data build
   settings.
@@ -131,9 +135,11 @@ update-signing material.
 - GitHub Releases remain the archive host. The appcast/feed is published through
   GitHub Pages from this repository so installed apps can keep a stable HTTPS
   `SUFeedURL` across releases.
-- A Developer ID signed and notarized app is recommended for the smoothest macOS
-  install and update experience. Sparkle update signatures are still required for
-  authenticating update archives.
+- Developer ID signing and notarization are still recommended for public
+  distribution. Friends & Family builds may use the configured non-Developer ID
+  signing identity, but the package step must still verify the code signature
+  before upload. Sparkle update signatures are still required for authenticating
+  update archives.
 - The first update-enabled build is a transition build and must be installed
   manually on machines that currently run pre-updater builds.
 

@@ -53,12 +53,18 @@ final class CompositeMeetingRecordingClient: MeetingRecordingClient {
         errorMessages = []
 
         do {
-            try await microphoneSource.start(at: 0)
-            try await systemAudioSource.start(at: 0)
+            try await withTaskCancellationHandler {
+                try await microphoneSource.start(at: 0)
+                try Task.checkCancellation()
+                try await systemAudioSource.start(at: 0)
+                try Task.checkCancellation()
+            } onCancel: {
+                Task { @MainActor [weak self] in
+                    await self?.cancelSourcesAfterStartFailure()
+                }
+            }
         } catch {
-            try? await microphoneSource.cancel()
-            try? await systemAudioSource.cancel()
-            cleanupState()
+            await cancelSourcesAfterStartFailure()
             throw error
         }
     }
@@ -116,8 +122,26 @@ final class CompositeMeetingRecordingClient: MeetingRecordingClient {
     }
 
     func cancel() async throws {
-        try await microphoneSource.cancel()
-        try await systemAudioSource.cancel()
+        var firstError: Error?
+        do {
+            try await microphoneSource.cancel()
+        } catch {
+            firstError = error
+        }
+        do {
+            try await systemAudioSource.cancel()
+        } catch {
+            firstError = firstError ?? error
+        }
+        cleanupState()
+        if let firstError {
+            throw firstError
+        }
+    }
+
+    private func cancelSourcesAfterStartFailure() async {
+        try? await microphoneSource.cancel()
+        try? await systemAudioSource.cancel()
         cleanupState()
     }
 
@@ -336,7 +360,7 @@ final class AVFoundationMicrophoneMeetingAudioSource: MeetingAudioSourceClient {
     }
 }
 
-final class CoreAudioTapSystemOutputMeetingAudioSource: MeetingAudioSourceClient {
+final class CoreAudioSystemOutputSource: MeetingAudioSourceClient {
     let source = MeetingSourceKind.systemAudio
 
     private let tempDirectory: URL

@@ -1,6 +1,6 @@
 import Foundation
 
-struct TranscriptionClientResult: Equatable {
+nonisolated struct TranscriptionClientResult: Equatable, Sendable {
     let text: String
     let modelMetadata: VoiceTranscriptionModelMetadata?
 

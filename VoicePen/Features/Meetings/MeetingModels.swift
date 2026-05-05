@@ -151,6 +151,7 @@ enum MeetingRecordingError: LocalizedError, Equatable {
     case noCapturedAudio
     case durationLimitExceeded
     case systemAudioPermissionDenied
+    case captureTimedOut
     case captureFailed(String)
 
     var errorDescription: String? {
@@ -165,6 +166,8 @@ enum MeetingRecordingError: LocalizedError, Equatable {
             return "Meeting recording reached the 120 minute limit."
         case .systemAudioPermissionDenied:
             return "System Audio permission is required to capture meeting audio."
+        case .captureTimedOut:
+            return "Meeting audio capture did not start in time."
         case let .captureFailed(message):
             return "Meeting audio capture failed: \(message)"
         }

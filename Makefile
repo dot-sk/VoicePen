@@ -15,7 +15,7 @@ APPCAST_DIR := $(DERIVED_DATA)/Appcast
 APPCAST_FILE := $(APPCAST_DIR)/appcast.xml
 XCODEBUILD_CI_SIGNING := CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
 CODESIGN_IDENTITY ?= -
-CODESIGN_FLAGS ?= --force --deep
+CODESIGN_FLAGS ?= --force --deep --strict
 FORMAT_PATHS := Package.swift VoicePen VoicePenTests VoicePenIntegrationTests VoicePenUITests
 SWIFT_FORMAT := xcrun swift-format
 LEFTHOOK ?= lefthook
@@ -59,7 +59,12 @@ build:
 
 package:
 	$(MAKE) build CONFIGURATION="$(PACKAGE_CONFIGURATION)"
-	codesign $(CODESIGN_FLAGS) --sign "$(CODESIGN_IDENTITY)" "$(DERIVED_DATA)/Build/Products/$(PACKAGE_CONFIGURATION)/VoicePen.app"
+	@if [ "$(CODESIGN_IDENTITY)" = "-" ]; then \
+		codesign --force --deep --strict --sign "$(CODESIGN_IDENTITY)" "$(DERIVED_DATA)/Build/Products/$(PACKAGE_CONFIGURATION)/VoicePen.app"; \
+	else \
+		codesign $(CODESIGN_FLAGS) --sign "$(CODESIGN_IDENTITY)" "$(DERIVED_DATA)/Build/Products/$(PACKAGE_CONFIGURATION)/VoicePen.app"; \
+	fi
+	codesign --verify --strict --deep --verbose=2 "$(DERIVED_DATA)/Build/Products/$(PACKAGE_CONFIGURATION)/VoicePen.app"
 	rm -rf "$(PACKAGE_DIR)"
 	mkdir -p "$(PACKAGE_DIR)"
 	ditto -c -k --sequesterRsrc --keepParent "$(DERIVED_DATA)/Build/Products/$(PACKAGE_CONFIGURATION)/VoicePen.app" "$(PACKAGE_ZIP)"
