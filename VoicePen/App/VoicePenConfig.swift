@@ -15,6 +15,12 @@ nonisolated enum VoicePenConfig {
     static let accessibilityPermissionPollInterval: Duration = .seconds(1)
     static let historyCopyFeedbackDuration: Duration = .milliseconds(1_400)
     static let recordingLevelRefreshInterval: Duration = .milliseconds(80)
+    static let dictationProcessingTimeout: Duration = .seconds(30)
+    static let modelDownloadTimeout: Duration = .seconds(3_600)
+    static let modelWarmupTimeout: Duration = .seconds(30)
+    static let meetingCaptureStartTimeout: Duration = .seconds(10)
+    static let meetingProcessingTimeout: Duration = .seconds(1_800)
+    static let meetingChunkProcessingTimeout: Duration = .seconds(180)
     static var appSupportFolderName: String {
         let configuredName = Bundle.main.object(forInfoDictionaryKey: "VPApplicationSupportFolderName") as? String
         let trimmedName = configuredName?.trimmingCharacters(in: .whitespacesAndNewlines)

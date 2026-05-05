@@ -52,11 +52,15 @@ action items, ticket drafts, engineering notes, or speaker diarization.
 - When microphone permission is missing, VoicePen shall not start recording and shall identify microphone as missing.
 - When system output audio capture cannot start because permission is missing, VoicePen shall identify system audio permission as missing.
 - When microphone permission is available and system output audio capture starts, VoicePen shall start one meeting session that captures microphone and system audio.
+- When meeting audio capture does not start within 10 seconds, VoicePen shall leave the recording state and surface a capture timeout error.
+- When meeting audio capture start is canceled or times out after one source has started, VoicePen shall stop any partially started audio sources before leaving the recording state.
 - Meeting Mode v1 shall not request or use screen capture for meeting recording.
 - When recording is paused, VoicePen shall exclude paused time from the final transcript.
 - When recording is canceled, VoicePen shall delete temporary audio and not create meeting history.
 - When recording is stopped, VoicePen shall transcribe locally and save a meeting entry.
 - When transcription completes or fails, VoicePen shall delete temporary audio.
+- When meeting processing does not complete within the processing timeout, VoicePen shall cancel processing, leave the meeting processing state, surface a timeout error, and not save a completed meeting transcript.
+- When a later meeting chunk does not complete within the chunk processing timeout after earlier chunks produced transcript text, VoicePen shall save a partial meeting entry with the transcript collected so far and delete temporary audio.
 - When one captured source chunk is silent but another source chunk contains speech, VoicePen shall skip the silent chunk and keep processing the meeting.
 - When all captured chunks are silent, VoicePen shall save a failed meeting entry that identifies no detected speech.
 - When one source fails mid-recording, VoicePen shall stop capture and mark the session partial.
@@ -77,17 +81,21 @@ action items, ticket drafts, engineering notes, or speaker diarization.
 | First meeting | User chooses Start Meeting Recording | Consent reminder appears before recording starts |
 | Missing microphone | Microphone permission is denied | Recording does not start and microphone is identified as missing |
 | Missing system audio | System output audio capture is denied | Recording does not start and system audio is identified as missing |
+| Hung capture start | Audio capture does not finish starting | VoicePen exits recording state and shows a capture timeout error |
+| Canceled capture start | One audio source starts and another source does not finish starting before cancellation | Started sources are stopped before VoicePen exits recording state |
 | Cancel meeting | User cancels an active recording | Temporary audio is deleted and no meeting row is saved |
 | Stop meeting | User stops an active recording | Local transcription runs, meeting history is saved, temporary audio is deleted |
+| Hung meeting processing | Local processing does not return | VoicePen exits processing and surfaces a timeout error |
+| Hung later chunk | First chunk transcribes and second chunk hangs | VoicePen saves the first chunk as a partial meeting and deletes temporary audio |
 | Manual insert | User clicks Insert Transcript on a saved meeting | Transcript is inserted only from that explicit action |
 
 ## Test Mapping
 
-- Automated: `VoicePenTests/Meetings/MeetingRecordingStateTests.swift` covers start, pause, resume, stop, cancel, composite microphone/system-audio source recording, and partial source failure with fakes.
-- Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers local transcription flow, chunk ordering, cap handling, silent source chunks, temporary audio cleanup, and no automatic insertion.
+- Automated: `VoicePenTests/Meetings/MeetingRecordingStateTests.swift` covers start, pause, resume, stop, cancel, composite microphone/system-audio source recording, cleanup after canceled start, and partial source failure with fakes.
+- Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers local transcription flow, chunk ordering, cap handling, silent source chunks, chunk timeout partial salvage, temporary audio cleanup, and no automatic insertion.
 - Automated: `VoicePenTests/Meetings/MeetingHistoryStoreTests.swift` covers append, load, delete, compression, separate storage budget, partial entries, and error entries.
 - Automated: `VoicePenTests/Persistence/DatabaseMigratorTests.swift` covers `meeting_history` creation and migration from old databases.
-- Automated: `VoicePenTests/App/AppControllerTests.swift` covers consent gating, permission gating, meeting state, and no conflict with dictation history.
+- Automated: `VoicePenTests/App/AppControllerTests.swift` covers consent gating, permission gating, meeting state, meeting timeout recovery, and no conflict with dictation history.
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers menu and sidebar meeting commands, meeting status icons in navigation surfaces, and the menu bar recording pulse.
 - Manual: record real meeting audio with microphone plus Zoom, Meet, or browser audio and verify both sides appear in the transcript.
 - Manual: deny System Audio access and verify the recovery path.
