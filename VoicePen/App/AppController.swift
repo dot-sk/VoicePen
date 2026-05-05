@@ -92,8 +92,6 @@ final class AppController: ObservableObject {
     private var activeMeetingProcessingID: UUID?
     private var meetingStatusTask: Task<Void, Never>?
     private var meetingStartedAt: Date?
-    private var meetingAccumulatedActiveDuration: TimeInterval = 0
-    private var meetingPauseStartedAt: Date?
     private var didHandleCurrentTranscriptionCancellation = false
     private var isWaitingForCustomShortcut = false
     private var accessibilityPermissionPollingTask: Task<Void, Never>?
@@ -170,6 +168,7 @@ final class AppController: ObservableObject {
             "VoicePen Model Diagnostics",
             "Model: \(selectedModel.displayName)",
             "Model ID: \(selectedModel.id)",
+            "Languages: \(selectedModel.languageSupportLabel)",
             "Backend: \(selectedModel.sourceKind)",
             "Version: \(selectedModel.version)",
             "Size: \(selectedModel.sizeLabel)",
@@ -231,8 +230,6 @@ final class AppController: ObservableObject {
             "record.circle.fill"
         case .meetingRecording:
             "record.circle.fill"
-        case .meetingPaused:
-            "pause.circle.fill"
         case .transcribing, .meetingProcessing, .downloadingModel, .preparingModel:
             "waveform"
         case .missingMicrophonePermission, .missingAccessibilityPermission, .missingSystemAudioPermission, .missingModel, .error:
@@ -325,8 +322,12 @@ final class AppController: ObservableObject {
             inserter: inserter,
             overlay: overlay,
             userConfigStore: userConfigStore,
+            inputGainController: CoreAudioDefaultInputGainController(),
             languageProvider: { settingsStore.transcriptionLanguage },
             speechPreprocessingModeProvider: { settingsStore.speechPreprocessingMode },
+            boostDictationInputGainProvider: { settingsStore.boostDictationInputGain },
+            developerModesEnabledProvider: { VoicePenConfig.modesFeatureEnabled },
+            llmIntentParserEnabledProvider: { VoicePenConfig.aiFeatureEnabled },
             developerModeOverrideProvider: { settingsStore.developerModeOverride },
             activeApplicationProvider: {
                 guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
@@ -343,11 +344,14 @@ final class AppController: ObservableObject {
                 systemAudioSource: CoreAudioSystemOutputSource(tempDirectory: paths.tempAudioDirectory)
             ),
             audioPreprocessor: audioPreprocessor,
+            voiceLevelingProcessor: SystemVoiceLevelingProcessor(outputDirectory: paths.tempAudioDirectory),
             chunker: AVFoundationMeetingAudioChunker(outputDirectory: paths.tempAudioDirectory),
             transcriber: transcriber,
             historyStore: meetingHistoryStore,
+            recoveryAudioStore: MeetingRecoveryAudioStore(directory: paths.meetingRecoveryDirectory),
             languageProvider: { settingsStore.transcriptionLanguage },
-            speechPreprocessingModeProvider: { settingsStore.speechPreprocessingMode }
+            speechPreprocessingModeProvider: { settingsStore.speechPreprocessingMode },
+            meetingVoiceLevelingEnabledProvider: { settingsStore.meetingVoiceLevelingEnabled }
         )
 
         let controller = AppController(
@@ -408,6 +412,7 @@ final class AppController: ObservableObject {
             try dictionaryStore.load()
             try historyStore.load()
             try meetingHistoryStore?.load()
+            try meetingHistoryStore?.cleanupExpiredRecoveryAudio()
             try settingsStore.load(defaultModelId: recommendedModel.id)
             try syncOpenAtLoginState()
             modelWarmup = scheduleModelWarmupIfInstalled()
@@ -488,7 +493,6 @@ final class AppController: ObservableObject {
         guard appState != .recording,
             appState != .transcribing,
             appState != .meetingRecording,
-            appState != .meetingPaused,
             appState != .meetingProcessing,
             !isDownloadingModel
         else { return nil }
@@ -794,7 +798,6 @@ final class AppController: ObservableObject {
         guard appState != .recording,
             appState != .transcribing,
             appState != .meetingRecording,
-            appState != .meetingPaused,
             appState != .meetingProcessing,
             !isDownloadingModel
         else { return }
@@ -954,7 +957,6 @@ final class AppController: ObservableObject {
             appState != .recording,
             appState != .transcribing,
             appState != .meetingRecording,
-            appState != .meetingPaused,
             appState != .meetingProcessing
         else { return }
 
@@ -1011,8 +1013,6 @@ final class AppController: ObservableObject {
                 appState = .meetingRecording
                 errorMessage = nil
                 meetingStartedAt = Date()
-                meetingAccumulatedActiveDuration = 0
-                meetingPauseStartedAt = nil
                 meetingElapsedTime = 0
                 try await AsyncOperationTimeout.run(
                     timeout: meetingCaptureStartTimeout,
@@ -1030,46 +1030,8 @@ final class AppController: ObservableObject {
     }
 
     @discardableResult
-    func pauseMeetingRecording() -> Task<Void, Never>? {
-        guard appState == .meetingRecording, let meetingPipeline else { return nil }
-
-        let task = Task { [weak self, meetingPipeline] in
-            guard let self else { return }
-            do {
-                try await meetingPipeline.pause()
-                meetingAccumulatedActiveDuration = meetingElapsedTime
-                meetingPauseStartedAt = Date()
-                appState = .meetingPaused
-                meetingSourceStatus = meetingPipeline.sourceStatus
-            } catch {
-                setError(error)
-            }
-        }
-        return task
-    }
-
-    @discardableResult
-    func resumeMeetingRecording() -> Task<Void, Never>? {
-        guard appState == .meetingPaused, let meetingPipeline else { return nil }
-
-        let task = Task { [weak self, meetingPipeline] in
-            guard let self else { return }
-            do {
-                try await meetingPipeline.resume()
-                meetingStartedAt = Date()
-                meetingPauseStartedAt = nil
-                appState = .meetingRecording
-                meetingSourceStatus = meetingPipeline.sourceStatus
-            } catch {
-                setError(error)
-            }
-        }
-        return task
-    }
-
-    @discardableResult
     func stopMeetingRecording() -> Task<Void, Never>? {
-        guard appState == .meetingRecording || appState == .meetingPaused,
+        guard appState == .meetingRecording,
             let meetingPipeline,
             meetingProcessingTask == nil
         else { return nil }
@@ -1103,7 +1065,7 @@ final class AppController: ObservableObject {
 
     @discardableResult
     func cancelMeetingRecording() -> Task<Void, Never>? {
-        guard appState == .meetingRecording || appState == .meetingPaused,
+        guard appState == .meetingRecording,
             let meetingPipeline
         else { return nil }
 
@@ -1129,6 +1091,39 @@ final class AppController: ObservableObject {
 
     func insertMeetingTranscript(_ entry: MeetingHistoryEntry) {
         insertText(entry.transcriptText)
+    }
+
+    @discardableResult
+    func retryMeetingProcessing(_ entry: MeetingHistoryEntry) -> Task<Void, Never>? {
+        guard appState != .meetingRecording,
+            appState != .meetingProcessing,
+            let meetingPipeline,
+            meetingProcessingTask == nil
+        else { return nil }
+
+        let processingID = UUID()
+        activeMeetingProcessingID = processingID
+        let task = Task { [weak self, meetingPipeline] in
+            guard let self else { return }
+            defer {
+                finishMeetingProcessing(id: processingID)
+            }
+
+            do {
+                appState = .meetingProcessing
+                startMeetingProcessingTimeoutMonitor(id: processingID)
+                let retriedEntry = try await meetingPipeline.retryProcessing(entry)
+                guard activeMeetingProcessingID == processingID else { return }
+                meetingElapsedTime = retriedEntry.duration
+                updateStateAfterModelChange()
+                errorMessage = nil
+            } catch {
+                guard activeMeetingProcessingID == processingID else { return }
+                setError(error)
+            }
+        }
+        meetingProcessingTask = task
+        return task
     }
 
     func deleteMeetingEntry(id: MeetingHistoryEntry.ID) {
@@ -1180,7 +1175,7 @@ final class AppController: ObservableObject {
             while let self, !Task.isCancelled {
                 if self.appState == .meetingRecording {
                     let activeElapsed = Date().timeIntervalSince(self.meetingStartedAt ?? Date())
-                    self.meetingElapsedTime = self.meetingAccumulatedActiveDuration + activeElapsed
+                    self.meetingElapsedTime = activeElapsed
                 }
                 let sourceStatus = self.meetingPipeline?.sourceStatus ?? .idle
                 self.meetingSourceStatus = sourceStatus
@@ -1197,8 +1192,6 @@ final class AppController: ObservableObject {
         meetingStatusTask?.cancel()
         meetingStatusTask = nil
         meetingStartedAt = nil
-        meetingAccumulatedActiveDuration = 0
-        meetingPauseStartedAt = nil
         meetingSourceStatus = .idle
     }
 
@@ -1279,6 +1272,22 @@ final class AppController: ObservableObject {
     func updateSpeechPreprocessingMode(_ mode: SpeechPreprocessingMode) {
         do {
             try settingsStore.updateSpeechPreprocessingMode(mode)
+        } catch {
+            setError(error)
+        }
+    }
+
+    func updateBoostDictationInputGain(_ isEnabled: Bool) {
+        do {
+            try settingsStore.updateBoostDictationInputGain(isEnabled)
+        } catch {
+            setError(error)
+        }
+    }
+
+    func updateMeetingVoiceLevelingEnabled(_ isEnabled: Bool) {
+        do {
+            try settingsStore.updateMeetingVoiceLevelingEnabled(isEnabled)
         } catch {
             setError(error)
         }

@@ -6,7 +6,6 @@ enum AppState: Equatable {
     case recording
     case transcribing
     case meetingRecording
-    case meetingPaused
     case meetingProcessing
     case downloadingModel(progress: Double?)
     case preparingModel(String)
@@ -27,7 +26,7 @@ enum AppState: Equatable {
 
     var isMeetingCaptureActive: Bool {
         switch self {
-        case .meetingRecording, .meetingPaused:
+        case .meetingRecording:
             return true
         default:
             return false
@@ -50,8 +49,6 @@ enum AppState: Equatable {
             return "Transcribing"
         case .meetingRecording:
             return "Meeting recording"
-        case .meetingPaused:
-            return "Meeting paused"
         case .meetingProcessing:
             return "Processing meeting"
         case let .downloadingModel(progress):

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "recommendedModel": {
     "id": "ggml-large-v3-turbo-q5_0",
-    "displayName": "Whisper large-v3 turbo q5_0",
+    "displayName": "Best Multilingual (Whisper)",
     "version": "large-v3-turbo-q5_0",
     "sizeLabel": "1.7 GB",
     "sourceRepo": "ggerganov/whisper.cpp",
@@ -10,7 +10,7 @@
     "backend": "whisperCpp",
     "isQuantized": true,
     "supportedLanguageCodes": ["multilingual"],
-    "description": "Quantized Whisper large-v3 turbo model for whisper.cpp. Downloads the GGML model and Core ML encoder for maximum Apple Silicon acceleration.",
+    "description": "Best multilingual local model. Whisper large-v3 turbo is the most capable bundled option and supports multilingual dictation.",
     "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
     "artifactFileName": "ggml-large-v3-turbo-q5_0.bin",
     "companionArtifacts": [
@@ -27,7 +27,7 @@
   "compatibleModels": [
     {
       "id": "ggml-large-v3-turbo-q5_0",
-      "displayName": "Whisper large-v3 turbo q5_0",
+      "displayName": "Best Multilingual (Whisper)",
       "version": "large-v3-turbo-q5_0",
       "sizeLabel": "1.7 GB",
       "sourceRepo": "ggerganov/whisper.cpp",
@@ -35,7 +35,7 @@
       "backend": "whisperCpp",
       "isQuantized": true,
       "supportedLanguageCodes": ["multilingual"],
-      "description": "Quantized Whisper large-v3 turbo model for whisper.cpp. Downloads the GGML model and Core ML encoder for maximum Apple Silicon acceleration.",
+      "description": "Best multilingual local model. Whisper large-v3 turbo is the most capable bundled option and supports multilingual dictation.",
       "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
       "artifactFileName": "ggml-large-v3-turbo-q5_0.bin",
       "companionArtifacts": [
@@ -51,7 +51,7 @@
     },
     {
       "id": "parakeet-tdt-0.6b-v3",
-      "displayName": "Parakeet TDT 0.6B v3",
+      "displayName": "Fast Multilingual (Parakeet v3)",
       "version": "v3-int8",
       "sizeLabel": "about 1-3 GB",
       "sourceRepo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
@@ -59,11 +59,11 @@
       "backend": "fluidAudio",
       "isQuantized": true,
       "supportedLanguageCodes": ["multilingual"],
-      "description": "Fast local Parakeet v3 ASR model via FluidAudio. Good speed on Apple Silicon and supports Russian."
+      "description": "Fast multilingual local model. Parakeet v3 is optimized for speed and supports multilingual dictation."
     },
     {
       "id": "parakeet-tdt-0.6b-v2",
-      "displayName": "Parakeet TDT 0.6B v2 English",
+      "displayName": "Fast English (Parakeet v2)",
       "version": "v2",
       "sizeLabel": "about 1-3 GB",
       "sourceRepo": "FluidInference/parakeet-tdt-0.6b-v2-coreml",
@@ -71,7 +71,7 @@
       "backend": "fluidAudio",
       "isQuantized": false,
       "supportedLanguageCodes": ["en"],
-      "description": "English-only Parakeet model with higher English recall. Best kept for English dictation."
+      "description": "Fast English-only local model. Parakeet v2 is best kept for English dictation."
     }
   ]
 }

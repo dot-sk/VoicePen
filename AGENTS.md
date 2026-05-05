@@ -65,7 +65,14 @@ Write commit messages using Conventional Commits: `type(scope): summary` or
 
 ## Test Expectations
 
-Use Swift Testing unit tests for core behavior, persistence, model routing, dictionary logic, and pipeline decisions. Use UI tests only when behavior depends on the macOS UI surface. When automated coverage is not practical, add a manual verification item in `Test Mapping` with enough detail for another engineer to repeat it.
+Use Swift Testing unit tests for business logic: core behavior, persistence,
+model routing, dictionary logic, grouping/filtering decisions, and pipeline
+decisions. Do not unit-test SwiftUI view structure or incidental layout. Extract
+business decisions from views into small testable types when practical. Use UI
+tests only when behavior depends on the macOS UI surface, and keep view-level
+tests to stable product contracts rather than exact source structure. When
+automated coverage is not practical, add a manual verification item in `Test
+Mapping` with enough detail for another engineer to repeat it.
 
 Follow `Docs/testing.md` for local test layering and async test style. Prefer
 task handles, explicit async checkpoints, continuations, clocks, or schedulers

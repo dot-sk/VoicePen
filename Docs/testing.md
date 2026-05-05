@@ -17,6 +17,12 @@ or other macOS runtime wiring.
 Unit tests should exercise core behavior through `VoicePenCore` and injected
 fakes. They should not require `VoicePen.app` to launch.
 
+Prefer unit coverage for business decisions rather than SwiftUI structure. If a
+view needs grouping, filtering, routing, formatting, or state policy, extract
+that decision into a small core type and test it there. Avoid tests that assert
+incidental view layout, source snippets, labels, or control composition unless
+that exact UI contract is the behavior under test.
+
 For async behavior, prefer deterministic synchronization:
 
 - Return spawned `Task` handles from production commands that start background

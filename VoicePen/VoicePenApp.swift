@@ -124,18 +124,6 @@ private struct VoicePenMenuView: View {
                 }
             }
 
-            if controller.appState == .meetingRecording {
-                Button("Pause Meeting Recording") {
-                    controller.pauseMeetingRecording()
-                }
-            }
-
-            if controller.appState == .meetingPaused {
-                Button("Resume Meeting Recording") {
-                    controller.resumeMeetingRecording()
-                }
-            }
-
             if controller.appState.isMeetingCaptureActive {
                 Button("Stop Meeting Recording") {
                     controller.stopMeetingRecording()

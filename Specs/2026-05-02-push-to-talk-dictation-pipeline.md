@@ -23,6 +23,7 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 ## Acceptance Criteria
 
 - When dictation starts, VoicePen shall start recording and show the recording overlay.
+- When dictation starts and audio settings enable microphone boost, VoicePen shall best-effort raise the current default input device level for the recording and restore it afterward.
 - When the recording overlay shows the microphone level indicator, the white level bar shall animate vertically without horizontal jitter.
 - When recording duration is below the minimum, VoicePen shall stop without transcription or insertion.
 - When audio is silent or transcription returns an empty result, VoicePen shall not insert text or create a history recording.
@@ -54,6 +55,7 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 ## Test Mapping
 
 - Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers recording start, short recording skip, preprocessing, glossary/language routing, normalization, global output cleanup, insertion, silent audio, empty transcription, and error propagation.
+- Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers best-effort microphone boost start and restore around dictation recordings.
 - Automated: `VoicePenTests/TextOutput/TextOutputNormalizerTests.swift` covers global output character replacements.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers reinstalling the push-to-talk hotkey when a custom shortcut is recorded after the custom preference is selected and dictation timeout recovery when processing hangs.
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers menu bar extra command grouping, hiding unavailable menu actions, omitting idle status text, showing push-to-talk hotkey hints, and labeling latest-text actions as dictation actions.
