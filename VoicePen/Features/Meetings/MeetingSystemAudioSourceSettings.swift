@@ -103,7 +103,8 @@ nonisolated enum MeetingSystemAudioSourcePreflight {
             return MeetingSystemAudioSourcePreflightResult(settings: settings, warning: nil)
         case .allExceptSelectedApps:
             guard !settings.selectedApps.isEmpty else {
-                return fallbackResult(reason: "All except selected apps needs at least one app to exclude. VoicePen switched Meeting system audio to All system audio for this recording.")
+                return fallbackResult(
+                    reason: "All except selected apps needs at least one app to exclude. VoicePen switched Meeting system audio to All system audio for this recording.")
             }
             return MeetingSystemAudioSourcePreflightResult(settings: settings, warning: nil)
         }
