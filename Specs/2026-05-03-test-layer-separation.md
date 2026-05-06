@@ -37,8 +37,8 @@ available through an explicit command.
 - When a pull request or main-branch push changes code-impacting files, VoicePen
   CI shall run code-quality checks and unit tests.
 - When VoicePen CI runs macOS code-quality checks and unit tests, it shall
-  restore and save SwiftPM build caches keyed by Swift package manifests so
-  expensive dependencies can be reused between runs.
+  restore and save SwiftPM package and build caches keyed by Swift package
+  manifests so expensive dependencies can be reused between runs.
 - When dead-code analysis is needed in CI, VoicePen shall provide it as an
   optional manually dispatched job rather than part of the default pull-request
   or main-branch push checks.
@@ -64,7 +64,7 @@ available through an explicit command.
 | Docs-only PR | Change only `README.md`, `Docs/`, `Specs/`, or `AGENTS.md` | CI skips code-quality checks, unit tests, and dead-code analysis |
 | Spec and code PR | Change both `Specs/` and code-impacting files | CI runs the dedicated spec-validation job and the code-quality jobs |
 | Code PR | Change `VoicePen/`, `VoicePenTests/`, package files, scripts, or CI workflow | CI runs code-quality checks and unit tests without the optional Dead Code job |
-| SwiftPM cache | Re-run CI after a previous successful macOS code check with unchanged package manifests | CI can restore SwiftPM build artifacts before linting and unit tests |
+| SwiftPM cache | Re-run CI after a previous successful macOS code check with unchanged package manifests | CI can restore SwiftPM package and build artifacts before linting and unit tests |
 | Manual dead-code CI | Dispatch CI with `run_dead_code=true` | CI runs the optional Dead Code job |
 | Hook install | `make install-hooks` | Lefthook installs the configured Git hooks |
 | Docs-only push | Push commits that only touch docs or specs | Pre-push skips `make test` |
@@ -80,8 +80,8 @@ available through an explicit command.
   from Git hook environments.
 - Automated: `make integration-test` verifies the hosted app integration target.
 - Automated: `.github/workflows/ci.yml` gates code-quality checks and unit
-  tests on code-impacting changed paths, restores SwiftPM build caches for the
-  macOS code-check job, exposes dead-code analysis as an optional
+  tests on code-impacting changed paths, restores SwiftPM package and build
+  caches for the macOS code-check job, exposes dead-code analysis as an optional
   `workflow_dispatch` job, and runs the dedicated spec-validation job for spec
   changes.
 - Automated: `scripts/code-impacting-changes.sh` is shared by CI and local

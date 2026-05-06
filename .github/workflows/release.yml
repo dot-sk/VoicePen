@@ -35,6 +35,20 @@ jobs:
           xcodebuild -version
           swift --version
 
+      - name: Restore Swift build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build
+            ~/.swiftpm
+            ~/Library/org.swift.swiftpm
+            ~/Library/Caches/org.swift.swiftpm
+            /private/tmp/VoicePenDerivedData/SourcePackages
+            /private/tmp/VoicePenDerivedData/Build/Intermediates.noindex
+          key: ${{ runner.os }}-${{ runner.arch }}-swift-${{ hashFiles('Package.swift', 'Package.resolved', 'VoicePen.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-swift-
+
       - name: Validate release secrets
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}

@@ -1,7 +1,7 @@
 ---
 id: SPEC-006
 status: implemented
-updated: 2026-05-05
+updated: 2026-05-07
 tests:
   - VoicePenTests/Updates/SoftwareUpdateConfigurationTests.swift
   - VoicePenTests/Updates/AppcastGenerationTests.swift
@@ -53,6 +53,10 @@ update-signing material.
 - When release publishing runs for a tagged release, it shall publish or update
   the GitHub Pages appcast/feed metadata that points to the GitHub Release
   archive.
+- When release publishing runs on GitHub Actions, it shall restore SwiftPM
+  package and build caches before testing and packaging so release jobs can
+  reuse dependency downloads and compiled intermediates when package manifests
+  are unchanged.
 - When a release tag is published, it shall be created from the release branch
   where the app version was bumped.
 - When a release tag is published, release publishing shall require an open,
@@ -93,6 +97,7 @@ update-signing material.
 | Release packaging | Release build is archived for GitHub Releases | macOS sees production `VoicePen` with the production bundle identifier and local data folder. |
 | Release signing | Tagged release workflow packages the app | The app is signed with the configured identity and passes code signature verification before upload. |
 | Release tag publishing | `make publish-release VERSION=1.1.0` after preparing `release/v1.1.0` | The `v1.1.0` tag is pushed from `release/v1.1.0`. |
+| Release build cache | Publish a tag after a prior macOS CI run with unchanged package manifests | The release workflow can restore SwiftPM package and build artifacts before tests and packaging. |
 | Release PR not green | `make publish-release VERSION=1.1.0` while the release PR has pending or failed checks | Publishing stops before creating or pushing `v1.1.0`. |
 | Release metadata mismatch | `make publish-release VERSION=1.1.0` while the branch contains another marketing version or a non-incremented build | Publishing stops before creating or pushing `v1.1.0`. |
 | Invalid release archive | Feed item lacks a valid update signature | VoicePen refuses to install that update. |
@@ -116,6 +121,8 @@ update-signing material.
   verifies the package target signs and verifies the app bundle before archiving
   it and the release workflow imports a stable macOS signing identity from GitHub
   Secrets.
+- Automated: `.github/workflows/release.yml` restores SwiftPM package and build
+  caches before release tests and packaging.
 - Automated: `VoicePenTests/Updates/SoftwareUpdateConfigurationTests.swift`
   verifies Debug and Release use separate app identity and local data build
   settings.
