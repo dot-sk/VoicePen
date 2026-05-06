@@ -308,6 +308,7 @@ final class CoreAudioSystemOutputSource: MeetingAudioSourceClient {
 
     private let tempDirectory: URL
     private let fileManager: FileManager
+    private let settingsProvider: () -> MeetingSystemAudioSourceSettings
     private let queue = DispatchQueue(label: "voicepen.meeting.system-audio")
     private var tap: AudioHardwareTap?
     private var aggregateDevice: AudioHardwareAggregateDevice?
@@ -318,9 +319,14 @@ final class CoreAudioSystemOutputSource: MeetingAudioSourceClient {
     private var chunks: [MeetingAudioChunk] = []
     private var sourceStatus = MeetingSourceHealth.unavailable
 
-    init(tempDirectory: URL, fileManager: FileManager = .default) {
+    init(
+        tempDirectory: URL,
+        fileManager: FileManager = .default,
+        settingsProvider: @escaping () -> MeetingSystemAudioSourceSettings = { .all }
+    ) {
         self.tempDirectory = tempDirectory
         self.fileManager = fileManager
+        self.settingsProvider = settingsProvider
     }
 
     var status: MeetingSourceHealth {
@@ -360,10 +366,7 @@ final class CoreAudioSystemOutputSource: MeetingAudioSourceClient {
 
     private func startSegment(at offset: TimeInterval) throws {
         try fileManager.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
-        let description = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
-        description.name = "VoicePen Meeting System Audio"
-        description.uuid = UUID()
-        description.isPrivate = true
+        let description = try makeTapDescription()
 
         guard let tap = try AudioHardwareSystem.shared.makeProcessTap(description: description) else {
             throw MeetingRecordingError.systemAudioPermissionDenied
@@ -418,6 +421,34 @@ final class CoreAudioSystemOutputSource: MeetingAudioSourceClient {
         self.inputHandler = inputHandler
         currentSegmentStartOffset = offset
         sourceStatus = .capturing
+    }
+
+    private func makeTapDescription() throws -> CATapDescription {
+        let plan = MeetingSystemAudioTapPlan.build(settings: settingsProvider())
+        let description: CATapDescription
+        switch plan.mode {
+        case .all:
+            description = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
+        case .selectedAppsOnly:
+            description = CATapDescription(stereoMixdownOfProcesses: [])
+        case .allExceptSelectedApps:
+            description = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
+        }
+
+        if plan.usesBundleIdentifierFilter {
+            guard #available(macOS 26.0, *) else {
+                throw MeetingRecordingError.captureFailed(
+                    "System audio app filtering requires macOS 26 or later."
+                )
+            }
+            description.bundleIDs = plan.bundleIdentifiers
+            description.isProcessRestoreEnabled = true
+        }
+
+        description.name = "VoicePen Meeting System Audio"
+        description.uuid = UUID()
+        description.isPrivate = true
+        return description
     }
 
     private func finishSegment(at offset: TimeInterval, healthAfterStop: MeetingSourceHealth) throws {

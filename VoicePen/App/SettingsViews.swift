@@ -748,16 +748,68 @@ struct ConfigSettingsView: View {
         )
     }
 
+    private var meetingSystemAudioSourceMode: Binding<MeetingSystemAudioSourceMode> {
+        Binding(
+            get: { controller.settingsStore.meetingSystemAudioSourceMode },
+            set: { controller.updateMeetingSystemAudioSourceMode($0) }
+        )
+    }
+
     var body: some View {
         Form {
             Section {
                 Toggle("Boost microphone level during dictation", isOn: boostDictationInputGain)
                 Toggle("Meeting voice leveling", isOn: meetingVoiceLevelingEnabled)
+                Picker("System Audio Source", selection: meetingSystemAudioSourceMode) {
+                    ForEach(MeetingSystemAudioSourceMode.allCases) { mode in
+                        Text(mode.title)
+                            .tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Selected apps")
+                        Spacer()
+                        Button {
+                            controller.chooseMeetingSystemAudioApp()
+                        } label: {
+                            Label("Add App", systemImage: "plus")
+                        }
+                    }
+
+                    if controller.settingsStore.meetingAudioAppSelections.isEmpty {
+                        Text("No apps selected")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(controller.settingsStore.meetingAudioAppSelections) { app in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(app.displayName)
+                                    Text(app.bundleIdentifier)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Button {
+                                    controller.removeMeetingSystemAudioApp(
+                                        bundleIdentifier: app.bundleIdentifier
+                                    )
+                                } label: {
+                                    Label("Remove App", systemImage: "minus.circle")
+                                }
+                                .labelStyle(.iconOnly)
+                                .help("Remove App")
+                            }
+                        }
+                    }
+                }
             } header: {
                 Text("Audio")
             } footer: {
                 Text(
-                    "VoicePen uses the macOS default microphone. Dictation can temporarily raise supported input levels while recording. Meeting audio can use system dynamics and peak limiting before local transcription."
+                    "VoicePen uses the macOS default microphone. Dictation can temporarily raise supported input levels while recording. Meeting audio can use system dynamics and peak limiting before local transcription; if processing is unavailable, VoicePen continues with ordinary audio. Meeting system audio can capture all apps, only selected apps, or all apps except selected apps."
                 )
             }
 

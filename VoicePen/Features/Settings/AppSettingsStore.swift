@@ -13,6 +13,8 @@ final class AppSettingsStore: ObservableObject {
     @Published private(set) var meetingVoiceLevelingEnabled: Bool
     @Published private(set) var meetingTranscriptTimecodesEnabled: Bool
     @Published private(set) var meetingDiarizationEnabled: Bool
+    @Published private(set) var meetingSystemAudioSourceMode: MeetingSystemAudioSourceMode
+    @Published private(set) var meetingAudioAppSelections: [MeetingAudioAppSelection]
     @Published private(set) var openAtLogin: Bool
     @Published private(set) var developerModeOverride: DeveloperMode?
     @Published private(set) var hasAcknowledgedMeetingRecordingConsent: Bool
@@ -32,6 +34,8 @@ final class AppSettingsStore: ObservableObject {
         self.meetingVoiceLevelingEnabled = true
         self.meetingTranscriptTimecodesEnabled = true
         self.meetingDiarizationEnabled = false
+        self.meetingSystemAudioSourceMode = .all
+        self.meetingAudioAppSelections = []
         self.openAtLogin = false
         self.developerModeOverride = nil
         self.hasAcknowledgedMeetingRecordingConsent = false
@@ -59,6 +63,10 @@ final class AppSettingsStore: ObservableObject {
             let meetingDiarization =
                 try fetchValue(forKey: Self.meetingDiarizationEnabledKey, from: database)
                 ?? "false"
+            let meetingSystemAudioSourceMode =
+                try fetchValue(forKey: Self.meetingSystemAudioSourceModeKey, from: database)
+                ?? MeetingSystemAudioSourceMode.all.rawValue
+            let meetingAudioAppSelections = try fetchValue(forKey: Self.meetingAudioAppSelectionsKey, from: database)
             let openAtLogin = try fetchValue(forKey: Self.openAtLoginKey, from: database) ?? "false"
             let developerModeOverride = try fetchValue(forKey: Self.developerModeOverrideKey, from: database)
             let meetingConsent = try fetchValue(forKey: Self.meetingConsentKey, from: database) ?? "false"
@@ -72,6 +80,8 @@ final class AppSettingsStore: ObservableObject {
                 meetingVoiceLeveling,
                 meetingTranscriptTimecodes,
                 meetingDiarization,
+                meetingSystemAudioSourceMode,
+                meetingAudioAppSelections,
                 openAtLogin,
                 developerModeOverride,
                 meetingConsent
@@ -86,9 +96,11 @@ final class AppSettingsStore: ObservableObject {
         meetingVoiceLevelingEnabled = Self.normalizeBoolean(values.6)
         meetingTranscriptTimecodesEnabled = Self.normalizeBoolean(values.7)
         meetingDiarizationEnabled = Self.normalizeBoolean(values.8)
-        openAtLogin = Self.normalizeBoolean(values.9)
-        developerModeOverride = Self.normalizeDeveloperModeOverride(values.10)
-        hasAcknowledgedMeetingRecordingConsent = Self.normalizeBoolean(values.11)
+        meetingSystemAudioSourceMode = Self.normalizeMeetingSystemAudioSourceMode(values.9)
+        meetingAudioAppSelections = Self.normalizeMeetingAudioAppSelections(values.10)
+        openAtLogin = Self.normalizeBoolean(values.11)
+        developerModeOverride = Self.normalizeDeveloperModeOverride(values.12)
+        hasAcknowledgedMeetingRecordingConsent = Self.normalizeBoolean(values.13)
     }
 
     func updateTranscriptionLanguage(_ language: String) throws {
@@ -164,6 +176,24 @@ final class AppSettingsStore: ObservableObject {
             try setValue(String(isEnabled), forKey: Self.meetingDiarizationEnabledKey, in: database)
         }
         meetingDiarizationEnabled = isEnabled
+    }
+
+    func updateMeetingSystemAudioSourceMode(_ mode: MeetingSystemAudioSourceMode) throws {
+        try withDatabase { database in
+            try DatabaseMigrator.migrate(database)
+            try setValue(mode.rawValue, forKey: Self.meetingSystemAudioSourceModeKey, in: database)
+        }
+        meetingSystemAudioSourceMode = mode
+    }
+
+    func updateMeetingAudioAppSelections(_ selections: [MeetingAudioAppSelection]) throws {
+        let normalizedSelections = Self.normalizeMeetingAudioAppSelections(selections)
+        let encodedSelections = try Self.encodeMeetingAudioAppSelections(normalizedSelections)
+        try withDatabase { database in
+            try DatabaseMigrator.migrate(database)
+            try setValue(encodedSelections, forKey: Self.meetingAudioAppSelectionsKey, in: database)
+        }
+        meetingAudioAppSelections = normalizedSelections
     }
 
     func updateOpenAtLogin(_ isEnabled: Bool) throws {
@@ -307,6 +337,44 @@ final class AppSettingsStore: ObservableObject {
         return DeveloperMode(rawValue: value.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
+    private static func normalizeMeetingSystemAudioSourceMode(_ value: String) -> MeetingSystemAudioSourceMode {
+        MeetingSystemAudioSourceMode(rawValue: value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? .all
+    }
+
+    private static func normalizeMeetingAudioAppSelections(_ value: String?) -> [MeetingAudioAppSelection] {
+        guard
+            let value,
+            let data = value.data(using: .utf8),
+            let selections = try? JSONDecoder().decode([MeetingAudioAppSelection].self, from: data)
+        else {
+            return []
+        }
+        return normalizeMeetingAudioAppSelections(selections)
+    }
+
+    private static func normalizeMeetingAudioAppSelections(
+        _ selections: [MeetingAudioAppSelection]
+    ) -> [MeetingAudioAppSelection] {
+        var seen = Set<String>()
+        var normalizedSelections: [MeetingAudioAppSelection] = []
+        for selection in selections {
+            let normalizedSelection = MeetingAudioAppSelection(
+                displayName: selection.displayName,
+                bundleIdentifier: selection.bundleIdentifier
+            )
+            guard normalizedSelection.isValid, seen.insert(normalizedSelection.bundleIdentifier).inserted else {
+                continue
+            }
+            normalizedSelections.append(normalizedSelection)
+        }
+        return normalizedSelections
+    }
+
+    private static func encodeMeetingAudioAppSelections(_ selections: [MeetingAudioAppSelection]) throws -> String {
+        let data = try JSONEncoder().encode(selections)
+        return String(decoding: data, as: UTF8.self)
+    }
+
     static let supportedLanguages: [TranscriptionLanguage] = [
         TranscriptionLanguage(code: "auto", name: "Auto-detect"),
         TranscriptionLanguage(code: "system", name: "System language"),
@@ -321,6 +389,8 @@ final class AppSettingsStore: ObservableObject {
     private static let meetingVoiceLevelingEnabledKey = "audio.meetingVoiceLevelingEnabled"
     private static let meetingTranscriptTimecodesEnabledKey = "meeting.transcriptTimecodesEnabled"
     private static let meetingDiarizationEnabledKey = "meeting.diarizationEnabled"
+    private static let meetingSystemAudioSourceModeKey = "meeting.systemAudioSourceMode"
+    private static let meetingAudioAppSelectionsKey = "meeting.systemAudioAppSelections"
     private static let hotkeyPreferenceKey = "hotkey.preference"
     private static let hotkeyHoldDurationKey = "hotkey.holdDuration"
     private static let openAtLoginKey = "app.openAtLogin"

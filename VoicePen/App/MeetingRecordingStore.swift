@@ -42,6 +42,7 @@ final class MeetingRecordingStore {
         let userPrompts: UserPromptPresenter
         let captureStartTimeout: Duration
         let processingTimeout: Duration
+        let runningApplicationBundleIdentifiersProvider: () -> Set<String>
         let getAppState: () -> AppState
         let setAppState: (AppState) -> Void
         let setErrorMessage: (String?) -> Void
@@ -75,11 +76,13 @@ final class MeetingRecordingStore {
             return nil
         }
 
+        let preflightWarning = preflightSystemAudioSource()
         let timeout = environment.captureStartTimeout
         return Task { [weak self, meetingPipeline] in
             guard let self else { return }
             do {
                 send(.startRequested(Date()))
+                environment.setErrorMessage(preflightWarning)
                 try await AsyncOperationTimeout.run(
                     timeout: timeout,
                     timeoutError: { MeetingRecordingError.captureTimedOut },
@@ -92,6 +95,28 @@ final class MeetingRecordingStore {
                 send(.startFailed(error))
             }
         }
+    }
+
+    private func preflightSystemAudioSource() -> String? {
+        let currentSettings = MeetingSystemAudioSourceSettings(
+            mode: environment.settingsStore.meetingSystemAudioSourceMode,
+            selectedApps: environment.settingsStore.meetingAudioAppSelections
+        )
+        let result = MeetingSystemAudioSourcePreflight.resolve(
+            settings: currentSettings,
+            runningBundleIdentifiers: environment.runningApplicationBundleIdentifiersProvider()
+        )
+        guard result.settings.mode != currentSettings.mode else {
+            return result.warning
+        }
+
+        do {
+            try environment.settingsStore.updateMeetingSystemAudioSourceMode(result.settings.mode)
+        } catch {
+            environment.presentError(error)
+            return error.localizedDescription
+        }
+        return result.warning
     }
 
     @discardableResult
