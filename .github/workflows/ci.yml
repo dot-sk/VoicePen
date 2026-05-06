@@ -6,6 +6,12 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      run_dead_code:
+        description: Run optional Periphery dead-code analysis
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -99,6 +105,18 @@ jobs:
           swift --version
           xcrun swift-format --version
 
+      - name: Restore Swift build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build
+            .swiftlint-cache
+            ~/.swiftpm
+            ~/Library/Caches/org.swift.swiftpm
+          key: ${{ runner.os }}-${{ runner.arch }}-swift-${{ hashFiles('Package.swift', 'Package.resolved', 'VoicePen.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-swift-
+
       - name: Install lint tools
         run: brew install swiftlint
 
@@ -113,7 +131,7 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 30
     needs: changes
-    if: needs.changes.outputs.code == 'true' && !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'release/v'))
+    if: github.event_name == 'workflow_dispatch' && inputs.run_dead_code == true
 
     steps:
       - name: Checkout
@@ -126,6 +144,17 @@ jobs:
         run: |
           xcodebuild -version
           swift --version
+
+      - name: Restore Swift build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build
+            ~/.swiftpm
+            ~/Library/Caches/org.swift.swiftpm
+          key: ${{ runner.os }}-${{ runner.arch }}-swift-${{ hashFiles('Package.swift', 'Package.resolved', 'VoicePen.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-swift-
 
       - name: Install Periphery
         run: brew install peripheryapp/periphery/periphery

@@ -45,5 +45,8 @@ code-impacting changes. Documentation-only pushes skip the local unit-test loop.
 - `xcbeautify` is optional for local `xcodebuild` output:
   `brew install xcbeautify`.
 
-CI runs SwiftLint, unit tests, and unused-code analysis for code-impacting pull
-requests and pushes. Documentation-only pull requests skip those code checks.
+CI runs SwiftLint and unit tests for code-impacting pull requests and pushes,
+restoring the SwiftPM build cache before the macOS job so expensive package
+builds can be reused. Documentation-only pull requests skip those code checks.
+Unused-code analysis stays available through `make dead-code` and the optional
+manual CI input `run_dead_code`.
