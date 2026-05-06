@@ -26,9 +26,10 @@ nonisolated struct ModelAccelerationStatus: Equatable {
         guard isModelReady else { return "Model missing" }
         switch backendKind {
         case .whisperCpp:
+            guard companionArtifacts.contains(where: { $0.id == "coreml-encoder" }) else {
+                return "Metal ready"
+            }
             return isCoreMLReady ? "Core ML ready" : "Acceleration missing"
-        case .fluidAudio:
-            return "Core ML ready"
         case .unsupported:
             return "Unknown"
         }
@@ -38,16 +39,11 @@ nonisolated struct ModelAccelerationStatus: Equatable {
         guard model.backendKind == .whisperCpp else {
             let modelDirectory = paths.existingModelDirectory(for: model.id)
             let expectedModelDirectory = modelDirectory ?? paths.userModelDirectory(for: model.id)
-            let isPresent: Bool
-            if model.backendKind == .fluidAudio {
-                isPresent = FluidAudioModelInstallation.installedDirectory(model: model, paths: paths) != nil
-            } else {
-                isPresent = modelDirectory.map { ModelArtifactPresence.exists(at: $0, fileManager: fileManager) } ?? false
-            }
+            let isPresent = modelDirectory.map { ModelArtifactPresence.exists(at: $0, fileManager: fileManager) } ?? false
             return ModelAccelerationStatus(
                 model: ModelArtifactStatus(
                     id: "model-directory",
-                    displayName: model.backendKind == .fluidAudio ? "FluidAudio model" : "Model directory",
+                    displayName: "Model directory",
                     expectedURL: expectedModelDirectory,
                     isPresent: isPresent
                 ),

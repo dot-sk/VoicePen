@@ -11,6 +11,10 @@ enum AppLogger {
         logger.info("\(sanitizedForLogging(message), privacy: .public)")
     }
 
+    nonisolated static func debug(_ message: String) {
+        logger.debug("\(sanitizedForLogging(message), privacy: .public)")
+    }
+
     nonisolated static func error(_ message: String) {
         logger.error("\(sanitizedForLogging(message), privacy: .public)")
     }

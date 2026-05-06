@@ -37,17 +37,19 @@ actor WhisperCppTranscriptionClient {
         audioURL: URL,
         model: ModelManifestModel,
         glossaryPrompt: String,
-        language: String
-    ) async throws -> String {
+        language: String,
+        includeTimestamps: Bool = false
+    ) async throws -> TranscriptionClientResult {
         let context = try await loadContextIfNeeded(for: model)
         do {
-            let text = try await context.transcribe(
+            let result = try await context.transcribe(
                 audioURL: audioURL,
                 prompt: glossaryPrompt,
-                language: language
+                language: language,
+                includeTimestamps: includeTimestamps
             )
             runtimeState.markWarmed(modelId: model.id)
-            return text
+            return result
         } catch TranscriptionError.emptyResult {
             runtimeState.markWarmed(modelId: model.id)
             throw TranscriptionError.emptyResult
@@ -107,7 +109,8 @@ actor WhisperCppTranscriptionClient {
 
     private func validateAcceleration(for model: ModelManifestModel) throws {
         let status = ModelAccelerationStatus.inspect(model: model, paths: paths)
-        guard status.isCoreMLReady else {
+        let requiresCoreMLEncoder = model.requiredCompanionArtifacts.contains { $0.id == "coreml-encoder" }
+        guard !requiresCoreMLEncoder || status.isCoreMLReady else {
             let expectedPaths = model.requiredCompanionArtifacts
                 .filter { $0.id == "coreml-encoder" }
                 .map { paths.userModelArtifact(for: model.id, localPath: $0.localPath).path }

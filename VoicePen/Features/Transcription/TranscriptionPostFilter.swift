@@ -2,7 +2,7 @@ import Foundation
 
 nonisolated enum TranscriptionPostFilter {
     private static let subtitleCreditPattern =
-        #"^(?:(?:субтитры\s+(?:сделал|создал|подготовил|добавил)|добавил\s+субтитры)"#
+        #"^(?:(?:субтитры\s+(?:сделал|создал|создавал|подготовил|добавил)|добавил\s+субтитры)"#
         + #"(?:\s+[\p{L}\p{N}_@.-]+){0,4}\s*)+[.!?…]*$"#
 
     private static let outroPattern = #"^продолжение\s+следует[.!?…]*$"#

@@ -25,10 +25,20 @@ nonisolated struct ModelManifestModel: Codable, Equatable, Identifiable {
     var description: String
     var downloadURL: String?
     var artifactFileName: String?
+    var capabilities: ModelManifestModelCapabilities?
     var companionArtifacts: [ModelManifestArtifact]?
 
     var backendKind: ModelBackend {
         ModelBackend(rawValue: backend) ?? .unsupported
+    }
+
+    var supportsTimestamps: Bool {
+        switch backendKind {
+        case .whisperCpp:
+            return true
+        case .unsupported:
+            return capabilities?.timestamps ?? false
+        }
     }
 
     func supports(language: String) -> Bool {
@@ -108,6 +118,7 @@ nonisolated struct ModelManifestModel: Codable, Equatable, Identifiable {
         description: "Pinned fallback model used when the bundled manifest cannot be loaded.",
         downloadURL: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
         artifactFileName: "ggml-large-v3-turbo-q5_0.bin",
+        capabilities: ModelManifestModelCapabilities(timestamps: true),
         companionArtifacts: [
             ModelManifestArtifact(
                 id: "coreml-encoder",
@@ -119,6 +130,10 @@ nonisolated struct ModelManifestModel: Codable, Equatable, Identifiable {
             )
         ]
     )
+}
+
+nonisolated struct ModelManifestModelCapabilities: Codable, Equatable {
+    var timestamps: Bool
 }
 
 nonisolated struct ModelManifestArtifact: Codable, Equatable, Identifiable {
@@ -137,6 +152,5 @@ nonisolated enum ModelArtifactArchiveKind: String, Codable, Equatable {
 
 nonisolated enum ModelBackend: String, Equatable {
     case whisperCpp
-    case fluidAudio
     case unsupported
 }

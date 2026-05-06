@@ -26,6 +26,7 @@ final class LivePushToTalkHotkeyClient: PushToTalkHotkeyClient {
     private var onKeyUp: (() -> Void)?
     private var isModifierPressed = false
     private var holdGate: HotkeyHoldGate?
+    private var customShortcutTask: Task<Void, Never>?
     private var isInstalled = false
 
     init(settingsStore: AppSettingsStore) {
@@ -64,6 +65,8 @@ final class LivePushToTalkHotkeyClient: PushToTalkHotkeyClient {
         onKeyDown = nil
         onKeyUp = nil
         isModifierPressed = false
+        customShortcutTask?.cancel()
+        customShortcutTask = nil
         holdGate?.cancel()
         holdGate = nil
 
@@ -83,15 +86,15 @@ final class LivePushToTalkHotkeyClient: PushToTalkHotkeyClient {
         }
 
         KeyboardShortcuts.enable(.voicePenPushToTalk)
-        KeyboardShortcuts.onKeyDown(for: .voicePenPushToTalk) { [weak self] in
-            Task { @MainActor in
-                self?.beginHold(onKeyDown: onKeyDown)
-            }
-        }
-
-        KeyboardShortcuts.onKeyUp(for: .voicePenPushToTalk) { [weak self] in
-            Task { @MainActor in
-                self?.endHold(onKeyUp: onKeyUp)
+        customShortcutTask = Task { @MainActor [weak self] in
+            for await event in KeyboardShortcuts.events(for: .voicePenPushToTalk) {
+                guard let self else { return }
+                switch event {
+                case .keyDown:
+                    self.beginHold(onKeyDown: onKeyDown)
+                case .keyUp:
+                    self.endHold(onKeyUp: onKeyUp)
+                }
             }
         }
     }

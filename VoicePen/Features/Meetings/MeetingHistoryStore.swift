@@ -4,6 +4,9 @@ import SQLite3
 
 @MainActor
 final class MeetingHistoryStore: ObservableObject {
+    private static let transcriptPreviewLimit = 500
+    private static let compressedTranscriptPreview = "Transcript stored locally; select to load."
+
     @Published private(set) var entries: [MeetingHistoryEntry] = []
     @Published private(set) var storageStats = VoiceHistoryStorageStats()
 
@@ -38,6 +41,13 @@ final class MeetingHistoryStore: ObservableObject {
         publish(result)
     }
 
+    func loadEntry(id: MeetingHistoryEntry.ID) throws -> MeetingHistoryEntry? {
+        try withDatabase { database in
+            try DatabaseMigrator.migrate(database)
+            return try fetchEntry(id: id, from: database)
+        }
+    }
+
     func append(_ entry: MeetingHistoryEntry) throws {
         let result = try withDatabase { database in
             try DatabaseMigrator.migrate(database)
@@ -51,8 +61,8 @@ final class MeetingHistoryStore: ObservableObject {
     func delete(id: MeetingHistoryEntry.ID) throws {
         let result = try withDatabase { database in
             try DatabaseMigrator.migrate(database)
-            if let entry = try fetchEntry(id: id, from: database) {
-                try removeRecoveryAudio(entry.recoveryAudio)
+            if let recoveryAudio = try fetchRecoveryAudio(id: id, from: database) {
+                try removeRecoveryAudio(recoveryAudio)
             }
             let statement = try prepare("DELETE FROM meeting_history WHERE id = ?;", in: database)
             defer { sqlite3_finalize(statement) }
@@ -66,8 +76,8 @@ final class MeetingHistoryStore: ObservableObject {
     func clear() throws {
         let stats = try withDatabase { database in
             try DatabaseMigrator.migrate(database)
-            for entry in try fetchEntries(from: database) {
-                try removeRecoveryAudio(entry.recoveryAudio)
+            for recoveryAudio in try fetchRecoveryAudioEntries(from: database) {
+                try removeRecoveryAudio(recoveryAudio.manifest)
             }
             try execute("DELETE FROM meeting_history;", in: database)
             return try fetchStorageStats(from: database)
@@ -79,13 +89,12 @@ final class MeetingHistoryStore: ObservableObject {
     func cleanupExpiredRecoveryAudio(now: Date = Date()) throws {
         let result = try withDatabase { database in
             try DatabaseMigrator.migrate(database)
-            let entries = try fetchEntries(from: database)
-            for entry in entries {
-                guard let recoveryAudio = entry.recoveryAudio,
-                    recoveryAudio.isExpired(at: now)
+            let recoveryAudioEntries = try fetchRecoveryAudioEntries(from: database)
+            for entry in recoveryAudioEntries {
+                guard entry.manifest.isExpired(at: now)
                 else { continue }
 
-                try removeRecoveryAudio(recoveryAudio)
+                try removeRecoveryAudio(entry.manifest)
                 try clearRecoveryAudio(id: entry.id, in: database)
             }
             return try loadResult(from: database)
@@ -95,7 +104,7 @@ final class MeetingHistoryStore: ObservableObject {
 
     private func loadResult(from database: OpaquePointer) throws -> MeetingHistoryLoadResult {
         MeetingHistoryLoadResult(
-            entries: try fetchEntries(from: database),
+            entries: try fetchEntrySummaries(from: database),
             storageStats: try fetchStorageStats(from: database)
         )
     }
@@ -307,10 +316,10 @@ final class MeetingHistoryStore: ObservableObject {
         try stepDone(statement, database: database)
     }
 
-    private func fetchEntries(from database: OpaquePointer) throws -> [MeetingHistoryEntry] {
+    private func fetchEntrySummaries(from database: OpaquePointer) throws -> [MeetingHistoryEntry] {
         let statement = try prepare(
             """
-            SELECT id, created_at, duration, transcript_text, status, source_flags_json, error_message, timings_json, model_metadata_json, recognized_word_count, text_storage_format, transcript_text_compressed, recovery_audio_json
+            SELECT id, created_at, duration, substr(transcript_text, 1, ?), status, source_flags_json, error_message, timings_json, model_metadata_json, recognized_word_count, text_storage_format, recovery_audio_json
             FROM meeting_history
             ORDER BY created_at DESC;
             """,
@@ -318,11 +327,13 @@ final class MeetingHistoryStore: ObservableObject {
         )
         defer { sqlite3_finalize(statement) }
 
+        sqlite3_bind_int(statement, 1, Int32(Self.transcriptPreviewLimit))
+
         var fetchedEntries: [MeetingHistoryEntry] = []
         while true {
             switch sqlite3_step(statement) {
             case SQLITE_ROW:
-                fetchedEntries.append(try entry(from: statement))
+                fetchedEntries.append(try entrySummary(from: statement))
             case SQLITE_DONE:
                 return fetchedEntries
             default:
@@ -354,6 +365,60 @@ final class MeetingHistoryStore: ObservableObject {
         }
     }
 
+    private func fetchRecoveryAudio(id: MeetingHistoryEntry.ID, from database: OpaquePointer) throws -> MeetingRecoveryAudioManifest? {
+        let statement = try prepare(
+            """
+            SELECT recovery_audio_json
+            FROM meeting_history
+            WHERE id = ?;
+            """,
+            in: database
+        )
+        defer { sqlite3_finalize(statement) }
+
+        sqlite3_bind_text(statement, 1, id.uuidString, -1, SQLITE_TRANSIENT)
+
+        switch sqlite3_step(statement) {
+        case SQLITE_ROW:
+            return try decodeOptional(MeetingRecoveryAudioManifest.self, from: optionalStringColumn(statement, index: 0))
+        case SQLITE_DONE:
+            return nil
+        default:
+            throw MeetingHistoryStoreError.sqlite(String(cString: sqlite3_errmsg(database)))
+        }
+    }
+
+    private func fetchRecoveryAudioEntries(from database: OpaquePointer) throws -> [MeetingRecoveryAudioEntry] {
+        let statement = try prepare(
+            """
+            SELECT id, recovery_audio_json
+            FROM meeting_history
+            WHERE recovery_audio_json IS NOT NULL
+            ORDER BY created_at DESC;
+            """,
+            in: database
+        )
+        defer { sqlite3_finalize(statement) }
+
+        var entries: [MeetingRecoveryAudioEntry] = []
+        while true {
+            switch sqlite3_step(statement) {
+            case SQLITE_ROW:
+                guard let id = UUID(uuidString: stringColumn(statement, index: 0)) else {
+                    throw MeetingHistoryStoreError.invalidRow("Invalid meeting entry id")
+                }
+                guard let manifest = try decodeOptional(MeetingRecoveryAudioManifest.self, from: optionalStringColumn(statement, index: 1)) else {
+                    throw MeetingHistoryStoreError.invalidRow("Invalid meeting recovery audio")
+                }
+                entries.append(MeetingRecoveryAudioEntry(id: id, manifest: manifest))
+            case SQLITE_DONE:
+                return entries
+            default:
+                throw MeetingHistoryStoreError.sqlite(String(cString: sqlite3_errmsg(database)))
+            }
+        }
+    }
+
     private func entry(from statement: OpaquePointer) throws -> MeetingHistoryEntry {
         guard let id = UUID(uuidString: stringColumn(statement, index: 0)) else {
             throw MeetingHistoryStoreError.invalidRow("Invalid meeting entry id")
@@ -379,6 +444,42 @@ final class MeetingHistoryStore: ObservableObject {
             recognizedWordCount: optionalIntColumn(statement, index: 9),
             recoveryAudio: try decodeOptional(MeetingRecoveryAudioManifest.self, from: optionalStringColumn(statement, index: 12)),
             isTextPayloadEvicted: storedText.isEvicted
+        )
+    }
+
+    private func entrySummary(from statement: OpaquePointer) throws -> MeetingHistoryEntry {
+        guard let id = UUID(uuidString: stringColumn(statement, index: 0)) else {
+            throw MeetingHistoryStoreError.invalidRow("Invalid meeting entry id")
+        }
+
+        let format = stringColumn(statement, index: 10)
+        let transcriptPreview: String
+        let isTextPayloadEvicted: Bool
+        switch format {
+        case VoiceHistoryTextStorageFormat.evicted:
+            transcriptPreview = ""
+            isTextPayloadEvicted = true
+        case VoiceHistoryTextStorageFormat.zlib:
+            transcriptPreview = Self.compressedTranscriptPreview
+            isTextPayloadEvicted = false
+        default:
+            transcriptPreview = stringColumn(statement, index: 3)
+            isTextPayloadEvicted = false
+        }
+
+        return MeetingHistoryEntry(
+            id: id,
+            createdAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 1)),
+            duration: sqlite3_column_double(statement, 2),
+            transcriptText: transcriptPreview,
+            status: MeetingRecordingStatus(rawValue: stringColumn(statement, index: 4)) ?? .failed,
+            sourceFlags: try decode(MeetingSourceFlags.self, from: stringColumn(statement, index: 5)),
+            errorMessage: optionalStringColumn(statement, index: 6),
+            timings: try decodeOptional(MeetingPipelineTimings.self, from: optionalStringColumn(statement, index: 7)),
+            modelMetadata: try decodeOptional(VoiceTranscriptionModelMetadata.self, from: optionalStringColumn(statement, index: 8)),
+            recognizedWordCount: optionalIntColumn(statement, index: 9),
+            recoveryAudio: try decodeOptional(MeetingRecoveryAudioManifest.self, from: optionalStringColumn(statement, index: 11)),
+            isTextPayloadEvicted: isTextPayloadEvicted
         )
     }
 
@@ -533,6 +634,11 @@ final class MeetingHistoryStore: ObservableObject {
 private struct MeetingHistoryLoadResult {
     var entries: [MeetingHistoryEntry]
     var storageStats: VoiceHistoryStorageStats
+}
+
+private struct MeetingRecoveryAudioEntry {
+    var id: MeetingHistoryEntry.ID
+    var manifest: MeetingRecoveryAudioManifest
 }
 
 private struct MeetingStoredTextRow {

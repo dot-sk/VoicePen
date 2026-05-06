@@ -11,6 +11,8 @@ final class AppSettingsStore: ObservableObject {
     @Published private(set) var hotkeyHoldDuration: TimeInterval
     @Published private(set) var boostDictationInputGain: Bool
     @Published private(set) var meetingVoiceLevelingEnabled: Bool
+    @Published private(set) var meetingTranscriptTimecodesEnabled: Bool
+    @Published private(set) var meetingDiarizationEnabled: Bool
     @Published private(set) var openAtLogin: Bool
     @Published private(set) var developerModeOverride: DeveloperMode?
     @Published private(set) var hasAcknowledgedMeetingRecordingConsent: Bool
@@ -28,6 +30,8 @@ final class AppSettingsStore: ObservableObject {
         self.hotkeyHoldDuration = VoicePenConfig.defaultHotkeyHoldDuration
         self.boostDictationInputGain = true
         self.meetingVoiceLevelingEnabled = true
+        self.meetingTranscriptTimecodesEnabled = true
+        self.meetingDiarizationEnabled = false
         self.openAtLogin = false
         self.developerModeOverride = nil
         self.hasAcknowledgedMeetingRecordingConsent = false
@@ -49,6 +53,12 @@ final class AppSettingsStore: ObservableObject {
             let meetingVoiceLeveling =
                 try fetchValue(forKey: Self.meetingVoiceLevelingEnabledKey, from: database)
                 ?? "true"
+            let meetingTranscriptTimecodes =
+                try fetchValue(forKey: Self.meetingTranscriptTimecodesEnabledKey, from: database)
+                ?? "true"
+            let meetingDiarization =
+                try fetchValue(forKey: Self.meetingDiarizationEnabledKey, from: database)
+                ?? "false"
             let openAtLogin = try fetchValue(forKey: Self.openAtLoginKey, from: database) ?? "false"
             let developerModeOverride = try fetchValue(forKey: Self.developerModeOverrideKey, from: database)
             let meetingConsent = try fetchValue(forKey: Self.meetingConsentKey, from: database) ?? "false"
@@ -60,6 +70,8 @@ final class AppSettingsStore: ObservableObject {
                 holdDuration,
                 boostDictationInputGain,
                 meetingVoiceLeveling,
+                meetingTranscriptTimecodes,
+                meetingDiarization,
                 openAtLogin,
                 developerModeOverride,
                 meetingConsent
@@ -72,9 +84,11 @@ final class AppSettingsStore: ObservableObject {
         hotkeyHoldDuration = Self.normalizeHotkeyHoldDuration(values.4)
         boostDictationInputGain = Self.normalizeBoolean(values.5)
         meetingVoiceLevelingEnabled = Self.normalizeBoolean(values.6)
-        openAtLogin = Self.normalizeBoolean(values.7)
-        developerModeOverride = Self.normalizeDeveloperModeOverride(values.8)
-        hasAcknowledgedMeetingRecordingConsent = Self.normalizeBoolean(values.9)
+        meetingTranscriptTimecodesEnabled = Self.normalizeBoolean(values.7)
+        meetingDiarizationEnabled = Self.normalizeBoolean(values.8)
+        openAtLogin = Self.normalizeBoolean(values.9)
+        developerModeOverride = Self.normalizeDeveloperModeOverride(values.10)
+        hasAcknowledgedMeetingRecordingConsent = Self.normalizeBoolean(values.11)
     }
 
     func updateTranscriptionLanguage(_ language: String) throws {
@@ -134,6 +148,22 @@ final class AppSettingsStore: ObservableObject {
             try setValue(String(isEnabled), forKey: Self.meetingVoiceLevelingEnabledKey, in: database)
         }
         meetingVoiceLevelingEnabled = isEnabled
+    }
+
+    func updateMeetingTranscriptTimecodesEnabled(_ isEnabled: Bool) throws {
+        try withDatabase { database in
+            try DatabaseMigrator.migrate(database)
+            try setValue(String(isEnabled), forKey: Self.meetingTranscriptTimecodesEnabledKey, in: database)
+        }
+        meetingTranscriptTimecodesEnabled = isEnabled
+    }
+
+    func updateMeetingDiarizationEnabled(_ isEnabled: Bool) throws {
+        try withDatabase { database in
+            try DatabaseMigrator.migrate(database)
+            try setValue(String(isEnabled), forKey: Self.meetingDiarizationEnabledKey, in: database)
+        }
+        meetingDiarizationEnabled = isEnabled
     }
 
     func updateOpenAtLogin(_ isEnabled: Bool) throws {
@@ -257,7 +287,10 @@ final class AppSettingsStore: ObservableObject {
             return VoicePenConfig.defaultHotkeyHoldDuration
         }
 
-        return min(max(value, 0.1), 2.0)
+        return min(
+            max(value, VoicePenConfig.minimumHotkeyHoldDuration),
+            VoicePenConfig.maximumHotkeyHoldDuration
+        )
     }
 
     private static func normalizeBoolean(_ value: String) -> Bool {
@@ -286,6 +319,8 @@ final class AppSettingsStore: ObservableObject {
     private static let speechPreprocessingKey = "audio.speechPreprocessingMode"
     private static let boostDictationInputGainKey = "audio.boostDictationInputGain"
     private static let meetingVoiceLevelingEnabledKey = "audio.meetingVoiceLevelingEnabled"
+    private static let meetingTranscriptTimecodesEnabledKey = "meeting.transcriptTimecodesEnabled"
+    private static let meetingDiarizationEnabledKey = "meeting.diarizationEnabled"
     private static let hotkeyPreferenceKey = "hotkey.preference"
     private static let hotkeyHoldDurationKey = "hotkey.holdDuration"
     private static let openAtLoginKey = "app.openAtLogin"

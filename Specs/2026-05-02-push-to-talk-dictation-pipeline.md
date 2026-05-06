@@ -28,13 +28,15 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 - When the recording overlay shows the microphone level indicator, the white level bar shall animate vertically without horizontal jitter.
 - When recording duration is below the minimum, VoicePen shall stop without transcription or insertion.
 - When audio is silent or transcription returns an empty result, VoicePen shall not insert text or create a history recording.
-- When local transcription returns known short subtitle or outro artifact lines such as "Субтитры сделал ...", "Добавил субтитры ...", or "Продолжение следует...", VoicePen shall remove those lines before normalization, insertion, or history storage.
+- When local transcription returns known short subtitle or outro artifact lines such as "Субтитры сделал ...", "Субтитры создавал ...", "Добавил субтитры ...", or "Продолжение следует...", VoicePen shall remove those lines before normalization, insertion, or history storage.
 - When recording is valid, VoicePen shall preprocess audio before transcription, pass the resolved language and glossary prompt, normalize raw text, insert non-empty final text, and record timing data.
 - When final text is prepared for output, VoicePen shall always replace `ё` with `е`, `Ё` with `Е`, long dashes with `–`, and typographic quotes with plain quotes before insertion or history storage.
 - When insertion succeeds, VoicePen shall hide the processing overlay without showing a success notification.
 - When transcription fails, VoicePen shall propagate the error and never insert partial text.
 - When dictation processing does not complete within 30 seconds, VoicePen shall cancel processing, leave the transcribing state, surface a timeout error, and allow a later recording attempt.
 - When the user records or changes a custom push-to-talk shortcut, VoicePen shall install that shortcut without requiring an app restart or another hotkey preference change.
+- When the custom push-to-talk shortcut recorder is visible, VoicePen shall show a short secondary note that macOS or app menus can reserve some shortcuts.
+- When General settings show the hold duration control, VoicePen shall attach the recording-start explanation to that control as contextual help instead of a section footer.
 - When the custom shortcut preference is selected before a shortcut has been recorded, VoicePen shall surface that the shortcut is missing without entering a persistent fatal error state.
 - When VoicePen shows its menu bar extra menu, it shall group related commands with separators, hide dictation or text actions that are not available in the current state, omit idle status text, include the configured push-to-talk hotkey hint on visible dictation commands, and label latest-text actions as dictation actions so they are not confused with Meeting Mode transcripts.
 
@@ -45,13 +47,14 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 | Short recording | 0.2s recording | No transcription and no insertion |
 | Recording overlay | Active recording with changing input level | The microphone level bar changes height while staying horizontally anchored |
 | Silent recording | Valid duration with no speech | No insertion and no history recording |
-| Artifact-only transcription | Whisper returns only `Продолжение следует...` | No insertion and no history recording |
+| Artifact-only transcription | Whisper returns only `Субтитры создавал DimaTorzok` | No insertion and no history recording |
 | Artifact line with useful text | Whisper returns subtitle credit, useful dictated text, and `Продолжение следует...` | Inserts and stores only the useful dictated text |
 | Normal recording | "создай типы на тайп скрипт" | Inserts "создай типы на TypeScript" |
 | Global output normalization | `Ёжик сказал: «пойдём» — готово` | `Ежик сказал: "пойдем" – готово` |
 | Transcription error | Transcriber throws | Error propagates and nothing is inserted |
 | Hung transcription | Transcriber or processing backend does not return | VoicePen exits transcribing and surfaces a timeout error |
 | Custom shortcut recorded | User selects custom shortcut and records Ctrl-E | Holding Ctrl-E starts push-to-talk without restarting VoicePen |
+| Reserved shortcut | User opens the custom shortcut recorder | A short secondary note explains that some shortcuts may be reserved by macOS or app menus |
 | Empty custom shortcut | User selects custom shortcut before recording one | VoicePen reports that the shortcut is missing and becomes active once a shortcut is recorded |
 | Menu bar extra while idle with no text | Open VoicePen menu bar extra | Shows the available dictation action with its hotkey hint, app/config actions, and quit without idle status text or disabled text actions |
 | Menu bar extra after dictation | Dictation produced text and the menu is open | Latest-text actions are labeled as dictation actions, not generic transcription actions |
@@ -63,7 +66,7 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 - Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` and `VoicePenTests/Transcription/TranscriptionPostFilterTests.swift` cover known subtitle/outro artifact cleanup before insertion.
 - Automated: `VoicePenTests/TextOutput/TextOutputNormalizerTests.swift` covers global output character replacements.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers reinstalling the push-to-talk hotkey when a custom shortcut is recorded after the custom preference is selected and dictation timeout recovery when processing hangs.
-- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers menu bar extra command grouping, hiding unavailable menu actions, omitting idle status text, showing push-to-talk hotkey hints, and labeling latest-text actions as dictation actions.
+- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers menu bar extra command grouping, hiding unavailable menu actions, omitting idle status text, showing push-to-talk hotkey hints, showing the custom shortcut limitation note in General settings, attaching hold-duration help to the hold-duration control, and labeling latest-text actions as dictation actions.
 - Manual: verify the menu bar app records while the configured hotkey is held and pastes final text into the active app when Accessibility permission is granted.
 - Manual: hold the configured push-to-talk hotkey and verify the white microphone level bar changes height without moving left or right inside the red capsule.
 - Manual: select the custom push-to-talk shortcut, record Ctrl-E, hold Ctrl-E for the configured hold duration, and verify recording starts without restarting VoicePen.

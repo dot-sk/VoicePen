@@ -49,6 +49,25 @@ nonisolated struct MeetingPipelineTimings: Codable, Equatable, Sendable {
     }
 }
 
+nonisolated struct MeetingProcessingProgress: Equatable, Sendable {
+    var completedChunks: Int
+    var totalChunks: Int
+
+    init(completedChunks: Int, totalChunks: Int) {
+        self.totalChunks = max(0, totalChunks)
+        self.completedChunks = min(max(0, completedChunks), self.totalChunks)
+    }
+
+    var fraction: Double {
+        guard totalChunks > 0 else { return 0 }
+        return Double(completedChunks) / Double(totalChunks)
+    }
+
+    var percent: Int {
+        Int((fraction * 100).rounded())
+    }
+}
+
 nonisolated struct MeetingRecoveryAudioManifest: Codable, Equatable, Sendable {
     var createdAt: Date
     var expiresAt: Date

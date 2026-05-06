@@ -237,31 +237,47 @@ struct GeneralSettingsView: View {
                 .pickerStyle(.menu)
 
                 if settingsStore.hotkeyPreference == .custom {
-                    LabeledContent("Custom shortcut") {
+                    LabeledContent {
                         KeyboardShortcuts.Recorder(for: .voicePenPushToTalk) { _ in
                             Task { @MainActor in
                                 controller.customHotkeyDidChange()
                             }
                         }
                         .controlSize(.small)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Custom shortcut")
+                            ShortcutLimitNotice()
+                        }
                     }
                 }
 
-                LabeledContent("Hold duration") {
+                LabeledContent {
                     HStack(spacing: 10) {
-                        Slider(value: holdDuration, in: 0.1...2.0, step: 0.05)
-                            .frame(width: 220)
+                        Slider(
+                            value: holdDuration,
+                            in: VoicePenConfig.minimumHotkeyHoldDuration...VoicePenConfig.maximumHotkeyHoldDuration,
+                            step: 0.05
+                        )
+                        .frame(width: 220)
                         Text(settingsStore.hotkeyHoldDuration, format: .number.precision(.fractionLength(2)))
                             .monospacedDigit()
                             .frame(width: 42, alignment: .trailing)
                         Text("s")
                             .foregroundStyle(.secondary)
                     }
+                } label: {
+                    HStack(spacing: 6) {
+                        Text("Hold duration")
+                        HelpTipButton(
+                            title: "Hold duration",
+                            text: "Recording starts only after the selected shortcut is held for the configured duration. Release it to transcribe and insert text."
+                        )
+                    }
                 }
             } header: {
                 Text("Shortcut")
-            } footer: {
-                Text("Recording starts only after the selected shortcut is held for the configured duration. Release it to transcribe and insert text.")
             }
 
             Section {
@@ -309,6 +325,15 @@ private struct UsageStatView: View {
                 .lineLimit(2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct ShortcutLimitNotice: View {
+    var body: some View {
+        Text("Some shortcuts are reserved by macOS or app menus. Try Control or Command with a letter.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -692,6 +717,8 @@ private enum OllamaAvailabilityViewState: Equatable {
 
 struct ConfigSettingsView: View {
     @ObservedObject var controller: AppController
+    @State private var isConfigReloaded = false
+    @State private var configReloadFeedbackTask: Task<Void, Never>?
 
     private var boostDictationInputGain: Binding<Bool> {
         Binding(
@@ -707,6 +734,20 @@ struct ConfigSettingsView: View {
         )
     }
 
+    private var meetingTranscriptTimecodesEnabled: Binding<Bool> {
+        Binding(
+            get: { controller.settingsStore.meetingTranscriptTimecodesEnabled },
+            set: { controller.updateMeetingTranscriptTimecodesEnabled($0) }
+        )
+    }
+
+    private var meetingDiarizationEnabled: Binding<Bool> {
+        Binding(
+            get: { controller.settingsStore.meetingDiarizationEnabled },
+            set: { controller.updateMeetingDiarizationEnabled($0) }
+        )
+    }
+
     var body: some View {
         Form {
             Section {
@@ -716,12 +757,30 @@ struct ConfigSettingsView: View {
                 Text("Audio")
             } footer: {
                 Text(
-                    "VoicePen uses the macOS default microphone. Dictation can temporarily raise supported input levels while recording. Meeting audio can use system dynamics and peak limiting before local transcription; if processing is unavailable, VoicePen continues with ordinary audio."
+                    "VoicePen uses the macOS default microphone. Dictation can temporarily raise supported input levels while recording. Meeting audio can use system dynamics and peak limiting before local transcription."
                 )
             }
 
             Section {
-                LabeledContent("Config file", value: controller.userConfigURL.path)
+                Toggle(isOn: meetingTranscriptTimecodesEnabled) {
+                    configSettingLabel(
+                        "Meeting transcript timecodes",
+                        help: "Adds meeting-relative timecodes to the transcript."
+                    )
+                }
+
+                Toggle(isOn: meetingDiarizationEnabled) {
+                    configSettingLabel(
+                        "Meeting diarization",
+                        help: "Adds experimental offline speaker labels for Meeting Mode with a separate local diarization model."
+                    )
+                }
+            } header: {
+                Text("Meeting features")
+            }
+
+            Section {
+                LabeledContent("Path", value: controller.userConfigURL.path)
                 LabeledContent(
                     "Status",
                     value: controller.userConfigLoadResult.diagnosticNotes.isEmpty ? "Loaded" : "Using last valid config"
@@ -730,9 +789,19 @@ struct ConfigSettingsView: View {
                 HStack {
                     Button {
                         controller.reloadUserConfig()
+                        showConfigReloadedFeedback()
                     } label: {
-                        Label("Reload Config", systemImage: "arrow.clockwise")
+                        ZStack {
+                            Label("Reload Config", systemImage: "arrow.clockwise")
+                                .opacity(isConfigReloaded ? 0 : 1)
+                            Label("Reloaded", systemImage: "checkmark")
+                                .opacity(isConfigReloaded ? 1 : 0)
+                        }
+                        .accessibilityHidden(true)
                     }
+                    .foregroundStyle(isConfigReloaded ? .green : .primary)
+                    .help(isConfigReloaded ? "Config reloaded" : "Reload Config")
+                    .accessibilityLabel(isConfigReloaded ? "Config reloaded" : "Reload Config")
 
                     Button {
                         controller.openUserConfigFile()
@@ -740,6 +809,8 @@ struct ConfigSettingsView: View {
                         Label("Open Config File", systemImage: "doc.text")
                     }
                 }
+            } header: {
+                Text("Config file")
             } footer: {
                 Text("Dictation reloads this TOML file automatically. Reload Config refreshes settings displays and environment values immediately.")
             }
@@ -763,6 +834,27 @@ struct ConfigSettingsView: View {
                 await Task.yield()
                 controller.reloadUserConfig()
             }
+        }
+        .onDisappear {
+            configReloadFeedbackTask?.cancel()
+        }
+    }
+
+    private func showConfigReloadedFeedback() {
+        isConfigReloaded = true
+        configReloadFeedbackTask?.cancel()
+        configReloadFeedbackTask = Task {
+            try? await Task.sleep(for: VoicePenConfig.historyCopyFeedbackDuration)
+            await MainActor.run {
+                isConfigReloaded = false
+            }
+        }
+    }
+
+    private func configSettingLabel(_ title: String, help: String) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+            HelpTipButton(title: title, text: help)
         }
     }
 }
@@ -818,6 +910,8 @@ struct ModelSettingsView: View {
     @ObservedObject var settingsStore: AppSettingsStore
     @State private var showingDownloadConfirmation = false
     @State private var showingDeleteConfirmation = false
+    @State private var showingDiarizationDownloadConfirmation = false
+    @State private var showingDiarizationDeleteConfirmation = false
 
     private var languageSelection: Binding<String> {
         Binding(
@@ -894,10 +988,12 @@ struct ModelSettingsView: View {
                         Label("Open Folder", systemImage: "folder")
                     }
 
-                    Button {
+                    CopyButton(
+                        title: "Copy Diagnostics",
+                        systemImage: "stethoscope",
+                        presentation: .label
+                    ) {
                         controller.copyModelDiagnostics()
-                    } label: {
-                        Label("Copy Diagnostics", systemImage: "stethoscope")
                     }
 
                     Button(role: .destructive) {
@@ -910,36 +1006,80 @@ struct ModelSettingsView: View {
             }
 
             Section {
-                Picker("Primary language", selection: languageSelection) {
+                Picker(selection: languageSelection) {
                     ForEach(AppSettingsStore.supportedLanguages) { language in
                         Text(language.displayName)
                             .tag(language.code)
                     }
+                } label: {
+                    recognitionSettingLabel(
+                        "Primary language",
+                        help: "Auto-detect is recommended for multilingual dictation. Choosing one language can be faster and more predictable when you know what you will speak."
+                    )
                 }
                 .pickerStyle(.menu)
 
-                Picker("Speech preprocessing", selection: speechPreprocessingSelection) {
+                Picker(selection: speechPreprocessingSelection) {
                     ForEach(SpeechPreprocessingMode.allCases) { mode in
                         Text(mode.displayName)
                             .tag(mode)
                     }
+                } label: {
+                    recognitionSettingLabel(
+                        "Speech preprocessing",
+                        help: "Slower preprocessing can help with fast speech, but it increases transcription time."
+                    )
                 }
                 .pickerStyle(.menu)
             } header: {
                 Text("Recognition")
-            } footer: {
-                Text(
-                    "Auto-detect is recommended for multilingual dictation. Use Russian or English only when you want to force Whisper into that language. Slower preprocessing can help with fast speech, but it increases transcription time."
-                )
             }
 
             Section {
-                Text(controller.selectedModel.description)
-                    .foregroundStyle(.secondary)
+                LabeledContent("Status", value: controller.meetingDiarizationModelStatusTitle)
+                LabeledContent("Install path", value: controller.meetingDiarizationModelDirectory.path)
 
-                Text("Models are downloaded only after confirmation and then used locally for transcription.")
-                    .foregroundStyle(.secondary)
+                if controller.isDownloadingMeetingDiarizationModel {
+                    meetingDiarizationModelDownloadProgressView
+                }
+
+                HStack {
+                    if controller.isDownloadingMeetingDiarizationModel {
+                        Button(role: .cancel) {
+                            controller.cancelMeetingDiarizationModelDownload()
+                        } label: {
+                            Label("Cancel Download", systemImage: "xmark.circle")
+                        }
+                    } else {
+                        Button {
+                            showingDiarizationDownloadConfirmation = true
+                        } label: {
+                            Label("Download Model", systemImage: "arrow.down.circle")
+                        }
+                        .disabled(controller.isMeetingDiarizationModelInstalled)
+                    }
+
+                    Button {
+                        controller.warmUpMeetingDiarizationModel()
+                    } label: {
+                        Label("Warm Up", systemImage: "flame")
+                    }
+                    .disabled(!controller.isMeetingDiarizationModelInstalled)
+
+                    Button(role: .destructive) {
+                        showingDiarizationDeleteConfirmation = true
+                    } label: {
+                        Label("Delete Files", systemImage: "trash")
+                    }
+                    .disabled(
+                        controller.isDownloadingMeetingDiarizationModel
+                            || !controller.isMeetingDiarizationModelInstalled
+                    )
+                }
+            } header: {
+                Text("Meeting diarization")
             }
+
         }
         .formStyle(.grouped)
         .padding(18)
@@ -959,6 +1099,29 @@ struct ModelSettingsView: View {
         } message: {
             Text("VoicePen will remove downloaded files for \(controller.selectedModel.displayName). Bundled app resources will not be deleted.")
         }
+        .alert("Download meeting diarization model?", isPresented: $showingDiarizationDownloadConfirmation) {
+            Button("Download") {
+                controller.downloadMeetingDiarizationModel()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("VoicePen will download local VAD and speaker embedding files for Meeting Mode.")
+        }
+        .alert("Delete meeting diarization model files?", isPresented: $showingDiarizationDeleteConfirmation) {
+            Button("Delete", role: .destructive) {
+                controller.deleteMeetingDiarizationModelFiles()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("VoicePen will remove downloaded Meeting diarization files. Transcription models are not affected.")
+        }
+    }
+
+    private func recognitionSettingLabel(_ title: String, help: String) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+            HelpTipButton(title: title, text: help)
+        }
     }
 
     @ViewBuilder
@@ -976,11 +1139,51 @@ struct ModelSettingsView: View {
         }
     }
 
+    @ViewBuilder
+    private var meetingDiarizationModelDownloadProgressView: some View {
+        if let progress = controller.meetingDiarizationModelDownloadProgress {
+            ProgressView(value: progress, total: 1.0) {
+                Text("Downloading Meeting diarization model")
+            }
+            .progressViewStyle(.linear)
+        } else {
+            ProgressView("Downloading Meeting diarization model")
+        }
+    }
+
     private func artifactStatusLabel(_ status: ModelArtifactStatus) -> some View {
         Label(
             status.isPresent ? "OK" : "Missing",
             systemImage: status.isPresent ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
         )
         .foregroundStyle(status.isPresent ? .green : .orange)
+    }
+}
+
+private struct HelpTipButton: View {
+    let title: String
+    let text: String
+    @State private var isShowingHelp = false
+
+    var body: some View {
+        Button {
+            isShowingHelp.toggle()
+        } label: {
+            Image(systemName: "questionmark.circle")
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title) help")
+        .accessibilityHint(text)
+        .onHover { isHovering in
+            isShowingHelp = isHovering
+        }
+        .popover(isPresented: $isShowingHelp, arrowEdge: .trailing) {
+            Text(text)
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(12)
+                .frame(width: 280, alignment: .leading)
+        }
     }
 }
