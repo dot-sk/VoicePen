@@ -87,11 +87,6 @@ final class AppController: ObservableObject {
     private var transcriptionTask: Task<Void, Never>?
     private var transcriptionTimeoutTask: Task<Void, Never>?
     private var activeTranscriptionID: UUID?
-    private var meetingProcessingTask: Task<Void, Never>?
-    private var meetingProcessingTimeoutTask: Task<Void, Never>?
-    private var activeMeetingProcessingID: UUID?
-    private var meetingStatusTask: Task<Void, Never>?
-    private var meetingStartedAt: Date?
     private var didHandleCurrentTranscriptionCancellation = false
     private var isWaitingForCustomShortcut = false
     private var accessibilityPermissionPollingTask: Task<Void, Never>?
@@ -99,7 +94,42 @@ final class AppController: ObservableObject {
 
     private static let microphonePermissionRequiredMessage = "Microphone permission is required to record dictation audio locally."
     private static let accessibilityPermissionRequiredMessage = "Text insertion permission is required so VoicePen can paste text into the active app."
-    private static let systemAudioPermissionRequiredMessage = "System Audio permission is required to capture meeting audio locally."
+
+    private lazy var meetingStore = MeetingRecordingStore(
+        environment: MeetingRecordingStore.Environment(
+            meetingPipeline: meetingPipeline,
+            meetingHistoryStore: meetingHistoryStore,
+            permissions: permissions,
+            settingsStore: settingsStore,
+            userPrompts: userPrompts,
+            captureStartTimeout: meetingCaptureStartTimeout,
+            processingTimeout: meetingProcessingTimeout,
+            getAppState: { [weak self] in
+                self?.appState ?? .starting
+            },
+            setAppState: { [weak self] state in
+                self?.appState = state
+            },
+            setErrorMessage: { [weak self] message in
+                self?.errorMessage = message
+            },
+            setElapsedTime: { [weak self] elapsedTime in
+                self?.meetingElapsedTime = elapsedTime
+            },
+            setSourceStatus: { [weak self] status in
+                self?.meetingSourceStatus = status
+            },
+            presentError: { [weak self] error in
+                self?.setError(error)
+            },
+            refreshBaseState: { [weak self] in
+                self?.updateStateAfterModelChange()
+            },
+            cancelModelWarmup: { [weak self] in
+                self?.cancelModelWarmup()
+            }
+        )
+    )
 
     var recommendedModel: ModelManifestModel {
         modelManifest.recommendedModel
@@ -991,98 +1021,17 @@ final class AppController: ObservableObject {
 
     @discardableResult
     func startMeetingRecording() -> Task<Void, Never>? {
-        guard let meetingPipeline else { return nil }
-        guard
-            appState == .ready
-                || appState == .missingModel
-                || appState == .missingAccessibilityPermission
-        else { return nil }
-        guard acknowledgeMeetingRecordingConsentIfNeeded() else { return nil }
-
-        guard permissions.microphonePermissionStatus == .authorized else {
-            appState = .missingMicrophonePermission
-            errorMessage = Self.microphonePermissionRequiredMessage
-            return nil
-        }
-
-        cancelModelWarmup()
-        let meetingCaptureStartTimeout = self.meetingCaptureStartTimeout
-        let task = Task { [weak self, meetingPipeline] in
-            guard let self else { return }
-            do {
-                appState = .meetingRecording
-                errorMessage = nil
-                meetingStartedAt = Date()
-                meetingElapsedTime = 0
-                try await AsyncOperationTimeout.run(
-                    timeout: meetingCaptureStartTimeout,
-                    timeoutError: { MeetingRecordingError.captureTimedOut },
-                    operation: {
-                        try await meetingPipeline.start()
-                    }
-                )
-                startMeetingStatusUpdates()
-            } catch {
-                handleMeetingStartError(error)
-            }
-        }
-        return task
+        meetingStore.start()
     }
 
     @discardableResult
     func stopMeetingRecording() -> Task<Void, Never>? {
-        guard appState == .meetingRecording,
-            let meetingPipeline,
-            meetingProcessingTask == nil
-        else { return nil }
-
-        let processingID = UUID()
-        activeMeetingProcessingID = processingID
-        let task = Task { [weak self, meetingPipeline] in
-            guard let self else { return }
-            defer {
-                finishMeetingProcessing(id: processingID)
-            }
-
-            do {
-                appState = .meetingProcessing
-                stopMeetingStatusUpdates()
-                startMeetingProcessingTimeoutMonitor(id: processingID)
-                let entry = try await meetingPipeline.stopAndProcess()
-                guard activeMeetingProcessingID == processingID else { return }
-                meetingElapsedTime = entry.duration
-                updateStateAfterModelChange()
-                errorMessage = nil
-            } catch {
-                guard activeMeetingProcessingID == processingID else { return }
-                stopMeetingStatusUpdates()
-                setError(error)
-            }
-        }
-        meetingProcessingTask = task
-        return task
+        meetingStore.stop()
     }
 
     @discardableResult
     func cancelMeetingRecording() -> Task<Void, Never>? {
-        guard appState == .meetingRecording,
-            let meetingPipeline
-        else { return nil }
-
-        let task = Task { [weak self, meetingPipeline] in
-            guard let self else { return }
-            do {
-                try await meetingPipeline.cancel()
-                stopMeetingStatusUpdates()
-                meetingElapsedTime = 0
-                meetingSourceStatus = .idle
-                updateStateAfterModelChange()
-                errorMessage = nil
-            } catch {
-                setError(error)
-            }
-        }
-        return task
+        meetingStore.cancel()
     }
 
     func copyMeetingTranscript(_ entry: MeetingHistoryEntry) {
@@ -1095,104 +1044,11 @@ final class AppController: ObservableObject {
 
     @discardableResult
     func retryMeetingProcessing(_ entry: MeetingHistoryEntry) -> Task<Void, Never>? {
-        guard appState != .meetingRecording,
-            appState != .meetingProcessing,
-            let meetingPipeline,
-            meetingProcessingTask == nil
-        else { return nil }
-
-        let processingID = UUID()
-        activeMeetingProcessingID = processingID
-        let task = Task { [weak self, meetingPipeline] in
-            guard let self else { return }
-            defer {
-                finishMeetingProcessing(id: processingID)
-            }
-
-            do {
-                appState = .meetingProcessing
-                startMeetingProcessingTimeoutMonitor(id: processingID)
-                let retriedEntry = try await meetingPipeline.retryProcessing(entry)
-                guard activeMeetingProcessingID == processingID else { return }
-                meetingElapsedTime = retriedEntry.duration
-                updateStateAfterModelChange()
-                errorMessage = nil
-            } catch {
-                guard activeMeetingProcessingID == processingID else { return }
-                setError(error)
-            }
-        }
-        meetingProcessingTask = task
-        return task
+        meetingStore.retry(entry)
     }
 
     func deleteMeetingEntry(id: MeetingHistoryEntry.ID) {
-        do {
-            try meetingHistoryStore?.delete(id: id)
-        } catch {
-            setError(error)
-        }
-    }
-
-    private func acknowledgeMeetingRecordingConsentIfNeeded() -> Bool {
-        guard !settingsStore.hasAcknowledgedMeetingRecordingConsent else { return true }
-
-        let response = userPrompts.showAlert(
-            messageText: "Start meeting recording?",
-            informativeText: """
-                VoicePen will record microphone and system audio only after you start Meeting Recording. Transcription runs locally, raw audio is temporary, and meeting output is saved as transcript history.
-                """,
-            style: .informational,
-            buttons: ["Start Recording", "Cancel"],
-            activateBeforeShowing: true
-        )
-
-        guard response == .alertFirstButtonReturn else { return false }
-        do {
-            try settingsStore.updateMeetingRecordingConsentAcknowledged(true)
-            return true
-        } catch {
-            setError(error)
-            return false
-        }
-    }
-
-    private func handleMeetingStartError(_ error: Error) {
-        if let meetingError = error as? MeetingRecordingError,
-            meetingError == .systemAudioPermissionDenied
-        {
-            appState = .missingSystemAudioPermission
-            errorMessage = Self.systemAudioPermissionRequiredMessage
-            return
-        }
-
-        setError(error)
-    }
-
-    private func startMeetingStatusUpdates() {
-        meetingStatusTask?.cancel()
-        meetingStatusTask = Task { @MainActor [weak self] in
-            while let self, !Task.isCancelled {
-                if self.appState == .meetingRecording {
-                    let activeElapsed = Date().timeIntervalSince(self.meetingStartedAt ?? Date())
-                    self.meetingElapsedTime = activeElapsed
-                }
-                let sourceStatus = self.meetingPipeline?.sourceStatus ?? .idle
-                self.meetingSourceStatus = sourceStatus
-                if self.appState == .meetingRecording, sourceStatus.hasFailedSource {
-                    _ = self.stopMeetingRecording()
-                    return
-                }
-                try? await Task.sleep(for: .milliseconds(250))
-            }
-        }
-    }
-
-    private func stopMeetingStatusUpdates() {
-        meetingStatusTask?.cancel()
-        meetingStatusTask = nil
-        meetingStartedAt = nil
-        meetingSourceStatus = .idle
+        meetingStore.deleteEntry(id: id)
     }
 
     func deleteHistoryEntry(id: VoiceHistoryEntry.ID) {
@@ -1411,38 +1267,6 @@ final class AppController: ObservableObject {
         transcriptionTimeoutTask = nil
         transcriptionTask = nil
         activeTranscriptionID = nil
-    }
-
-    private func startMeetingProcessingTimeoutMonitor(id: UUID) {
-        meetingProcessingTimeoutTask?.cancel()
-        let timeout = meetingProcessingTimeout
-        meetingProcessingTimeoutTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(for: timeout)
-            } catch {
-                return
-            }
-
-            self?.handleMeetingProcessingTimeout(id: id)
-        }
-    }
-
-    private func handleMeetingProcessingTimeout(id: UUID) {
-        guard activeMeetingProcessingID == id, appState == .meetingProcessing else { return }
-
-        AppLogger.error("Meeting processing timed out")
-        meetingProcessingTask?.cancel()
-        finishMeetingProcessing(id: id)
-        setError(TranscriptionError.transcriptionTimedOut)
-    }
-
-    private func finishMeetingProcessing(id: UUID?) {
-        guard activeMeetingProcessingID == id else { return }
-
-        meetingProcessingTimeoutTask?.cancel()
-        meetingProcessingTimeoutTask = nil
-        meetingProcessingTask = nil
-        activeMeetingProcessingID = nil
     }
 
     private func setError(_ error: Error) {
