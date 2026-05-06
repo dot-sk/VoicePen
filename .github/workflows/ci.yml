@@ -112,7 +112,9 @@ jobs:
             .build
             .swiftlint-cache
             ~/.swiftpm
+            ~/Library/org.swift.swiftpm
             ~/Library/Caches/org.swift.swiftpm
+            /private/tmp/VoicePenDerivedData/SourcePackages
           key: ${{ runner.os }}-${{ runner.arch }}-swift-${{ hashFiles('Package.swift', 'Package.resolved', 'VoicePen.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-swift-
@@ -151,7 +153,10 @@ jobs:
           path: |
             .build
             ~/.swiftpm
+            ~/Library/org.swift.swiftpm
             ~/Library/Caches/org.swift.swiftpm
+            /private/tmp/VoicePenDerivedData/SourcePackages
+            /private/tmp/VoicePenDerivedData/Build/Intermediates.noindex
           key: ${{ runner.os }}-${{ runner.arch }}-swift-${{ hashFiles('Package.swift', 'Package.resolved', 'VoicePen.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-swift-

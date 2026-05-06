@@ -46,7 +46,9 @@ code-impacting changes. Documentation-only pushes skip the local unit-test loop.
   `brew install xcbeautify`.
 
 CI runs SwiftLint and unit tests for code-impacting pull requests and pushes,
-restoring the SwiftPM build cache before the macOS job so expensive package
-builds can be reused. Documentation-only pull requests skip those code checks.
-Unused-code analysis stays available through `make dead-code` and the optional
-manual CI input `run_dead_code`.
+restoring SwiftPM package and build caches before the macOS job so expensive
+dependency downloads and package builds can be reused. The cache key is based on
+Swift package manifests rather than the branch name, so once `main` has a warm
+cache, future pull requests can restore it. Documentation-only pull requests
+skip those code checks. Unused-code analysis stays available through
+`make dead-code` and the optional manual CI input `run_dead_code`.
