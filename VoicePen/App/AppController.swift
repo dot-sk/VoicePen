@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import UniformTypeIdentifiers
 
 @MainActor
 protocol UserPromptPresenter {
@@ -110,6 +111,7 @@ final class AppController: ObservableObject {
     private let launchAtLogin: LaunchAtLoginClient
     private let userPrompts: UserPromptPresenter
     private let environmentSettingsStore: AppEnvironmentSettingsStore
+    private let meetingRunningApplicationBundleIdentifiersProvider: () -> Set<String>
     private let dictationProcessingTimeout: Duration
     private let modelDownloadTimeout: Duration
     private let modelWarmupTimeout: Duration
@@ -147,6 +149,7 @@ final class AppController: ObservableObject {
             userPrompts: userPrompts,
             captureStartTimeout: meetingCaptureStartTimeout,
             processingTimeout: meetingProcessingTimeout,
+            runningApplicationBundleIdentifiersProvider: meetingRunningApplicationBundleIdentifiersProvider,
             getAppState: { [weak self] in
                 self?.appState ?? .starting
             },
@@ -328,6 +331,9 @@ final class AppController: ObservableObject {
         launchAtLogin: LaunchAtLoginClient? = nil,
         userPrompts: UserPromptPresenter,
         environmentSettingsStore: AppEnvironmentSettingsStore? = nil,
+        meetingRunningApplicationBundleIdentifiersProvider: @escaping () -> Set<String> = {
+            Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
+        },
         dictationProcessingTimeout: Duration = VoicePenConfig.dictationProcessingTimeout,
         modelDownloadTimeout: Duration = VoicePenConfig.modelDownloadTimeout,
         modelWarmupTimeout: Duration = VoicePenConfig.modelWarmupTimeout,
@@ -355,6 +361,7 @@ final class AppController: ObservableObject {
         self.launchAtLogin = launchAtLogin ?? NoOpLaunchAtLoginClient()
         self.userPrompts = userPrompts
         self.environmentSettingsStore = environmentSettingsStore ?? AppEnvironmentSettingsStore()
+        self.meetingRunningApplicationBundleIdentifiersProvider = meetingRunningApplicationBundleIdentifiersProvider
         self.dictationProcessingTimeout = dictationProcessingTimeout
         self.modelDownloadTimeout = modelDownloadTimeout
         self.modelWarmupTimeout = modelWarmupTimeout
@@ -420,7 +427,15 @@ final class AppController: ObservableObject {
         let meetingPipeline = MeetingPipeline(
             recorder: CompositeMeetingRecordingClient(
                 microphoneSource: AVFoundationMicrophoneMeetingAudioSource(tempDirectory: paths.tempAudioDirectory),
-                systemAudioSource: CoreAudioSystemOutputSource(tempDirectory: paths.tempAudioDirectory)
+                systemAudioSource: CoreAudioSystemOutputSource(
+                    tempDirectory: paths.tempAudioDirectory,
+                    settingsProvider: {
+                        MeetingSystemAudioSourceSettings(
+                            mode: settingsStore.meetingSystemAudioSourceMode,
+                            selectedApps: settingsStore.meetingAudioAppSelections
+                        )
+                    }
+                )
             ),
             audioPreprocessor: audioPreprocessor,
             voiceLevelingProcessor: SystemVoiceLevelingProcessor(outputDirectory: paths.tempAudioDirectory),
@@ -1487,6 +1502,14 @@ final class AppController: ObservableObject {
         }
     }
 
+    func updateMeetingSystemAudioSourceMode(_ mode: MeetingSystemAudioSourceMode) {
+        do {
+            try settingsStore.updateMeetingSystemAudioSourceMode(mode)
+        } catch {
+            setError(error)
+        }
+    }
+
     @discardableResult
     func updateMeetingDiarizationEnabled(_ isEnabled: Bool) -> Task<Void, Never>? {
         do {
@@ -1502,6 +1525,65 @@ final class AppController: ObservableObject {
             setError(error)
         }
         return nil
+    }
+
+    func chooseMeetingSystemAudioApp() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        panel.message = "Choose apps to include or exclude from Meeting system audio."
+        guard panel.runModal() == .OK else { return }
+        addMeetingSystemAudioApps(at: panel.urls)
+    }
+
+    func addMeetingSystemAudioApp(at appURL: URL) {
+        addMeetingSystemAudioApps(at: [appURL])
+    }
+
+    func addMeetingSystemAudioApps(at appURLs: [URL]) {
+        let selections = appURLs.compactMap(meetingAudioAppSelection)
+        guard !selections.isEmpty else {
+            errorMessage = "Choose a valid macOS app with a bundle identifier."
+            return
+        }
+        addMeetingSystemAudioApps(selections)
+    }
+
+    func addMeetingSystemAudioApp(_ selection: MeetingAudioAppSelection) {
+        addMeetingSystemAudioApps([selection])
+    }
+
+    func addMeetingSystemAudioApps(_ selections: [MeetingAudioAppSelection]) {
+        do {
+            try settingsStore.updateMeetingAudioAppSelections(settingsStore.meetingAudioAppSelections + selections)
+        } catch {
+            setError(error)
+        }
+    }
+
+    func removeMeetingSystemAudioApp(bundleIdentifier: String) {
+        do {
+            try settingsStore.updateMeetingAudioAppSelections(
+                settingsStore.meetingAudioAppSelections.filter { $0.bundleIdentifier != bundleIdentifier }
+            )
+        } catch {
+            setError(error)
+        }
+    }
+
+    private func meetingAudioAppSelection(at appURL: URL) -> MeetingAudioAppSelection? {
+        guard let bundle = Bundle(url: appURL), let bundleIdentifier = bundle.bundleIdentifier else {
+            return nil
+        }
+        let displayName =
+            bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? bundle.object(forInfoDictionaryKey: "CFBundleName") as? String
+            ?? appURL.deletingPathExtension().lastPathComponent
+        let selection = MeetingAudioAppSelection(displayName: displayName, bundleIdentifier: bundleIdentifier)
+        return selection.isValid ? selection : nil
     }
 
     func updateHotkeyPreference(_ preference: HotkeyPreference) {

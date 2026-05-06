@@ -717,34 +717,42 @@ private enum OllamaAvailabilityViewState: Equatable {
 
 struct ConfigSettingsView: View {
     @ObservedObject var controller: AppController
+    @ObservedObject var settingsStore: AppSettingsStore
     @State private var isConfigReloaded = false
     @State private var configReloadFeedbackTask: Task<Void, Never>?
 
     private var boostDictationInputGain: Binding<Bool> {
         Binding(
-            get: { controller.settingsStore.boostDictationInputGain },
+            get: { settingsStore.boostDictationInputGain },
             set: { controller.updateBoostDictationInputGain($0) }
         )
     }
 
     private var meetingVoiceLevelingEnabled: Binding<Bool> {
         Binding(
-            get: { controller.settingsStore.meetingVoiceLevelingEnabled },
+            get: { settingsStore.meetingVoiceLevelingEnabled },
             set: { controller.updateMeetingVoiceLevelingEnabled($0) }
         )
     }
 
     private var meetingTranscriptTimecodesEnabled: Binding<Bool> {
         Binding(
-            get: { controller.settingsStore.meetingTranscriptTimecodesEnabled },
+            get: { settingsStore.meetingTranscriptTimecodesEnabled },
             set: { controller.updateMeetingTranscriptTimecodesEnabled($0) }
         )
     }
 
     private var meetingDiarizationEnabled: Binding<Bool> {
         Binding(
-            get: { controller.settingsStore.meetingDiarizationEnabled },
+            get: { settingsStore.meetingDiarizationEnabled },
             set: { controller.updateMeetingDiarizationEnabled($0) }
+        )
+    }
+
+    private var meetingSystemAudioSourceMode: Binding<MeetingSystemAudioSourceMode> {
+        Binding(
+            get: { settingsStore.meetingSystemAudioSourceMode },
+            set: scheduleMeetingSystemAudioSourceModeUpdate
         )
     }
 
@@ -753,11 +761,58 @@ struct ConfigSettingsView: View {
             Section {
                 Toggle("Boost microphone level during dictation", isOn: boostDictationInputGain)
                 Toggle("Meeting voice leveling", isOn: meetingVoiceLevelingEnabled)
+                Picker("System Audio Source", selection: meetingSystemAudioSourceMode) {
+                    ForEach(MeetingSystemAudioSourceMode.allCases) { mode in
+                        Text(mode.title)
+                            .tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                if settingsStore.meetingSystemAudioSourceMode != .all {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Selected apps")
+                            Spacer()
+                            Button {
+                                controller.chooseMeetingSystemAudioApp()
+                            } label: {
+                                Label("Add Apps", systemImage: "plus")
+                            }
+                        }
+
+                        if settingsStore.meetingAudioAppSelections.isEmpty {
+                            Text("No apps selected")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(settingsStore.meetingAudioAppSelections) { app in
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(app.displayName)
+                                        Text(app.bundleIdentifier)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Button {
+                                        controller.removeMeetingSystemAudioApp(
+                                            bundleIdentifier: app.bundleIdentifier
+                                        )
+                                    } label: {
+                                        Label("Remove App", systemImage: "minus.circle")
+                                    }
+                                    .labelStyle(.iconOnly)
+                                    .help("Remove App")
+                                }
+                            }
+                        }
+                    }
+                }
             } header: {
                 Text("Audio")
             } footer: {
                 Text(
-                    "VoicePen uses the macOS default microphone. Dictation can temporarily raise supported input levels while recording. Meeting audio can use system dynamics and peak limiting before local transcription."
+                    "VoicePen uses the macOS default microphone. Dictation can temporarily raise supported input levels while recording. Meeting audio can use system dynamics and peak limiting before local transcription; if processing is unavailable, VoicePen continues with ordinary audio. Meeting system audio can capture all apps, only selected apps, or all apps except selected apps."
                 )
             }
 
@@ -837,6 +892,13 @@ struct ConfigSettingsView: View {
         }
         .onDisappear {
             configReloadFeedbackTask?.cancel()
+        }
+    }
+
+    private func scheduleMeetingSystemAudioSourceModeUpdate(_ mode: MeetingSystemAudioSourceMode) {
+        Task { @MainActor in
+            await Task.yield()
+            controller.updateMeetingSystemAudioSourceMode(mode)
         }
     }
 
@@ -1058,13 +1120,6 @@ struct ModelSettingsView: View {
                         }
                         .disabled(controller.isMeetingDiarizationModelInstalled)
                     }
-
-                    Button {
-                        controller.warmUpMeetingDiarizationModel()
-                    } label: {
-                        Label("Warm Up", systemImage: "flame")
-                    }
-                    .disabled(!controller.isMeetingDiarizationModelInstalled)
 
                     Button(role: .destructive) {
                         showingDiarizationDeleteConfirmation = true
