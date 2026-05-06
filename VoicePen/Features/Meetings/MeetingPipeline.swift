@@ -275,7 +275,7 @@ final class MeetingPipeline {
             )
         }
 
-        let sanitizedText = MeetingTranscriptSanitizer.sanitize(transcription.value.text).trimmed
+        let sanitizedText = TranscriptionPostFilter.sanitize(transcription.value.text).trimmed
         return MeetingProcessedChunk(
             text: sanitizedText,
             preprocessing: preprocessed.elapsed,

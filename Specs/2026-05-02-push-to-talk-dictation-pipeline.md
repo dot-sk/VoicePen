@@ -1,10 +1,11 @@
 ---
 id: SPEC-001
 status: implemented
-updated: 2026-05-05
+updated: 2026-05-06
 tests:
   - VoicePenTests/Hotkey/HotkeyPreferenceTests.swift
   - VoicePenTests/Pipeline/DictationPipelineTests.swift
+  - VoicePenTests/Transcription/TranscriptionPostFilterTests.swift
   - VoicePenTests/TextOutput/TextOutputNormalizerTests.swift
   - VoicePenTests/App/AppControllerTests.swift
   - VoicePenTests/App/VoicePenAppCommandTests.swift
@@ -27,6 +28,7 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 - When the recording overlay shows the microphone level indicator, the white level bar shall animate vertically without horizontal jitter.
 - When recording duration is below the minimum, VoicePen shall stop without transcription or insertion.
 - When audio is silent or transcription returns an empty result, VoicePen shall not insert text or create a history recording.
+- When local transcription returns known short subtitle or outro artifact lines such as "Субтитры сделал ...", "Добавил субтитры ...", or "Продолжение следует...", VoicePen shall remove those lines before normalization, insertion, or history storage.
 - When recording is valid, VoicePen shall preprocess audio before transcription, pass the resolved language and glossary prompt, normalize raw text, insert non-empty final text, and record timing data.
 - When final text is prepared for output, VoicePen shall always replace `ё` with `е`, `Ё` with `Е`, long dashes with `–`, and typographic quotes with plain quotes before insertion or history storage.
 - When insertion succeeds, VoicePen shall hide the processing overlay without showing a success notification.
@@ -43,6 +45,8 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 | Short recording | 0.2s recording | No transcription and no insertion |
 | Recording overlay | Active recording with changing input level | The microphone level bar changes height while staying horizontally anchored |
 | Silent recording | Valid duration with no speech | No insertion and no history recording |
+| Artifact-only transcription | Whisper returns only `Продолжение следует...` | No insertion and no history recording |
+| Artifact line with useful text | Whisper returns subtitle credit, useful dictated text, and `Продолжение следует...` | Inserts and stores only the useful dictated text |
 | Normal recording | "создай типы на тайп скрипт" | Inserts "создай типы на TypeScript" |
 | Global output normalization | `Ёжик сказал: «пойдём» — готово` | `Ежик сказал: "пойдем" – готово` |
 | Transcription error | Transcriber throws | Error propagates and nothing is inserted |
@@ -56,6 +60,7 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 
 - Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers recording start, short recording skip, preprocessing, glossary/language routing, normalization, global output cleanup, insertion, silent audio, empty transcription, and error propagation.
 - Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers best-effort microphone boost start and restore around dictation recordings.
+- Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` and `VoicePenTests/Transcription/TranscriptionPostFilterTests.swift` cover known subtitle/outro artifact cleanup before insertion.
 - Automated: `VoicePenTests/TextOutput/TextOutputNormalizerTests.swift` covers global output character replacements.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers reinstalling the push-to-talk hotkey when a custom shortcut is recorded after the custom preference is selected and dictation timeout recovery when processing hangs.
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers menu bar extra command grouping, hiding unavailable menu actions, omitting idle status text, showing push-to-talk hotkey hints, and labeling latest-text actions as dictation actions.

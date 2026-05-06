@@ -166,8 +166,13 @@ final class DictationPipeline {
             overlay.hide(after: 0.1)
             return DictationPipelineResult(rawText: "", finalText: "", recording: nil)
         }
-        let rawText = transcriptionResult.text
+        let rawText = TranscriptionPostFilter.sanitize(transcriptionResult.text).trimmed
         try Task.checkCancellation()
+
+        guard !rawText.isEmpty else {
+            overlay.hide(after: 0.1)
+            return DictationPipelineResult(rawText: "", finalText: "", recording: nil)
+        }
 
         await overlay.update(.transcribing(stage: .normalizing, progress: nil))
         let normalized = try await measure { () async throws -> DeveloperModeProcessingResult in
