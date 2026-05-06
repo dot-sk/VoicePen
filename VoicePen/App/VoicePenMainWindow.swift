@@ -109,7 +109,7 @@ struct VoicePenMainWindow: View {
         case .ai:
             AISettingsView(controller: controller)
         case .config:
-            ConfigSettingsView(controller: controller)
+            ConfigSettingsView(controller: controller, settingsStore: controller.settingsStore)
         case .dictionary:
             DictionaryEditorView(controller: controller, dictionaryStore: controller.dictionaryStore)
         case .meetings:

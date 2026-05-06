@@ -107,6 +107,9 @@ action items, ticket drafts, engineering notes, pause, or resume.
 - When selected apps only has no selected app running at recording start, VoicePen shall persistently switch Meeting system audio source to all system audio, surface a warning, and start recording.
 - When all except selected apps has no selected apps at recording start, VoicePen shall persistently switch Meeting system audio source to all system audio, surface a warning, and start recording.
 - Meeting system audio source mode and selected app list shall persist across launches; invalid stored modes fall back to all system audio and invalid app entries are ignored.
+- When Meeting system audio source is set to all system audio, Config settings shall hide the selected-app controls.
+- When Meeting system audio source is set to selected apps only or all except selected apps, Config settings shall show selected-app controls and allow choosing one or more macOS `.app` bundles at once.
+- When the Config Meeting system audio source control changes, VoicePen shall persist the selected mode and hide or show selected-app controls without SwiftUI publishing warnings.
 - When one source fails mid-recording, VoicePen shall stop capture and mark the session partial.
 - When microphone and system audio overlap in the same meeting time window, VoicePen shall merge them into one timeline audio chunk before transcription, so dialogue order follows meeting time instead of source order.
 - Meeting transcript timecodes shall be controlled by a persistent Config setting that is enabled by default in Config settings.
@@ -115,6 +118,7 @@ action items, ticket drafts, engineering notes, pause, or resume.
 - Meeting diarization shall be controlled by a persistent Config setting in the Meeting features section.
 - Meeting diarization settings help shall describe experimental speaker labels from a separate local diarization model.
 - When Meeting diarization is enabled and the local diarization model is installed, VoicePen shall warm the diarization model automatically at app start, after enabling the setting, and after a successful diarization model download.
+- Model settings shall keep the Meeting diarization model lifecycle limited to download, progress, status, and delete controls while warm-up remains automatic when diarization is enabled.
 - When the user starts a Meeting diarization model download, VoicePen shall expose download progress state, retry transient artifact download failures, and log the download start, model artifact stages, retry attempts, completion, cancellation, and failure.
 - When proxy settings exist in the local environment settings file, Meeting diarization model downloads shall use the same proxy configuration as transcription model downloads.
 - When Meeting diarization runs, VoicePen shall log enough diagnostics to identify whether missing speaker labels came from model loading, backend pipeline execution, backend speaker-turn output, VoicePen turn postprocessing, or transcript speaker merge assignment.
@@ -172,6 +176,8 @@ action items, ticket drafts, engineering notes, pause, or resume.
 | Hung later chunk | First chunk transcribes and second chunk hangs | VoicePen saves the first chunk as a partial meeting and keeps recovery audio retryable for 7 days |
 | Selected app filter unavailable | Meeting system audio is set to selected apps only and none of those apps are running | VoicePen switches the setting to all system audio, shows a warning, and starts recording |
 | Empty exclusion filter | Meeting system audio is set to all except selected apps with no selected apps | VoicePen switches the setting to all system audio, shows a warning, and starts recording |
+| All system audio settings | Meeting system audio source is set to all system audio | Config settings hides selected-app controls |
+| Add selected apps | Meeting system audio source is selected apps only or all except selected apps, then the user uses the add-apps control and chooses several `.app` bundles | The apps are selectable and appear in the selected-app list with bundle identifiers |
 | Retry failed meeting | User uses retry on a failed meeting before recovery audio expires | VoicePen reprocesses local audio and updates the same meeting history entry |
 | Expired recovery audio | Seven days pass after a failed meeting | VoicePen deletes retained audio and keeps the failed meeting row without retry |
 | New meeting row | A meeting finishes and a new row appears in Meetings history | The row preview text is visible immediately |
@@ -201,6 +207,7 @@ action items, ticket drafts, engineering notes, pause, or resume.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers consent gating, permission gating, meeting state, Meeting system audio source settings updates, selected-app fallback, meeting processing state, meeting timeout recovery, and no conflict with dictation history.
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers menu and sidebar meeting commands, header recording controls, meeting processing UI, Config placement for Meeting features, Meeting system audio source settings controls, stable shared copy-button feedback, meeting status icons in navigation surfaces, recording limit display, and recording pulses in the menu bar, Meetings header, and persistent status panel.
 - Automated: `VoicePenTests/Settings/AppSettingsStoreTests.swift` covers Meeting system audio source defaults, persistence, invalid mode fallback, and invalid selected-app filtering.
+- Manual: switch Config Meeting system audio source between all system audio and filtered modes; verify selected-app controls hide and show without SwiftUI publishing warnings, then use the add-apps control, select multiple macOS `.app` bundles, and verify they appear with bundle identifiers.
 - Manual: record real meeting audio with microphone plus Zoom, Meet, or browser audio and verify both sides appear in the transcript.
 - Manual: finish a new meeting while the Meetings screen is open and verify the new history row text appears without scrolling.
 - Manual: open Meetings with entries from several days and verify meetings are grouped by day and the current day header sticks while scrolling.

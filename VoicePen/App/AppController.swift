@@ -1529,26 +1529,36 @@ final class AppController: ObservableObject {
 
     func chooseMeetingSystemAudioApp() {
         let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
         panel.allowedContentTypes = [.applicationBundle]
-        panel.message = "Choose an app to include or exclude from Meeting system audio."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        addMeetingSystemAudioApp(at: url)
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        panel.message = "Choose apps to include or exclude from Meeting system audio."
+        guard panel.runModal() == .OK else { return }
+        addMeetingSystemAudioApps(at: panel.urls)
     }
 
     func addMeetingSystemAudioApp(at appURL: URL) {
-        guard let selection = meetingAudioAppSelection(at: appURL) else {
+        addMeetingSystemAudioApps(at: [appURL])
+    }
+
+    func addMeetingSystemAudioApps(at appURLs: [URL]) {
+        let selections = appURLs.compactMap(meetingAudioAppSelection)
+        guard !selections.isEmpty else {
             errorMessage = "Choose a valid macOS app with a bundle identifier."
             return
         }
-        addMeetingSystemAudioApp(selection)
+        addMeetingSystemAudioApps(selections)
     }
 
     func addMeetingSystemAudioApp(_ selection: MeetingAudioAppSelection) {
+        addMeetingSystemAudioApps([selection])
+    }
+
+    func addMeetingSystemAudioApps(_ selections: [MeetingAudioAppSelection]) {
         do {
-            try settingsStore.updateMeetingAudioAppSelections(settingsStore.meetingAudioAppSelections + [selection])
+            try settingsStore.updateMeetingAudioAppSelections(settingsStore.meetingAudioAppSelections + selections)
         } catch {
             setError(error)
         }
