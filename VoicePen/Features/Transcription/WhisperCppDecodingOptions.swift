@@ -6,6 +6,9 @@ nonisolated struct WhisperCppDecodingOptions: Equatable {
 
     let singleSegment: Bool
     let noTimestamps: Bool
+    let tokenTimestamps: Bool
+    let maxSegmentLength: Int32
+    let splitOnWord: Bool
     let audioContext: Int32
     let threadCount: Int32
 
@@ -13,6 +16,7 @@ nonisolated struct WhisperCppDecodingOptions: Equatable {
         sampleCount: Int,
         sampleRate: Double = defaultSampleRate,
         isWarmup: Bool = false,
+        includeTimestamps: Bool = false,
         processorCount: Int = ProcessInfo.processInfo.processorCount,
         audioContext: Int32 = 0
     ) -> WhisperCppDecodingOptions {
@@ -22,6 +26,9 @@ nonisolated struct WhisperCppDecodingOptions: Equatable {
             return WhisperCppDecodingOptions(
                 singleSegment: true,
                 noTimestamps: true,
+                tokenTimestamps: false,
+                maxSegmentLength: 0,
+                splitOnWord: false,
                 audioContext: audioContext,
                 threadCount: threadCount
             )
@@ -31,6 +38,9 @@ nonisolated struct WhisperCppDecodingOptions: Equatable {
             return WhisperCppDecodingOptions(
                 singleSegment: false,
                 noTimestamps: true,
+                tokenTimestamps: false,
+                maxSegmentLength: 0,
+                splitOnWord: false,
                 audioContext: audioContext,
                 threadCount: threadCount
             )
@@ -38,8 +48,11 @@ nonisolated struct WhisperCppDecodingOptions: Equatable {
 
         let duration = Double(sampleCount) / sampleRate
         return WhisperCppDecodingOptions(
-            singleSegment: duration <= shortUtteranceMaximumDuration,
-            noTimestamps: true,
+            singleSegment: !includeTimestamps && duration <= shortUtteranceMaximumDuration,
+            noTimestamps: !includeTimestamps,
+            tokenTimestamps: includeTimestamps,
+            maxSegmentLength: includeTimestamps ? 80 : 0,
+            splitOnWord: includeTimestamps,
             audioContext: audioContext,
             threadCount: threadCount
         )

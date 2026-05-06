@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "recommendedModel": {
     "id": "ggml-large-v3-turbo-q5_0",
-    "displayName": "Best Multilingual (Whisper)",
+    "displayName": "Fast Multilingual (Whisper Q5_0)",
     "version": "large-v3-turbo-q5_0",
     "sizeLabel": "1.7 GB",
     "sourceRepo": "ggerganov/whisper.cpp",
@@ -10,9 +10,12 @@
     "backend": "whisperCpp",
     "isQuantized": true,
     "supportedLanguageCodes": ["multilingual"],
-    "description": "Best multilingual local model. Whisper large-v3 turbo is the most capable bundled option and supports multilingual dictation.",
+    "description": "Fastest bundled multilingual Whisper large-v3 turbo option. Q5_0 is smaller and a little faster, with a small quality tradeoff.",
     "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
     "artifactFileName": "ggml-large-v3-turbo-q5_0.bin",
+    "capabilities": {
+      "timestamps": true
+    },
     "companionArtifacts": [
       {
         "id": "coreml-encoder",
@@ -27,7 +30,7 @@
   "compatibleModels": [
     {
       "id": "ggml-large-v3-turbo-q5_0",
-      "displayName": "Best Multilingual (Whisper)",
+      "displayName": "Fast Multilingual (Whisper Q5_0)",
       "version": "large-v3-turbo-q5_0",
       "sizeLabel": "1.7 GB",
       "sourceRepo": "ggerganov/whisper.cpp",
@@ -35,9 +38,12 @@
       "backend": "whisperCpp",
       "isQuantized": true,
       "supportedLanguageCodes": ["multilingual"],
-      "description": "Best multilingual local model. Whisper large-v3 turbo is the most capable bundled option and supports multilingual dictation.",
+      "description": "Fastest bundled multilingual Whisper large-v3 turbo option. Q5_0 is smaller and a little faster, with a small quality tradeoff.",
       "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
       "artifactFileName": "ggml-large-v3-turbo-q5_0.bin",
+      "capabilities": {
+        "timestamps": true
+      },
       "companionArtifacts": [
         {
           "id": "coreml-encoder",
@@ -50,28 +56,58 @@
       ]
     },
     {
-      "id": "parakeet-tdt-0.6b-v3",
-      "displayName": "Fast Multilingual (Parakeet v3)",
-      "version": "v3-int8",
-      "sizeLabel": "about 1-3 GB",
-      "sourceRepo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
-      "sourceKind": "FluidAudio Core ML",
-      "backend": "fluidAudio",
+      "id": "ggml-large-v3-turbo-q5_1",
+      "displayName": "Balanced Quality Multilingual (Whisper Q5_1)",
+      "version": "large-v3-turbo-q5_1",
+      "sizeLabel": "1.8 GB",
+      "sourceRepo": "Pomni/whisper-large-v3-turbo-ggml-allquants",
+      "sourceKind": "whisper.cpp GGML",
+      "backend": "whisperCpp",
       "isQuantized": true,
       "supportedLanguageCodes": ["multilingual"],
-      "description": "Fast multilingual local model. Parakeet v3 is optimized for speed and supports multilingual dictation."
+      "description": "Balanced multilingual Whisper large-v3 turbo option. Q5_1 is slightly larger than Q5_0 and keeps a little more quality margin.",
+      "downloadURL": "https://huggingface.co/Pomni/whisper-large-v3-turbo-ggml-allquants/resolve/main/ggml-large-v3-turbo-q5_1.bin",
+      "artifactFileName": "ggml-large-v3-turbo-q5_1.bin",
+      "capabilities": {
+        "timestamps": true
+      },
+      "companionArtifacts": [
+        {
+          "id": "coreml-encoder",
+          "displayName": "Core ML encoder",
+          "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-encoder.mlmodelc.zip",
+          "fileName": "ggml-large-v3-turbo-encoder.mlmodelc.zip",
+          "localPath": "ggml-large-v3-turbo-encoder.mlmodelc",
+          "archiveKind": "zip"
+        }
+      ]
     },
     {
-      "id": "parakeet-tdt-0.6b-v2",
-      "displayName": "Fast English (Parakeet v2)",
-      "version": "v2",
-      "sizeLabel": "about 1-3 GB",
-      "sourceRepo": "FluidInference/parakeet-tdt-0.6b-v2-coreml",
-      "sourceKind": "FluidAudio Core ML",
-      "backend": "fluidAudio",
-      "isQuantized": false,
-      "supportedLanguageCodes": ["en"],
-      "description": "Fast English-only local model. Parakeet v2 is best kept for English dictation."
+      "id": "ggml-large-v3-turbo-q8_0",
+      "displayName": "High Quality Multilingual (Whisper Q8_0)",
+      "version": "large-v3-turbo-q8_0",
+      "sizeLabel": "2.0 GB",
+      "sourceRepo": "ggerganov/whisper.cpp",
+      "sourceKind": "whisper.cpp GGML",
+      "backend": "whisperCpp",
+      "isQuantized": true,
+      "supportedLanguageCodes": ["multilingual"],
+      "description": "Highest-quality bundled multilingual Whisper large-v3 turbo quantized option. Q8_0 is larger and heavier, with the safest quality margin.",
+      "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin",
+      "artifactFileName": "ggml-large-v3-turbo-q8_0.bin",
+      "capabilities": {
+        "timestamps": true
+      },
+      "companionArtifacts": [
+        {
+          "id": "coreml-encoder",
+          "displayName": "Core ML encoder",
+          "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-encoder.mlmodelc.zip",
+          "fileName": "ggml-large-v3-turbo-encoder.mlmodelc.zip",
+          "localPath": "ggml-large-v3-turbo-encoder.mlmodelc",
+          "archiveKind": "zip"
+        }
+      ]
     }
   ]
 }

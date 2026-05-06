@@ -11,6 +11,8 @@ protocol UserPromptPresenter {
         buttons: [String],
         activateBeforeShowing: Bool
     ) -> NSApplication.ModalResponse
+
+    func showMeetingDiarizationSpeakerCountPrompt() -> Int?
 }
 
 @MainActor
@@ -33,26 +35,62 @@ final class NSAlertUserPromptPresenter: UserPromptPresenter {
         buttons.forEach { alert.addButton(withTitle: $0) }
         return alert.runModal()
     }
+
+    func showMeetingDiarizationSpeakerCountPrompt() -> Int? {
+        NSApplication.shared.activate(ignoringOtherApps: true)
+
+        let picker = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 220, height: 28), pullsDown: false)
+        picker.addItem(withTitle: "Auto")
+        for count in 2...10 {
+            picker.addItem(withTitle: "\(count)")
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "How many people spoke?"
+        alert.informativeText = "VoicePen can improve speaker separation when the speaker count is known."
+        alert.alertStyle = .informational
+        alert.accessoryView = picker
+        alert.addButton(withTitle: "Continue")
+
+        guard alert.runModal() == .alertFirstButtonReturn,
+            let selectedTitle = picker.selectedItem?.title,
+            let selectedCount = Int(selectedTitle)
+        else {
+            return nil
+        }
+
+        return selectedCount
+    }
 }
 
 @MainActor
 struct AppControllerStartTasks {
     let permissions: Task<Void, Never>?
     let modelWarmup: Task<Void, Never>?
+    let meetingDiarizationModelWarmup: Task<Void, Never>?
 
-    static let empty = AppControllerStartTasks(permissions: nil, modelWarmup: nil)
+    static let empty = AppControllerStartTasks(
+        permissions: nil,
+        modelWarmup: nil,
+        meetingDiarizationModelWarmup: nil
+    )
 }
 
 @MainActor
 final class AppController: ObservableObject {
+    private static let meetingDiarizationModelId = "meeting-diarization"
+
     @Published var appState: AppState = .starting
     @Published var lastRawText: String = ""
     @Published var lastFinalText: String = ""
     @Published var errorMessage: String?
     @Published var modelDownloadProgress: Double?
+    @Published var meetingDiarizationModelDownloadProgress: Double?
     @Published var modelRuntimeState: ModelRuntimeState = .notLoaded
+    @Published var meetingDiarizationModelRuntimeState: ModelRuntimeState = .notLoaded
     @Published var meetingElapsedTime: TimeInterval = 0
     @Published var meetingSourceStatus: MeetingSourceStatus = .idle
+    @Published var meetingProcessingProgress: MeetingProcessingProgress?
     @Published private(set) var userConfigLoadResult = UserConfigLoadResult(config: UserConfig())
     @Published private(set) var modelManifest: ModelManifest
 
@@ -68,6 +106,7 @@ final class AppController: ObservableObject {
     private let transcriptionCancellationKeyMonitor: TranscriptionCancellationKeyMonitor
     private let modelDownloader: ModelDownloadClient
     private let modelWarmupClient: ModelWarmupClient?
+    private let meetingDiarizationModelManager: MeetingDiarizationModelManaging?
     private let launchAtLogin: LaunchAtLoginClient
     private let userPrompts: UserPromptPresenter
     private let environmentSettingsStore: AppEnvironmentSettingsStore
@@ -76,14 +115,18 @@ final class AppController: ObservableObject {
     private let modelWarmupTimeout: Duration
     private let meetingCaptureStartTimeout: Duration
     private let meetingProcessingTimeout: Duration
+    private let appVersionProvider: () -> String
     let historyStore: VoiceHistoryStore
     let meetingHistoryStore: MeetingHistoryStore?
     let settingsStore: AppSettingsStore
 
     private var didStart = false
     private var activeModelDownloadID: UUID?
+    private var activeMeetingDiarizationModelDownloadID: UUID?
     private var modelDownloadTask: Task<Void, Never>?
+    private var meetingDiarizationModelDownloadTask: Task<Void, Never>?
     private var modelWarmupTask: Task<Void, Never>?
+    private var meetingDiarizationModelWarmupTask: Task<Void, Never>?
     private var transcriptionTask: Task<Void, Never>?
     private var transcriptionTimeoutTask: Task<Void, Never>?
     private var activeTranscriptionID: UUID?
@@ -119,14 +162,14 @@ final class AppController: ObservableObject {
             setSourceStatus: { [weak self] status in
                 self?.meetingSourceStatus = status
             },
+            setProcessingProgress: { [weak self] progress in
+                self?.meetingProcessingProgress = progress
+            },
             presentError: { [weak self] error in
                 self?.setError(error)
             },
             refreshBaseState: { [weak self] in
                 self?.updateStateAfterModelChange()
-            },
-            cancelModelWarmup: { [weak self] in
-                self?.cancelModelWarmup()
             }
         )
     )
@@ -181,8 +224,6 @@ final class AppController: ObservableObject {
         switch selectedModel.backendKind {
         case .whisperCpp:
             selectedModel.isInstalled(paths: paths)
-        case .fluidAudio:
-            FluidAudioModelInstallation.isInstalled(model: selectedModel, paths: paths)
         case .unsupported:
             paths.existingModelDirectory(for: selectedModel.id) != nil
         }
@@ -202,6 +243,7 @@ final class AppController: ObservableObject {
             "Backend: \(selectedModel.sourceKind)",
             "Version: \(selectedModel.version)",
             "Size: \(selectedModel.sizeLabel)",
+            "Timestamps: \(selectedModel.supportsTimestamps ? "Supported" : "Unsupported")",
             "Installed: \(isModelInstalled ? "yes" : "no")",
             "Acceleration: \(status.accelerationSummary)",
             "\(status.model.displayName): \(artifactDiagnostics(status.model))"
@@ -282,6 +324,7 @@ final class AppController: ObservableObject {
         transcriptionCancellationKeyMonitor: TranscriptionCancellationKeyMonitor,
         modelDownloader: ModelDownloadClient,
         modelWarmupClient: ModelWarmupClient? = nil,
+        meetingDiarizationModelManager: MeetingDiarizationModelManaging? = nil,
         launchAtLogin: LaunchAtLoginClient? = nil,
         userPrompts: UserPromptPresenter,
         environmentSettingsStore: AppEnvironmentSettingsStore? = nil,
@@ -290,6 +333,7 @@ final class AppController: ObservableObject {
         modelWarmupTimeout: Duration = VoicePenConfig.modelWarmupTimeout,
         meetingCaptureStartTimeout: Duration = VoicePenConfig.meetingCaptureStartTimeout,
         meetingProcessingTimeout: Duration = VoicePenConfig.meetingProcessingTimeout,
+        appVersionProvider: @escaping () -> String = { VoicePenConfig.appVersion },
         historyStore: VoiceHistoryStore,
         meetingHistoryStore: MeetingHistoryStore? = nil,
         settingsStore: AppSettingsStore,
@@ -307,6 +351,7 @@ final class AppController: ObservableObject {
         self.transcriptionCancellationKeyMonitor = transcriptionCancellationKeyMonitor
         self.modelDownloader = modelDownloader
         self.modelWarmupClient = modelWarmupClient
+        self.meetingDiarizationModelManager = meetingDiarizationModelManager
         self.launchAtLogin = launchAtLogin ?? NoOpLaunchAtLoginClient()
         self.userPrompts = userPrompts
         self.environmentSettingsStore = environmentSettingsStore ?? AppEnvironmentSettingsStore()
@@ -315,10 +360,14 @@ final class AppController: ObservableObject {
         self.modelWarmupTimeout = modelWarmupTimeout
         self.meetingCaptureStartTimeout = meetingCaptureStartTimeout
         self.meetingProcessingTimeout = meetingProcessingTimeout
+        self.appVersionProvider = appVersionProvider
         self.historyStore = historyStore
         self.meetingHistoryStore = meetingHistoryStore
         self.settingsStore = settingsStore
         self.modelManifest = modelManifest
+        self.meetingPipeline?.setProcessingProgressHandler { [weak self] progress in
+            self?.meetingProcessingProgress = progress
+        }
     }
 
     static func live() -> AppController {
@@ -333,16 +382,15 @@ final class AppController: ObservableObject {
         let recorder = LiveAudioRecordingClient(tempDirectory: paths.tempAudioDirectory)
         let audioPreprocessor = LiveAudioPreprocessingClient(outputDirectory: paths.tempAudioDirectory)
         let whisperCppTranscriber = WhisperCppTranscriptionClient(paths: paths)
-        let fluidAudioTranscriber = FluidAudioTranscriptionClient(paths: paths)
         let inserter = PasteboardTextInsertionClient(restoreDelay: VoicePenConfig.clipboardRestoreDelay)
         let userConfigStore = UserConfigStore()
+        let userPrompts = NSAlertUserPromptPresenter()
         let transcriber = RoutingTranscriptionClient(
             modelProvider: {
                 modelManifest.compatibleModels.first { $0.id == settingsStore.selectedModelId }
                     ?? recommendedModel
             },
-            whisperCppClient: whisperCppTranscriber,
-            fluidAudioClient: fluidAudioTranscriber
+            whisperCppClient: whisperCppTranscriber
         )
         let pipeline = DictationPipeline(
             recorder: recorder,
@@ -368,6 +416,7 @@ final class AppController: ObservableObject {
             },
             minimumRecordingDuration: VoicePenConfig.minimumRecordingDuration
         )
+        let meetingDiarizationClient = SpeechSwiftMeetingDiarizationClient(cacheDirectory: paths.diarizationModelsDirectory)
         let meetingPipeline = MeetingPipeline(
             recorder: CompositeMeetingRecordingClient(
                 microphoneSource: AVFoundationMicrophoneMeetingAudioSource(tempDirectory: paths.tempAudioDirectory),
@@ -377,11 +426,21 @@ final class AppController: ObservableObject {
             voiceLevelingProcessor: SystemVoiceLevelingProcessor(outputDirectory: paths.tempAudioDirectory),
             chunker: AVFoundationMeetingAudioChunker(outputDirectory: paths.tempAudioDirectory),
             transcriber: transcriber,
+            diarizer: meetingDiarizationClient,
             historyStore: meetingHistoryStore,
             recoveryAudioStore: MeetingRecoveryAudioStore(directory: paths.meetingRecoveryDirectory),
             languageProvider: { settingsStore.transcriptionLanguage },
             speechPreprocessingModeProvider: { settingsStore.speechPreprocessingMode },
-            meetingVoiceLevelingEnabledProvider: { settingsStore.meetingVoiceLevelingEnabled }
+            meetingVoiceLevelingEnabledProvider: { settingsStore.meetingVoiceLevelingEnabled },
+            meetingTranscriptTimecodesEnabledProvider: {
+                settingsStore.meetingTranscriptTimecodesEnabled
+            },
+            meetingDiarizationEnabledProvider: {
+                settingsStore.meetingDiarizationEnabled
+            },
+            meetingDiarizationExpectedSpeakerCountProvider: {
+                userPrompts.showMeetingDiarizationSpeakerCountPrompt()
+            }
         )
 
         let controller = AppController(
@@ -400,12 +459,12 @@ final class AppController: ObservableObject {
                     proxyProvider: {
                         ModelDownloadProxyConfiguration.fromEnvironment()
                     }
-                ),
-                fluidAudioDownloader: FluidAudioModelDownloadClient(paths: paths)
+                )
             ),
             modelWarmupClient: transcriber,
+            meetingDiarizationModelManager: meetingDiarizationClient,
             launchAtLogin: LiveLaunchAtLoginClient(),
-            userPrompts: NSAlertUserPromptPresenter(),
+            userPrompts: userPrompts,
             environmentSettingsStore: userConfigStore,
             historyStore: historyStore,
             meetingHistoryStore: meetingHistoryStore,
@@ -429,12 +488,43 @@ final class AppController: ObservableObject {
         }
     }
 
+    var isDownloadingMeetingDiarizationModel: Bool {
+        activeMeetingDiarizationModelDownloadID != nil
+    }
+
+    var isMeetingDiarizationModelInstalled: Bool {
+        meetingDiarizationModelManager?.isModelInstalled ?? false
+    }
+
+    var meetingDiarizationModelDirectory: URL {
+        meetingDiarizationModelManager?.modelDirectory ?? paths.diarizationModelsDirectory
+    }
+
+    var meetingDiarizationModelStatusTitle: String {
+        if isDownloadingMeetingDiarizationModel {
+            return "Downloading"
+        }
+        switch meetingDiarizationModelRuntimeState {
+        case .warming:
+            return "Warming up"
+        case .failed:
+            return "Failed"
+        case .ready, .notLoaded:
+            break
+        }
+        if isMeetingDiarizationModelInstalled {
+            return "Installed"
+        }
+        return "Missing"
+    }
+
     @discardableResult
     func start() -> AppControllerStartTasks {
         guard !didStart else { return .empty }
         didStart = true
 
         let modelWarmup: Task<Void, Never>?
+        let meetingDiarizationModelWarmup: Task<Void, Never>?
         do {
             try paths.createRequiredDirectories()
             try paths.cleanOldTemporaryAudioFiles()
@@ -446,6 +536,7 @@ final class AppController: ObservableObject {
             try settingsStore.load(defaultModelId: recommendedModel.id)
             try syncOpenAtLoginState()
             modelWarmup = scheduleModelWarmupIfInstalled()
+            meetingDiarizationModelWarmup = scheduleMeetingDiarizationModelWarmupIfNeeded()
         } catch {
             setError(error)
             return .empty
@@ -467,7 +558,11 @@ final class AppController: ObservableObject {
             }
         }
 
-        return AppControllerStartTasks(permissions: permissions, modelWarmup: modelWarmup)
+        return AppControllerStartTasks(
+            permissions: permissions,
+            modelWarmup: modelWarmup,
+            meetingDiarizationModelWarmup: meetingDiarizationModelWarmup
+        )
     }
 
     private func requestStartupPermissions() async {
@@ -713,14 +808,23 @@ final class AppController: ObservableObject {
     func prepareDictionaryImportPreviewFromClipboard(
         historyLimit: HistoryReviewLimit
     ) throws -> DictionaryImportPreview {
-        guard let text = clipboard.string(forType: .string) else {
-            throw DictionaryCSVImporterError.emptyFile
+        guard let text = clipboard.string(forType: .string)?.trimmed, !text.isEmpty else {
+            throw AppControllerDictionaryImportError.invalidClipboard
+        }
+        guard Self.isPlausibleDictionaryCSV(text) else {
+            throw AppControllerDictionaryImportError.invalidClipboard
         }
 
-        return try prepareDictionaryImportPreview(
-            csvText: text,
-            historyLimit: historyLimit
-        )
+        do {
+            return try prepareDictionaryImportPreview(
+                csvText: text,
+                historyLimit: historyLimit
+            )
+        } catch is DictionaryCSVImporterError {
+            throw AppControllerDictionaryImportError.invalidClipboard
+        } catch {
+            throw error
+        }
     }
 
     func confirmDictionaryImportPreview(_ preview: DictionaryImportPreview) throws {
@@ -733,6 +837,52 @@ final class AppController: ObservableObject {
         }
 
         try dictionaryStore.importEntries(preview.importedEntries)
+    }
+
+    private static func isPlausibleDictionaryCSV(_ text: String) -> Bool {
+        let maximumClipboardBytes = 512 * 1024
+        guard text.utf8.prefix(maximumClipboardBytes + 1).count <= maximumClipboardBytes else {
+            return false
+        }
+
+        let sample = text.prefix(16 * 1024)
+        var checkedRows = 0
+        for rawLine in sample.split(whereSeparator: \.isNewline) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { continue }
+
+            let fields = line.split(separator: ",", omittingEmptySubsequences: false)
+                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            if checkedRows == 0, Self.isDictionaryCSVHeader(fields) {
+                checkedRows += 1
+                continue
+            }
+
+            checkedRows += 1
+            guard fields.count >= 2 else {
+                if checkedRows >= 10 { break }
+                continue
+            }
+
+            let canonical = fields.first ?? ""
+            let variants = fields.dropFirst().joined(separator: ",").trimmed
+            if !canonical.isEmpty, !variants.isEmpty {
+                return true
+            }
+
+            if checkedRows >= 10 {
+                break
+            }
+        }
+
+        return false
+    }
+
+    private static func isDictionaryCSVHeader(_ fields: [String]) -> Bool {
+        guard let first = fields.first?.lowercased() else {
+            return false
+        }
+        return ["canonical", "term", "каноническая форма", "термин"].contains(first)
     }
 
     func insertText(_ text: String) {
@@ -959,6 +1109,129 @@ final class AppController: ObservableObject {
         return cleanupTask
     }
 
+    @discardableResult
+    func downloadMeetingDiarizationModel() -> Task<Void, Never>? {
+        guard !isDownloadingMeetingDiarizationModel,
+            let meetingDiarizationModelManager
+        else {
+            return nil
+        }
+
+        let downloadID = UUID()
+        activeMeetingDiarizationModelDownloadID = downloadID
+        meetingDiarizationModelDownloadProgress = nil
+        meetingDiarizationModelRuntimeState = .notLoaded
+        errorMessage = nil
+        AppLogger.info("Starting meeting diarization model download to \(meetingDiarizationModelManager.modelDirectory.path)")
+        let modelDownloadTimeout = self.modelDownloadTimeout
+
+        let task = Task {
+            do {
+                try await AsyncOperationTimeout.run(
+                    timeout: modelDownloadTimeout,
+                    timeoutError: { ModelDownloadError.downloadTimedOut(Self.meetingDiarizationModelId) },
+                    operation: {
+                        try await meetingDiarizationModelManager.download { [weak self] event in
+                            Task { @MainActor [weak self] in
+                                guard self?.activeMeetingDiarizationModelDownloadID == downloadID else { return }
+                                self?.handleMeetingDiarizationModelDownloadEvent(event)
+                            }
+                        }
+                    }
+                )
+                guard activeMeetingDiarizationModelDownloadID == downloadID else { return }
+                clearActiveMeetingDiarizationModelDownload()
+                meetingDiarizationModelRuntimeState = .ready(modelId: Self.meetingDiarizationModelId)
+                AppLogger.info("Downloaded meeting diarization model to \(meetingDiarizationModelManager.modelDirectory.path)")
+                if settingsStore.meetingDiarizationEnabled {
+                    await scheduleMeetingDiarizationModelWarmupIfNeeded()?.value
+                }
+            } catch is CancellationError {
+                guard activeMeetingDiarizationModelDownloadID == downloadID else { return }
+                clearActiveMeetingDiarizationModelDownload()
+                meetingDiarizationModelRuntimeState = .notLoaded
+                AppLogger.info("Meeting diarization model download canceled")
+            } catch {
+                guard activeMeetingDiarizationModelDownloadID == downloadID else { return }
+                clearActiveMeetingDiarizationModelDownload()
+                meetingDiarizationModelRuntimeState = .failed(
+                    modelId: Self.meetingDiarizationModelId,
+                    message: error.localizedDescription
+                )
+                AppLogger.error("Meeting diarization model download failed: \(error.localizedDescription)")
+                setError(error)
+            }
+        }
+        meetingDiarizationModelDownloadTask = task
+        return task
+    }
+
+    @discardableResult
+    func warmUpMeetingDiarizationModel() -> Task<Void, Never>? {
+        guard let meetingDiarizationModelManager else { return nil }
+        guard isMeetingDiarizationModelInstalled else {
+            meetingDiarizationModelRuntimeState = .notLoaded
+            AppLogger.info(
+                "Meeting diarization model warmup skipped because model files are missing at \(meetingDiarizationModelDirectory.path)"
+            )
+            return nil
+        }
+        meetingDiarizationModelWarmupTask?.cancel()
+        meetingDiarizationModelRuntimeState = .warming(modelId: Self.meetingDiarizationModelId)
+        let task = Task {
+            do {
+                AppLogger.info("Warming up meeting diarization model")
+                try await meetingDiarizationModelManager.warmUp()
+                guard !Task.isCancelled else { return }
+                meetingDiarizationModelRuntimeState = .ready(modelId: Self.meetingDiarizationModelId)
+                AppLogger.info("Meeting diarization model warmup completed")
+            } catch is CancellationError {
+                meetingDiarizationModelRuntimeState = .notLoaded
+                AppLogger.info("Meeting diarization model warmup canceled")
+            } catch {
+                meetingDiarizationModelRuntimeState = .failed(
+                    modelId: Self.meetingDiarizationModelId,
+                    message: error.localizedDescription
+                )
+                AppLogger.error("Meeting diarization model warmup failed: \(error.localizedDescription)")
+                setError(error)
+            }
+            meetingDiarizationModelWarmupTask = nil
+        }
+        meetingDiarizationModelWarmupTask = task
+        return task
+    }
+
+    @discardableResult
+    func cancelMeetingDiarizationModelDownload() -> Task<Void, Never>? {
+        guard isDownloadingMeetingDiarizationModel else { return nil }
+        let task = meetingDiarizationModelDownloadTask
+        clearActiveMeetingDiarizationModelDownload()
+        task?.cancel()
+        meetingDiarizationModelRuntimeState = .notLoaded
+        return Task {}
+    }
+
+    func deleteMeetingDiarizationModelFiles() {
+        guard !isDownloadingMeetingDiarizationModel,
+            appState != .recording,
+            appState != .transcribing,
+            appState != .meetingRecording,
+            appState != .meetingProcessing,
+            let meetingDiarizationModelManager
+        else { return }
+
+        Task {
+            do {
+                try await meetingDiarizationModelManager.deleteDownloadedModelFiles()
+                meetingDiarizationModelDownloadProgress = nil
+                meetingDiarizationModelRuntimeState = .notLoaded
+            } catch {
+                setError(error)
+            }
+        }
+    }
+
     private func handleModelDownloadEvent(_ event: ModelDownloadEvent) {
         switch event {
         case let .downloadingArtifact(_, progress):
@@ -976,10 +1249,37 @@ final class AppController: ObservableObject {
         }
     }
 
+    private func handleMeetingDiarizationModelDownloadEvent(_ event: ModelDownloadEvent) {
+        switch event {
+        case let .downloadingArtifact(name, progress):
+            meetingDiarizationModelDownloadProgress = progress
+            if let progress {
+                AppLogger.debug("Meeting diarization download: \(name) \(Int((progress * 100).rounded()))%")
+            } else {
+                AppLogger.info("Meeting diarization download: \(name)")
+            }
+        case let .extractingArtifact(name):
+            meetingDiarizationModelDownloadProgress = nil
+            AppLogger.info("Meeting diarization download extracting: \(name)")
+        case .validating:
+            meetingDiarizationModelDownloadProgress = nil
+            AppLogger.info("Meeting diarization download validating")
+        case .completed:
+            meetingDiarizationModelDownloadProgress = nil
+            AppLogger.info("Meeting diarization download completed")
+        }
+    }
+
     private func clearActiveModelDownload() {
         activeModelDownloadID = nil
         modelDownloadTask = nil
         modelDownloadProgress = nil
+    }
+
+    private func clearActiveMeetingDiarizationModelDownload() {
+        activeMeetingDiarizationModelDownloadID = nil
+        meetingDiarizationModelDownloadTask = nil
+        meetingDiarizationModelDownloadProgress = nil
     }
 
     func deleteDownloadedModelFiles() {
@@ -1035,16 +1335,23 @@ final class AppController: ObservableObject {
     }
 
     func copyMeetingTranscript(_ entry: MeetingHistoryEntry) {
-        copyToClipboard(entry.transcriptText)
-    }
-
-    func insertMeetingTranscript(_ entry: MeetingHistoryEntry) {
-        insertText(entry.transcriptText)
+        do {
+            let resolvedEntry = try meetingHistoryStore?.loadEntry(id: entry.id) ?? entry
+            copyToClipboard(resolvedEntry.transcriptText)
+        } catch {
+            setError(error)
+        }
     }
 
     @discardableResult
     func retryMeetingProcessing(_ entry: MeetingHistoryEntry) -> Task<Void, Never>? {
-        meetingStore.retry(entry)
+        do {
+            let resolvedEntry = try meetingHistoryStore?.loadEntry(id: entry.id) ?? entry
+            return meetingStore.retry(resolvedEntry)
+        } catch {
+            setError(error)
+            return nil
+        }
     }
 
     func deleteMeetingEntry(id: MeetingHistoryEntry.ID) {
@@ -1125,6 +1432,29 @@ final class AppController: ObservableObject {
         modelWarmupTask = nil
     }
 
+    @discardableResult
+    private func scheduleMeetingDiarizationModelWarmupIfNeeded() -> Task<Void, Never>? {
+        guard settingsStore.meetingDiarizationEnabled else {
+            meetingDiarizationModelRuntimeState = .notLoaded
+            AppLogger.info("Meeting diarization model warmup skipped because diarization is disabled")
+            return nil
+        }
+        guard meetingDiarizationModelManager != nil else {
+            meetingDiarizationModelRuntimeState = .notLoaded
+            AppLogger.info("Meeting diarization model warmup skipped because no model manager is configured")
+            return nil
+        }
+        guard isMeetingDiarizationModelInstalled else {
+            meetingDiarizationModelRuntimeState = .notLoaded
+            AppLogger.info(
+                "Meeting diarization model warmup skipped because model files are missing at \(meetingDiarizationModelDirectory.path)"
+            )
+            return nil
+        }
+        AppLogger.info("Scheduling meeting diarization model warmup from \(meetingDiarizationModelDirectory.path)")
+        return warmUpMeetingDiarizationModel()
+    }
+
     func updateSpeechPreprocessingMode(_ mode: SpeechPreprocessingMode) {
         do {
             try settingsStore.updateSpeechPreprocessingMode(mode)
@@ -1147,6 +1477,31 @@ final class AppController: ObservableObject {
         } catch {
             setError(error)
         }
+    }
+
+    func updateMeetingTranscriptTimecodesEnabled(_ isEnabled: Bool) {
+        do {
+            try settingsStore.updateMeetingTranscriptTimecodesEnabled(isEnabled)
+        } catch {
+            setError(error)
+        }
+    }
+
+    @discardableResult
+    func updateMeetingDiarizationEnabled(_ isEnabled: Bool) -> Task<Void, Never>? {
+        do {
+            try settingsStore.updateMeetingDiarizationEnabled(isEnabled)
+            if isEnabled {
+                return scheduleMeetingDiarizationModelWarmupIfNeeded()
+            } else {
+                meetingDiarizationModelWarmupTask?.cancel()
+                meetingDiarizationModelWarmupTask = nil
+                meetingDiarizationModelRuntimeState = .notLoaded
+            }
+        } catch {
+            setError(error)
+        }
+        return nil
     }
 
     func updateHotkeyPreference(_ preference: HotkeyPreference) {
@@ -1320,7 +1675,8 @@ final class AppController: ObservableObject {
             status: status,
             errorMessage: errorMessage,
             timings: timings,
-            modelMetadata: modelMetadata ?? VoiceTranscriptionModelMetadata(model: selectedModel),
+            modelMetadata: (modelMetadata ?? VoiceTranscriptionModelMetadata(model: selectedModel))
+                .withAppVersion(appVersionProvider()),
             diagnosticNotes: diagnosticNotes
         )
 
@@ -1403,10 +1759,13 @@ final class AppController: ObservableObject {
 }
 
 nonisolated enum AppControllerDictionaryImportError: LocalizedError, Equatable, Sendable {
+    case invalidClipboard
     case stalePreview
 
     var errorDescription: String? {
         switch self {
+        case .invalidClipboard:
+            return "Clipboard does not contain valid dictionary CSV."
         case .stalePreview:
             return "The dictionary changed after the import preview was created. Preview the import again before applying it."
         }

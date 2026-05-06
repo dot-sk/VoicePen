@@ -8,7 +8,8 @@ struct VoicePenMainWindow: View {
     private var sidebarSections: [VoicePenSettingsSection] {
         var sections: [VoicePenSettingsSection] = [
             .general,
-            .meetings
+            .meetings,
+            .history
         ]
         if VoicePenConfig.modesFeatureEnabled {
             sections.append(.modes)
@@ -19,7 +20,6 @@ struct VoicePenMainWindow: View {
         sections.append(contentsOf: [
             .dictionary,
             .model,
-            .history,
             .config,
             .permissions,
             .about
@@ -60,6 +60,7 @@ struct VoicePenMainWindow: View {
                 }
             }
             .listStyle(.sidebar)
+            .scrollIndicators(.automatic)
             .navigationTitle("VoicePen")
             .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 260)
         } detail: {
@@ -233,6 +234,7 @@ private struct DictionaryEditorView: View {
                             }
                         }
                         .listStyle(.sidebar)
+                        .scrollIndicators(.automatic)
                     }
                 }
                 .frame(minWidth: 240, idealWidth: 280, maxWidth: 320)
@@ -344,10 +346,12 @@ private struct DictionaryEditorView: View {
                     confirmImportPreview(pending.preview)
                 },
                 cancelAction: {
-                    pendingImportPreview = nil
-                    message = "Import canceled"
+                    cancelImportPreview()
                 }
             )
+        }
+        .onExitCommand {
+            cancelImportState()
         }
     }
 
@@ -429,6 +433,7 @@ private struct DictionaryEditorView: View {
     }
 
     private func importDictionaryCSVFromClipboard() {
+        pendingImportPreview = nil
         do {
             pendingImportPreview = PendingDictionaryImportPreview(
                 preview: try controller.prepareDictionaryImportPreviewFromClipboard(
@@ -436,6 +441,7 @@ private struct DictionaryEditorView: View {
                 )
             )
         } catch {
+            pendingImportPreview = nil
             message = error.localizedDescription
         }
     }
@@ -456,6 +462,19 @@ private struct DictionaryEditorView: View {
             message = "Imported \(preview.importedEntryCount) terms"
         } catch {
             message = error.localizedDescription
+        }
+    }
+
+    private func cancelImportPreview() {
+        pendingImportPreview = nil
+        message = "Import canceled"
+    }
+
+    private func cancelImportState() {
+        if pendingImportPreview != nil {
+            cancelImportPreview()
+        } else {
+            message = nil
         }
     }
 }
@@ -518,12 +537,12 @@ private struct DictionaryReviewPanel: View {
             }
 
             HStack(spacing: 8) {
-                Button {
+                CopyButton(
+                    title: "Copy Review Prompt",
+                    presentation: .prominentLabel
+                ) {
                     copyReviewPrompt()
-                } label: {
-                    Label("Copy Review Prompt", systemImage: "doc.on.doc")
                 }
-                .buttonStyle(.borderedProminent)
 
                 Button {
                     importFromClipboard()
@@ -552,12 +571,13 @@ private struct DictionaryReviewPanel: View {
                     .lineLimit(2)
             }
 
-            if let message {
-                Text(message)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text(message ?? " ")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(height: 18, alignment: .leading)
+                .opacity(message == nil ? 0 : 1)
         }
         .padding(18)
     }
@@ -616,6 +636,7 @@ private struct DictionaryImportPreviewSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(minHeight: 260)
+                .scrollIndicators(.automatic)
             }
 
             HStack {
@@ -639,6 +660,9 @@ private struct DictionaryImportPreviewSheet: View {
         }
         .padding(20)
         .frame(minWidth: 640, minHeight: 420)
+        .onExitCommand {
+            cancelAction()
+        }
     }
 
     private var summaryText: String {
@@ -816,9 +840,18 @@ private struct MeetingRecordingPanel: View {
                 }
 
                 if controller.appState == .meetingProcessing {
-                    ProgressView()
-                        .controlSize(.small)
-                    Label("Processing Transcript", systemImage: "waveform")
+                    if let progress = controller.meetingProcessingProgress,
+                        progress.totalChunks > 1
+                    {
+                        ProgressView(value: progress.fraction, total: 1.0)
+                            .controlSize(.small)
+                            .frame(width: 72)
+                        Label("Processing \(progress.percent)%", systemImage: "waveform")
+                    } else {
+                        ProgressView()
+                            .controlSize(.small)
+                        Label("Processing Transcript", systemImage: "waveform")
+                    }
                 } else {
                     Label(controller.meetingSourceStatus.microphone.title, systemImage: "mic")
                     Label(controller.meetingSourceStatus.systemAudio.title, systemImage: "waveform")
@@ -896,12 +929,31 @@ private struct MeetingsView: View {
     @ObservedObject var meetingHistoryStore: MeetingHistoryStore
     @State private var selectedID: MeetingHistoryEntry.ID?
     @State private var entryPendingDeletion: MeetingHistoryEntry?
+    @State private var listRenderVersion = 0
+    @State private var focusedEntry: MeetingHistoryEntry?
 
-    private var selectedEntry: MeetingHistoryEntry? {
+    private var selectedSummaryEntry: MeetingHistoryEntry? {
         guard let selectedID else {
             return meetingHistoryStore.entries.first
         }
         return meetingHistoryStore.entries.first { $0.id == selectedID } ?? meetingHistoryStore.entries.first
+    }
+
+    private var selectedEntry: MeetingHistoryEntry? {
+        guard let selectedSummaryEntry else { return nil }
+        return focusedEntry?.id == selectedSummaryEntry.id ? focusedEntry : selectedSummaryEntry
+    }
+
+    private var entryIDs: [MeetingHistoryEntry.ID] {
+        meetingHistoryStore.entries.map(\.id)
+    }
+
+    private var dayGroups: [HistoryDayGroup<MeetingHistoryEntry>] {
+        HistoryDayGroups(
+            entries: meetingHistoryStore.entries,
+            now: Date(),
+            date: \.createdAt
+        ).groups
     }
 
     var body: some View {
@@ -926,18 +978,32 @@ private struct MeetingsView: View {
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    List(selection: $selectedID) {
-                        ForEach(meetingHistoryStore.entries) { entry in
-                            MeetingRowView(
-                                entry: entry,
-                                retryAction: { controller.retryMeetingProcessing(entry) },
-                                copyAction: { controller.copyMeetingTranscript(entry) },
-                                deleteAction: { entryPendingDeletion = entry }
-                            )
-                            .tag(entry.id)
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                            ForEach(dayGroups, id: \.day) { group in
+                                Section {
+                                    ForEach(group.entries) { entry in
+                                        MeetingRowView(
+                                            entry: entry,
+                                            retryAction: { controller.retryMeetingProcessing(entry) },
+                                            copyAction: { controller.copyMeetingTranscript(entry) },
+                                            deleteAction: { entryPendingDeletion = entry }
+                                        )
+                                        .historyListRowStyle(isSelected: selectedID == entry.id)
+                                        .contentShape(Rectangle())
+                                        .onTapGesture {
+                                            selectedID = entry.id
+                                        }
+                                    }
+                                } header: {
+                                    HistoryDaySectionHeader(title: group.title)
+                                }
+                            }
                         }
+                        .padding(.vertical, 6)
                     }
-                    .listStyle(.sidebar)
+                    .id(listRenderVersion)
+                    .scrollIndicators(.automatic)
                 }
             }
             .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
@@ -954,6 +1020,14 @@ private struct MeetingsView: View {
             if !meetingHistoryStore.entries.contains(where: { $0.id == selectedID }) {
                 selectedID = meetingHistoryStore.entries.first?.id
             }
+            focusedEntry = nil
+        }
+        .onChange(of: entryIDs) { _, _ in
+            listRenderVersion += 1
+        }
+        .task(id: selectedSummaryEntry?.id) {
+            await Task.yield()
+            loadFocusedEntry()
         }
         .alert("Delete meeting?", isPresented: deleteConfirmationBinding) {
             Button("Delete", role: .destructive) {
@@ -1014,6 +1088,55 @@ private struct MeetingsView: View {
                 }
             }
         )
+    }
+
+    private func loadFocusedEntry() {
+        guard let selectedSummaryEntry else {
+            focusedEntry = nil
+            return
+        }
+
+        do {
+            focusedEntry = try meetingHistoryStore.loadEntry(id: selectedSummaryEntry.id) ?? selectedSummaryEntry
+        } catch {
+            focusedEntry = selectedSummaryEntry
+        }
+    }
+}
+
+private struct HistoryDaySectionHeader: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.background)
+    }
+}
+
+private struct HistoryListRowStyle: ViewModifier {
+    let isSelected: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isSelected ? Color.accentColor.opacity(0.16) : Color.clear)
+            }
+            .padding(.horizontal, 6)
+    }
+}
+
+private extension View {
+    func historyListRowStyle(isSelected: Bool) -> some View {
+        modifier(HistoryListRowStyle(isSelected: isSelected))
     }
 }
 
@@ -1139,21 +1262,6 @@ private struct MeetingDetailView: View {
                             .accessibilityLabel("Retry Processing")
                         }
 
-                        Button {
-                            controller.insertMeetingTranscript(entry)
-                        } label: {
-                            Label("Insert Transcript", systemImage: "arrowshape.turn.up.forward")
-                        }
-                        .disabled(entry.transcriptText.trimmed.isEmpty)
-
-                        Button {
-                            controller.copyMeetingTranscript(entry)
-                        } label: {
-                            Image(systemName: "doc.on.doc")
-                        }
-                        .disabled(entry.transcriptText.trimmed.isEmpty)
-                        .help("Copy Transcript")
-                        .accessibilityLabel("Copy Transcript")
                     }
 
                     if let recoveryAudio = entry.recoveryAudio {
@@ -1179,12 +1287,13 @@ private struct MeetingDetailView: View {
                     HistoryTextSection(
                         title: "Full transcript",
                         text: entry.transcriptText,
+                        isResizable: true,
                         copyAction: {
                             controller.copyMeetingTranscript(entry)
                         }
                     )
 
-                    MeetingMetadataSection(entry: entry)
+                    MeetingMetadataSection(controller: controller, entry: entry)
 
                     Spacer(minLength: 0)
                 }
@@ -1247,6 +1356,7 @@ private enum MeetingDurationFormatter {
 }
 
 private struct MeetingMetadataSection: View {
+    @ObservedObject var controller: AppController
     let entry: MeetingHistoryEntry
 
     var body: some View {
@@ -1255,24 +1365,66 @@ private struct MeetingMetadataSection: View {
                 .font(.subheadline.weight(.semibold))
 
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
-                metadataRow("Microphone", entry.sourceFlags.microphoneCaptured ? "Captured" : "Not captured")
-                metadataRow("System audio", entry.sourceFlags.systemAudioCaptured ? "Captured" : "Not captured")
-                metadataRow("Incomplete", entry.sourceFlags.partial ? "Yes" : "No")
-                metadataRow("Decoded by", decodedByText)
-                metadataRow("Processing time", processingTimeText)
+                ForEach(metadataRows, id: \.label) { row in
+                    metadataRow(row.label, row.value)
+                }
             }
             .font(.system(size: 12))
         }
+    }
+
+    private var metadataRows: [(label: String, value: String)] {
+        var rows: [(label: String, value: String)] = [
+            ("Microphone", entry.sourceFlags.microphoneCaptured ? "Captured" : "Not captured"),
+            ("System audio", entry.sourceFlags.systemAudioCaptured ? "Captured" : "Not captured"),
+            ("Incomplete", entry.sourceFlags.partial ? "Yes" : "No"),
+            ("Decoded by", decodedByText)
+        ]
+
+        if let appVersionText {
+            rows.append(("App version", appVersionText))
+        }
+        if let timecodesStatusText {
+            rows.append(("Timecodes", timecodesStatusText))
+        }
+        rows.append(("Processing time", processingTimeText))
+        return rows
     }
 
     private var decodedByText: String {
         entry.modelMetadata?.displayName ?? "Unknown"
     }
 
+    private var appVersionText: String? {
+        guard let rawAppVersion = entry.modelMetadata?.appVersion else {
+            return nil
+        }
+        let appVersion = rawAppVersion.trimmed
+        return !appVersion.isEmpty && appVersion != "Unknown" ? appVersion : nil
+    }
+
+    private var timecodesStatusText: String? {
+        if transcriptContainsTimecode {
+            return nil
+        }
+        return "Not present"
+    }
+
+    private var transcriptContainsTimecode: Bool {
+        entry.transcriptText
+            .split(separator: "\n")
+            .contains { line in
+                line.hasPrefix("[") && line.contains(" - ") && line.contains("]")
+            }
+    }
+
     private var processingTimeText: String {
-        let total = [entry.timings?.preprocessing, entry.timings?.transcription]
-            .compactMap { $0 }
-            .reduce(0, +)
+        let total = [
+            entry.timings?.preprocessing,
+            entry.timings?.transcription
+        ]
+        .compactMap { $0 }
+        .reduce(0, +)
 
         guard total > 0 else {
             return "Unknown"
@@ -1283,6 +1435,18 @@ private struct MeetingMetadataSection: View {
         }
 
         return String(format: "%.2f s", total)
+    }
+
+    private func formattedDuration(_ duration: TimeInterval?) -> String? {
+        guard let duration, duration > 0 else {
+            return nil
+        }
+
+        if duration < 1 {
+            return "\(Int((duration * 1_000).rounded())) ms"
+        }
+
+        return String(format: "%.2f s", duration)
     }
 
     private func metadataRow(_ label: String, _ value: String) -> some View {
@@ -1302,7 +1466,6 @@ private struct HistoryView: View {
     @State private var showingClearConfirmation = false
     @State private var entryPendingDeletion: VoiceHistoryEntry?
     @State private var searchText = ""
-    @State private var isShowingOlderHistory = false
     @State private var copiedEntryID: VoiceHistoryEntry.ID?
     @State private var copyFeedbackResetTask: Task<Void, Never>?
 
@@ -1320,16 +1483,12 @@ private struct HistoryView: View {
             .filteredEntries(from: historyStore.entries)
     }
 
-    private var ageGroups: VoiceHistoryEntryAgeGroups {
-        VoiceHistoryEntryAgeGroups(entries: filteredEntries, now: Date())
-    }
-
-    private var recentEntries: [VoiceHistoryEntry] {
-        ageGroups.recent
-    }
-
-    private var olderEntries: [VoiceHistoryEntry] {
-        ageGroups.older
+    private var dayGroups: [HistoryDayGroup<VoiceHistoryEntry>] {
+        HistoryDayGroups(
+            entries: filteredEntries,
+            now: Date(),
+            date: \.createdAt
+        ).groups
     }
 
     var body: some View {
@@ -1375,36 +1534,19 @@ private struct HistoryView: View {
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    List(selection: $selectedID) {
-                        if !recentEntries.isEmpty {
-                            Section("Recent") {
-                                historyRows(recentEntries)
-                            }
-                        }
-
-                        if !olderEntries.isEmpty {
-                            Section {
-                                DisclosureGroup(isExpanded: $isShowingOlderHistory) {
-                                    historyRows(olderEntries)
-                                } label: {
-                                    HStack {
-                                        Text("Older")
-                                            .font(.subheadline.weight(.semibold))
-
-                                        Spacer()
-
-                                        Text(olderEntries.count.formatted())
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .contentShape(Rectangle())
-                                    .padding(.vertical, 3)
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                            ForEach(dayGroups, id: \.day) { group in
+                                Section {
+                                    historyRows(group.entries)
+                                } header: {
+                                    HistoryDaySectionHeader(title: group.title)
                                 }
                             }
                         }
+                        .padding(.vertical, 6)
                     }
-                    .listStyle(.sidebar)
+                    .scrollIndicators(.automatic)
                 }
             }
             .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
@@ -1479,17 +1621,7 @@ private struct HistoryView: View {
                     entryPendingDeletion = entry
                 }
             )
-            .tag(entry.id)
-        }
-        .onDelete { offsets in
-            deleteEntries(at: offsets, in: entries)
-        }
-    }
-
-    private func deleteEntries(at offsets: IndexSet, in entries: [VoiceHistoryEntry]) {
-        for index in offsets {
-            guard entries.indices.contains(index) else { continue }
-            controller.deleteHistoryEntry(id: entries[index].id)
+            .historyListRowStyle(isSelected: selectedID == entry.id)
         }
     }
 
@@ -1740,6 +1872,8 @@ private struct HistoryDetailView: View {
                         }
                     )
 
+                    HistoryProcessingMetadataSection(entry: entry)
+
                     HistoryTimingsSection(timings: entry.timings)
 
                     Spacer(minLength: 0)
@@ -1777,6 +1911,51 @@ private struct HistoryDetailView: View {
                 expandedRawTranscriptEntryIDs = expandedEntryIDs
             }
         )
+    }
+}
+
+private struct HistoryProcessingMetadataSection: View {
+    let entry: VoiceHistoryEntry
+
+    var body: some View {
+        if entry.modelMetadata != nil {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Processing")
+                    .font(.subheadline.weight(.semibold))
+
+                Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
+                    ForEach(metadataRows, id: \.label) { row in
+                        metadataRow(row.label, row.value)
+                    }
+                }
+                .font(.system(size: 12))
+            }
+        }
+    }
+
+    private var metadataRows: [(label: String, value: String)] {
+        var rows = [("Decoded by", entry.modelMetadata?.displayName ?? "Unknown")]
+        if let appVersionText {
+            rows.append(("App version", appVersionText))
+        }
+        return rows
+    }
+
+    private var appVersionText: String? {
+        guard let rawAppVersion = entry.modelMetadata?.appVersion else {
+            return nil
+        }
+        let appVersion = rawAppVersion.trimmed
+        return !appVersion.isEmpty && appVersion != "Unknown" ? appVersion : nil
+    }
+
+    private func metadataRow(_ label: String, _ value: String) -> some View {
+        GridRow {
+            Text(label)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .textSelection(.enabled)
+        }
     }
 }
 
@@ -1828,9 +2007,16 @@ private struct HistoryTimingsSection: View {
 }
 
 private struct HistoryTextSection: View {
+    private static let defaultTextHeight: CGFloat = 160
+    private static let minimumTextHeight: CGFloat = 96
+    private static let maximumTextHeight: CGFloat = 520
+
     let title: String
     let text: String
+    var isResizable = false
     let copyAction: () -> Void
+    @State private var textHeight = Self.defaultTextHeight
+    @State private var resizeStartHeight: CGFloat?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1840,31 +2026,64 @@ private struct HistoryTextSection: View {
 
                 Spacer()
 
-                Button {
-                    copyAction()
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                }
-                .disabled(trimmedText.isEmpty)
-                .help("Copy")
-                .accessibilityLabel("Copy")
+                CopyButton(isDisabled: trimmedText.isEmpty, action: copyAction)
             }
 
-            ScrollView {
-                Text(displayText)
-                    .font(.system(.body, design: .default))
-                    .foregroundStyle(text.isEmpty ? .secondary : .primary)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
-            }
-            .frame(minHeight: 96, maxHeight: 160)
-            .background(.background)
-            .overlay {
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(.secondary.opacity(0.22), lineWidth: 1)
+            textBox
+                .frame(
+                    minHeight: Self.minimumTextHeight,
+                    maxHeight: isResizable ? nil : Self.defaultTextHeight
+                )
+                .frame(height: isResizable ? textHeight : nil)
+        }
+    }
+
+    private var textBox: some View {
+        ScrollView {
+            Text(displayText)
+                .font(.system(.body, design: .default))
+                .foregroundStyle(text.isEmpty ? .secondary : .primary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .padding(.bottom, isResizable ? 12 : 0)
+        }
+        .scrollIndicators(.automatic)
+        .background(.background)
+        .overlay {
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(.secondary.opacity(0.22), lineWidth: 1)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if isResizable {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(-45))
+                    .padding(8)
+                    .contentShape(Rectangle())
+                    .help("Resize")
+                    .accessibilityLabel("Resize transcript area")
+                    .gesture(
+                        DragGesture(minimumDistance: 1)
+                            .onChanged { value in
+                                if resizeStartHeight == nil {
+                                    resizeStartHeight = textHeight
+                                }
+
+                                let startHeight = resizeStartHeight ?? textHeight
+                                textHeight = clampedTextHeight(startHeight + value.translation.height)
+                            }
+                            .onEnded { _ in
+                                resizeStartHeight = nil
+                            }
+                    )
             }
         }
+    }
+
+    private func clampedTextHeight(_ height: CGFloat) -> CGFloat {
+        min(max(height, Self.minimumTextHeight), Self.maximumTextHeight)
     }
 
     private var displayText: String {
@@ -1874,6 +2093,7 @@ private struct HistoryTextSection: View {
     private var trimmedText: String {
         text.trimmed
     }
+
 }
 
 private struct HistoryRawTranscriptDisclosure: View {
@@ -1887,14 +2107,7 @@ private struct HistoryRawTranscriptDisclosure: View {
                 HStack {
                     Spacer()
 
-                    Button {
-                        copyAction()
-                    } label: {
-                        Image(systemName: "doc.on.doc")
-                    }
-                    .disabled(trimmedText.isEmpty)
-                    .help("Copy")
-                    .accessibilityLabel("Copy")
+                    CopyButton(isDisabled: trimmedText.isEmpty, action: copyAction)
                 }
 
                 ScrollView {
@@ -1906,6 +2119,7 @@ private struct HistoryRawTranscriptDisclosure: View {
                         .padding(12)
                 }
                 .frame(minHeight: 96, maxHeight: 160)
+                .scrollIndicators(.automatic)
                 .background(.background)
                 .overlay {
                     RoundedRectangle(cornerRadius: 6)
@@ -1928,4 +2142,5 @@ private struct HistoryRawTranscriptDisclosure: View {
     private var trimmedText: String {
         text.trimmed
     }
+
 }

@@ -1,7 +1,7 @@
 ---
 id: SPEC-008
 status: implemented
-updated: 2026-05-05
+updated: 2026-05-06
 tests:
   - VoicePenTests/App/VoicePenAppCommandTests.swift
   - VoicePenTests/Settings/UserConfigStoreTests.swift
@@ -39,13 +39,14 @@ and automatic mode classifies the active app as terminal, developer, or plain.
 - When the Modes feature flag is disabled, VoicePen shall not call the LLM intent parser because developer and terminal contexts are unavailable.
 - When the user has selected Plain, Auto, Writing Code, or Terminal in the UI, VoicePen shall use that mode instead of `[developer].mode`.
 - When the settings window is open, VoicePen shall show Plain, Auto, Writing Code, and Terminal mode selection in a dedicated Modes settings tab rather than General settings.
-- When the settings window is open, VoicePen shall order settings sections by expected use frequency and meaning: everyday app and transcription controls first, workflow configuration next, advanced config/permissions/about last.
+- When the settings window is open, VoicePen shall order settings sections by expected use frequency and meaning: General first, Meetings and History together near the top, workflow configuration next, advanced config/permissions/about last.
 - When the settings window is open, VoicePen shall show push-to-talk shortcut controls in General settings instead of a separate Shortcuts settings section.
 - When the UI shows Writing Code, VoicePen shall keep storing and reading the compatible TOML mode value `developer`.
 - When the Modes settings tab is open, VoicePen shall show a short user-facing summary of mode routing plus a note that AI settings are needed for full supported command parsing; detailed behavior for Plain, Auto, Writing Code, and Terminal shall live in separate per-mode sections, including a terminal command example.
-- When the settings window is open, VoicePen shall expose TOML file path, reload, diagnostics, and open-file controls only in a dedicated Config settings tab.
+- When the settings window is open, VoicePen shall expose TOML file path, status, reload, diagnostics, and open-file controls only in a dedicated Config settings tab, with path and status grouped under a `Config file` block.
 - When the user chooses to open the config file from Config settings, VoicePen shall ensure `~/.voicepen/config.toml` exists and then open it with the system default editor.
 - When the user chooses to reload config from Config settings, VoicePen shall reread `~/.voicepen/config.toml`, refresh settings displays backed by user config, and surface config diagnostics in the Config tab.
+- When the user chooses to reload config from Config settings, VoicePen shall show short success feedback on the reload control without resizing the control.
 - When the user switches to Config settings, VoicePen shall refresh TOML-backed settings after the settings view update rather than synchronously publishing during SwiftUI view construction.
 - When the user presses the standard macOS Settings shortcut `Command + ,`, VoicePen shall ensure `~/.voicepen/config.toml` exists and then open it with the system default editor.
 - When VoicePen saves TOML-backed settings from the UI, it shall write non-ASCII config text such as Russian aliases and triggers as readable UTF-8 characters rather than unicode escape sequences.
@@ -102,7 +103,8 @@ and automatic mode classifies the active app as terminal, developer, or plain.
 - Automated: `VoicePenTests/History/VoiceHistoryStoreTests.swift` covers persistence of diagnostic notes.
 - Manual: open Settings, verify push-to-talk hotkey and hold-duration controls appear under General with no separate Shortcuts sidebar item.
 - Manual: open Settings, verify the Modes overview is short, mentions AI setup for full command parsing, and leaves detailed behavior to the per-mode explanations under the Modes tab.
-- Manual: open Settings, verify Config contains the config path, Reload Config, Open Config File, and any parse diagnostics, while Modes and AI do not show config file controls.
+- Manual: open Settings, verify Config contains a `Config file` block with the config path and status, plus Reload Config, Open Config File, and any parse diagnostics, while Modes and AI do not show config file controls.
+- Manual: press Reload Config in Config settings and verify the control briefly shows successful reload feedback without shifting neighboring controls.
 - Manual: switch between Settings sections including Config and verify the console does not log a SwiftUI warning about publishing changes from within view updates.
 - Manual: use Open Config File from Config settings with no existing `~/.voicepen/config.toml`, verify the default file is created and opens in the system default editor.
 - Manual: press `Command + ,` with VoicePen active and verify the same config file opens.

@@ -87,6 +87,10 @@ nonisolated struct AppPaths: @unchecked Sendable {
         applicationSupportDirectory.appendingPathComponent("MeetingRecovery", isDirectory: true)
     }
 
+    var diarizationModelsDirectory: URL {
+        applicationSupportDirectory.appendingPathComponent("DiarizationModels", isDirectory: true)
+    }
+
     var expectedModelDirectories: [URL] {
         [bundledModelDirectory, userModelDirectory].compactMap { $0 }
     }
@@ -108,6 +112,7 @@ nonisolated struct AppPaths: @unchecked Sendable {
         try fileManager.createDirectory(at: userModelsDirectory, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: tempAudioDirectory, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: meetingRecoveryDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: diarizationModelsDirectory, withIntermediateDirectories: true)
     }
 
     func existingModelDirectory() -> URL? {

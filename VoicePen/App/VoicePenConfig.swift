@@ -1,7 +1,7 @@
 import Foundation
 
 nonisolated enum VoicePenConfig {
-    static let modelDisplayName = "Best Multilingual (Whisper)"
+    static let modelDisplayName = "Fast Multilingual (Whisper Q5_0)"
     static let modelId = "ggml-large-v3-turbo-q5_0"
     static let modelVersion = "large-v3-turbo-q5_0"
     static let modelSizeLabel = "1.7 GB"
@@ -12,6 +12,8 @@ nonisolated enum VoicePenConfig {
     static let glossaryLimit = 40
     static let shortRecordingPromptMaximumDuration: TimeInterval = 10
     static let defaultHotkeyHoldDuration: TimeInterval = 0.15
+    static let minimumHotkeyHoldDuration: TimeInterval = 0.1
+    static let maximumHotkeyHoldDuration: TimeInterval = 0.5
     static let accessibilityPermissionPollInterval: Duration = .seconds(1)
     static let historyCopyFeedbackDuration: Duration = .milliseconds(1_400)
     static let recordingLevelRefreshInterval: Duration = .milliseconds(80)
@@ -42,6 +44,21 @@ nonisolated enum VoicePenConfig {
             return "VoicePen"
         }
         return trimmedName
+    }
+    static var appVersion: String {
+        let shortVersion = trimmedBundleString("CFBundleShortVersionString")
+        let buildVersion = trimmedBundleString("CFBundleVersion")
+
+        switch (shortVersion, buildVersion) {
+        case let (shortVersion?, buildVersion?) where shortVersion != buildVersion:
+            return "\(shortVersion) (\(buildVersion))"
+        case let (shortVersion?, _):
+            return shortVersion
+        case let (_, buildVersion?):
+            return buildVersion
+        case (nil, nil):
+            return "Unknown"
+        }
     }
     static let minimumSpeechSignalDuration: TimeInterval = 0.16
 
@@ -84,5 +101,12 @@ nonisolated enum VoicePenConfig {
         default:
             return false
         }
+    }
+
+    private static func trimmedBundleString(_ key: String) -> String? {
+        let value = Bundle.main.object(forInfoDictionaryKey: key) as? String
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmed, !trimmed.isEmpty else { return nil }
+        return trimmed
     }
 }

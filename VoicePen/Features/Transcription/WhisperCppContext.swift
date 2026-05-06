@@ -23,10 +23,13 @@ nonisolated struct WhisperCppTimings: Equatable {
     let audioContext: Int32
     let singleSegment: Bool
     let noTimestamps: Bool
+    let tokenTimestamps: Bool
+    let maxSegmentLength: Int32
 }
 
 nonisolated private struct WhisperCppRunResult {
     let text: String
+    let segments: [TranscriptionSegment]
     let timings: WhisperCppTimings
 }
 
@@ -48,11 +51,19 @@ actor WhisperCppContext {
         self.handle = WhisperCppContextHandle(context)
     }
 
-    func transcribe(audioURL: URL, prompt: String, language: String) throws -> String {
+    func transcribe(
+        audioURL: URL,
+        prompt: String,
+        language: String,
+        includeTimestamps: Bool = false,
+    ) throws -> TranscriptionClientResult {
         let context = handle.pointer
 
         let samples = try Self.readAudioSamples(audioURL)
-        let options = WhisperCppDecodingOptions.resolve(sampleCount: samples.count)
+        let options = WhisperCppDecodingOptions.resolve(
+            sampleCount: samples.count,
+            includeTimestamps: includeTimestamps
+        )
         let result = try runWhisper(
             context: context,
             samples: samples,
@@ -65,7 +76,7 @@ actor WhisperCppContext {
         guard !trimmedText.isEmpty else {
             throw TranscriptionError.emptyResult
         }
-        return trimmedText
+        return TranscriptionClientResult(text: trimmedText, segments: result.segments)
     }
 
     func warmUp(language: String) throws {
@@ -96,6 +107,9 @@ actor WhisperCppContext {
             let configuredOptions = WhisperCppDecodingOptions(
                 singleSegment: options.singleSegment,
                 noTimestamps: options.noTimestamps,
+                tokenTimestamps: options.tokenTimestamps,
+                maxSegmentLength: options.maxSegmentLength,
+                splitOnWord: options.splitOnWord,
                 audioContext: options.audioContext,
                 threadCount: configuration.threadCount
             )
@@ -143,6 +157,9 @@ actor WhisperCppContext {
         parameters.translate = false
         parameters.detect_language = languageConfiguration.detectLanguageOnly
         parameters.no_timestamps = options.noTimestamps
+        parameters.token_timestamps = options.tokenTimestamps
+        parameters.max_len = options.maxSegmentLength
+        parameters.split_on_word = options.splitOnWord
         parameters.no_context = true
         parameters.single_segment = options.singleSegment
         parameters.suppress_non_speech_tokens = true
@@ -189,9 +206,20 @@ actor WhisperCppContext {
         }
 
         var text = ""
+        var segments: [TranscriptionSegment] = []
         for index in 0..<whisper_full_n_segments(context) {
             if let segment = whisper_full_get_segment_text(context, index) {
-                text += String(cString: segment)
+                let segmentText = String(cString: segment)
+                text += segmentText
+                if !parameters.no_timestamps {
+                    segments.append(
+                        TranscriptionSegment(
+                            text: segmentText,
+                            startTime: TimeInterval(whisper_full_get_segment_t0(context, index)) / 100,
+                            endTime: TimeInterval(whisper_full_get_segment_t1(context, index)) / 100
+                        )
+                    )
+                }
             }
         }
 
@@ -201,10 +229,12 @@ actor WhisperCppContext {
             threadCount: options.threadCount,
             audioContext: options.audioContext,
             singleSegment: options.singleSegment,
-            noTimestamps: options.noTimestamps
+            noTimestamps: options.noTimestamps,
+            tokenTimestamps: options.tokenTimestamps,
+            maxSegmentLength: options.maxSegmentLength
         )
 
-        return WhisperCppRunResult(text: text, timings: timings)
+        return WhisperCppRunResult(text: text, segments: segments, timings: timings)
     }
 
     private static func readAudioSamples(_ url: URL) throws -> [Float] {

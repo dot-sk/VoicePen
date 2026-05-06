@@ -47,9 +47,9 @@ final class MeetingRecordingStore {
         let setErrorMessage: (String?) -> Void
         let setElapsedTime: (TimeInterval) -> Void
         let setSourceStatus: (MeetingSourceStatus) -> Void
+        let setProcessingProgress: (MeetingProcessingProgress?) -> Void
         let presentError: (Error) -> Void
         let refreshBaseState: () -> Void
-        let cancelModelWarmup: () -> Void
     }
 
     private static let microphonePermissionRequiredMessage = "Microphone permission is required to record dictation audio locally."
@@ -75,7 +75,6 @@ final class MeetingRecordingStore {
             return nil
         }
 
-        environment.cancelModelWarmup()
         let timeout = environment.captureStartTimeout
         return Task { [weak self, meetingPipeline] in
             guard let self else { return }
@@ -193,6 +192,7 @@ final class MeetingRecordingStore {
         case let .stopRequested(processingID):
             state.activeProcessingID = processingID
             environment.setAppState(.meetingProcessing)
+            environment.setProcessingProgress(nil)
             stopStatusUpdates()
             startProcessingTimeoutMonitor(id: processingID)
 
@@ -211,6 +211,7 @@ final class MeetingRecordingStore {
             stopStatusUpdates()
             updateElapsedTime(0)
             updateSourceStatus(.idle)
+            environment.setProcessingProgress(nil)
             environment.refreshBaseState()
             environment.setErrorMessage(nil)
 
@@ -220,6 +221,7 @@ final class MeetingRecordingStore {
         case let .retryRequested(processingID):
             state.activeProcessingID = processingID
             environment.setAppState(.meetingProcessing)
+            environment.setProcessingProgress(nil)
             startProcessingTimeoutMonitor(id: processingID)
 
         case let .retrySucceeded(processingID, entry):
@@ -336,6 +338,7 @@ final class MeetingRecordingStore {
         state.processingTimeoutTask = nil
         state.processingTask = nil
         state.activeProcessingID = nil
+        environment.setProcessingProgress(nil)
     }
 
     private func updateElapsedTime(_ elapsedTime: TimeInterval) {
