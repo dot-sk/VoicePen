@@ -23,6 +23,36 @@ Write an ADR in `Docs/adr/` only for technical decisions that are expensive to
 reverse: architecture, persistence shape, model/backend strategy,
 privacy/security posture, distribution, or dependencies.
 
+## Feature Architecture
+
+Keep `AppController` as a thin app-facing facade for SwiftUI, menu commands,
+published app state, and cross-feature wiring. Do not add substantial feature
+lifecycle logic, long-running task ownership, timeout orchestration, permission
+flows, or domain-specific state machines directly to `AppController`.
+
+For new features or refactors with meaningful state transitions, prefer a local
+feature store in the app layer:
+
+- Use a small `@MainActor` feature store when the feature owns UI-facing state,
+  async effects, cancellation, timeout handling, or multi-step user actions.
+- Keep the store local to one feature. Do not introduce a global Redux-style app
+  store or a third-party architecture dependency unless the user asks for it and
+  the decision is captured in an ADR.
+- Model the feature with explicit `State`, `Action`, and `Environment` types
+  when that reduces lifecycle ambiguity. Keep reducers/transitions synchronous
+  and put side effects in store methods or effect helpers.
+- Inject dependencies through the feature environment: pipelines, stores,
+  clients, settings, permissions, prompts, clocks/timeouts, and app-facade
+  callbacks.
+- Let `AppController` expose stable facade methods used by SwiftUI and tests,
+  then delegate feature-specific work to the feature store.
+- Keep general app commands in `AppController` when they intentionally share
+  cross-feature behavior, such as clipboard, insertion, model selection,
+  global app state, or shared settings persistence.
+
+For simpler features, a dedicated view model, service, pipeline, or persistence
+store is enough. Do not add a feature store just to follow a pattern.
+
 ## Settings Screens
 
 Settings screens should use one shared app/settings controller path for reading
