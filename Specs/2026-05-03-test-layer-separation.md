@@ -1,7 +1,7 @@
 ---
 id: SPEC-007
 status: implemented
-updated: 2026-05-05
+updated: 2026-05-07
 tests:
   - VoicePenTests/App/AppControllerTests.swift
   - VoicePenIntegrationTests/VoicePenIntegrationHostTests.swift
@@ -35,9 +35,13 @@ available through an explicit command.
 - When a pull request or main-branch push changes specs, VoicePen CI shall run
   the dedicated spec-validation job even if the same change also affects code.
 - When a pull request or main-branch push changes code-impacting files, VoicePen
-  CI shall run code-quality checks, unit tests, and dead-code analysis.
-- When a release-branch pull request changes code-impacting files, VoicePen CI
-  shall keep code-quality checks and unit tests but skip dead-code analysis.
+  CI shall run code-quality checks and unit tests.
+- When VoicePen CI runs macOS code-quality checks and unit tests, it shall
+  restore and save SwiftPM build caches keyed by Swift package manifests so
+  expensive dependencies can be reused between runs.
+- When dead-code analysis is needed in CI, VoicePen shall provide it as an
+  optional manually dispatched job rather than part of the default pull-request
+  or main-branch push checks.
 - When a developer installs Git hooks, VoicePen shall use Lefthook as the hook
   runner while keeping `make` commands as the source of truth.
 - When a developer pushes commits with no code-impacting changes, the local
@@ -59,8 +63,9 @@ available through an explicit command.
 | Inherited SDKROOT | `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk make test` | Tests still run with the macOS SDK selected from `DEVELOPER_DIR` |
 | Docs-only PR | Change only `README.md`, `Docs/`, `Specs/`, or `AGENTS.md` | CI skips code-quality checks, unit tests, and dead-code analysis |
 | Spec and code PR | Change both `Specs/` and code-impacting files | CI runs the dedicated spec-validation job and the code-quality jobs |
-| Code PR | Change `VoicePen/`, `VoicePenTests/`, package files, scripts, or CI workflow | CI runs code-quality checks, unit tests, and dead-code analysis |
-| Release PR | Open `release/v1.1.0` into `main` after normal feature PRs are green | CI runs code-quality checks and unit tests without the Dead Code job |
+| Code PR | Change `VoicePen/`, `VoicePenTests/`, package files, scripts, or CI workflow | CI runs code-quality checks and unit tests without the optional Dead Code job |
+| SwiftPM cache | Re-run CI after a previous successful macOS code check with unchanged package manifests | CI can restore SwiftPM build artifacts before linting and unit tests |
+| Manual dead-code CI | Dispatch CI with `run_dead_code=true` | CI runs the optional Dead Code job |
 | Hook install | `make install-hooks` | Lefthook installs the configured Git hooks |
 | Docs-only push | Push commits that only touch docs or specs | Pre-push skips `make test` |
 | Code push | Push commits that touch Swift, package, project, script, or CI files | Pre-push runs `make test` |
@@ -74,10 +79,11 @@ available through an explicit command.
   test` verifies the default test command does not inherit an incompatible SDK
   from Git hook environments.
 - Automated: `make integration-test` verifies the hosted app integration target.
-- Automated: `.github/workflows/ci.yml` gates code-quality checks, unit tests,
-  and dead-code analysis on code-impacting changed paths, skips dead-code
-  analysis for `release/v*` pull requests, and runs the dedicated
-  spec-validation job for spec changes.
+- Automated: `.github/workflows/ci.yml` gates code-quality checks and unit
+  tests on code-impacting changed paths, restores SwiftPM build caches for the
+  macOS code-check job, exposes dead-code analysis as an optional
+  `workflow_dispatch` job, and runs the dedicated spec-validation job for spec
+  changes.
 - Automated: `scripts/code-impacting-changes.sh` is shared by CI and local
   hooks to classify changed paths.
 - Manual: run `make install-hooks` in a checkout with Lefthook installed and
