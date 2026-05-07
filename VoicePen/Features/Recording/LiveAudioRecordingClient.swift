@@ -7,7 +7,8 @@ final class LiveAudioRecordingClient: NSObject, AudioRecordingClient {
     private var engine: AVAudioEngine?
     private var audioFile: AVAudioFile?
     private var converter: AVAudioConverter?
-    private var targetFormat: AVAudioFormat?
+    private var captureFormat: AVAudioFormat?
+    private var outputFormat: AVAudioFormat?
     private var currentURL: URL?
     private var startedAt: Date?
     private var recordingError: Error?
@@ -33,23 +34,28 @@ final class LiveAudioRecordingClient: NSObject, AudioRecordingClient {
         }
 
         guard
-            let targetFormat = AVAudioFormat(
+            let outputFormat = AVAudioFormat(
                 commonFormat: .pcmFormatFloat32,
                 sampleRate: 16_000,
                 channels: 1,
                 interleaved: false
             ),
-            let converter = AVAudioConverter(from: inputFormat, to: targetFormat)
+            let captureFormat = ActiveChannelMonoMixer.makeFloatFormat(
+                sampleRate: 16_000,
+                channelCount: inputFormat.channelCount
+            ),
+            let converter = AVAudioConverter(from: inputFormat, to: captureFormat)
         else {
             throw RecordingError.couldNotStart
         }
 
-        let audioFile = try AVAudioFile(forWriting: url, settings: targetFormat.settings)
+        let audioFile = try AVAudioFile(forWriting: url, settings: outputFormat.settings)
 
         self.engine = engine
         self.audioFile = audioFile
         self.converter = converter
-        self.targetFormat = targetFormat
+        self.captureFormat = captureFormat
+        self.outputFormat = outputFormat
         currentURL = url
         startedAt = Date()
         recordingError = nil
@@ -67,7 +73,8 @@ final class LiveAudioRecordingClient: NSObject, AudioRecordingClient {
             self.engine = nil
             self.audioFile = nil
             self.converter = nil
-            self.targetFormat = nil
+            self.captureFormat = nil
+            self.outputFormat = nil
             currentURL = nil
             startedAt = nil
             recordingError = nil
@@ -85,7 +92,8 @@ final class LiveAudioRecordingClient: NSObject, AudioRecordingClient {
         self.engine = nil
         self.audioFile = nil
         self.converter = nil
-        self.targetFormat = nil
+        self.captureFormat = nil
+        self.outputFormat = nil
         self.currentURL = nil
         self.startedAt = nil
         updateLatestVoiceBandLevel(nil)
@@ -111,13 +119,14 @@ final class LiveAudioRecordingClient: NSObject, AudioRecordingClient {
 
     private func processInputBuffer(_ buffer: AVAudioPCMBuffer) {
         guard let converter,
-            let targetFormat,
-            let outputBuffer = AVAudioPCMBuffer(
-                pcmFormat: targetFormat,
+            let captureFormat,
+            let outputFormat,
+            let captureBuffer = AVAudioPCMBuffer(
+                pcmFormat: captureFormat,
                 frameCapacity: convertedFrameCapacity(
                     inputFrames: buffer.frameLength,
                     inputSampleRate: buffer.format.sampleRate,
-                    outputSampleRate: targetFormat.sampleRate
+                    outputSampleRate: captureFormat.sampleRate
                 )
             )
         else {
@@ -127,7 +136,7 @@ final class LiveAudioRecordingClient: NSObject, AudioRecordingClient {
 
         let inputProvider = AudioConverterInputProvider(buffer: buffer)
         var conversionError: NSError?
-        let status = converter.convert(to: outputBuffer, error: &conversionError) { _, inputStatus in
+        let status = converter.convert(to: captureBuffer, error: &conversionError) { _, inputStatus in
             inputProvider.next(inputStatus: inputStatus)
         }
 
@@ -137,6 +146,11 @@ final class LiveAudioRecordingClient: NSObject, AudioRecordingClient {
         }
 
         guard status == .haveData || status == .inputRanDry,
+            captureBuffer.frameLength > 0,
+            let outputBuffer = ActiveChannelMonoMixer.makeMonoBuffer(
+                from: captureBuffer,
+                outputFormat: outputFormat
+            ),
             outputBuffer.frameLength > 0
         else {
             return
@@ -148,10 +162,10 @@ final class LiveAudioRecordingClient: NSObject, AudioRecordingClient {
             recordingError = error
         }
 
-        let samples = monoSamples(from: outputBuffer)
+        let samples = ActiveChannelMonoMixer.monoSamples(from: outputBuffer)
         let level = VoiceBandAnalyzer.normalizedVoiceBandLevel(
             samples: samples,
-            sampleRate: targetFormat.sampleRate
+            sampleRate: outputFormat.sampleRate
         )
         updateLatestVoiceBandLevel(level)
     }
@@ -167,29 +181,6 @@ final class LiveAudioRecordingClient: NSObject, AudioRecordingClient {
 
         let ratio = outputSampleRate / inputSampleRate
         return AVAudioFrameCount((Double(inputFrames) * ratio).rounded(.up)) + 32
-    }
-
-    private func monoSamples(from buffer: AVAudioPCMBuffer) -> [Float] {
-        guard let channelData = buffer.floatChannelData else { return [] }
-
-        let frameLength = Int(buffer.frameLength)
-        let channelCount = Int(buffer.format.channelCount)
-        guard frameLength > 0, channelCount > 0 else { return [] }
-
-        if channelCount == 1 {
-            return Array(UnsafeBufferPointer(start: channelData[0], count: frameLength))
-        }
-
-        var samples = [Float]()
-        samples.reserveCapacity(frameLength)
-        for frame in 0..<frameLength {
-            var mixedSample: Float = 0
-            for channel in 0..<channelCount {
-                mixedSample += channelData[channel][frame]
-            }
-            samples.append(mixedSample / Float(channelCount))
-        }
-        return samples
     }
 
     private func updateLatestVoiceBandLevel(_ level: Double?) {
