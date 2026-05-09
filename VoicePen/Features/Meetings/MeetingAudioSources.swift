@@ -137,7 +137,8 @@ final class AVFoundationMicrophoneMeetingAudioSource: MeetingAudioSourceClient {
     private let fileManager: FileManager
     private var engine: AVAudioEngine?
     private var converter: AVAudioConverter?
-    private var targetFormat: AVAudioFormat?
+    private var captureFormat: AVAudioFormat?
+    private var outputFormat: AVAudioFormat?
     private var currentSink: MeetingAudioBufferFileSink?
     private var currentSegmentStartOffset: TimeInterval = 0
     private var chunks: [MeetingAudioChunk] = []
@@ -178,7 +179,8 @@ final class AVFoundationMicrophoneMeetingAudioSource: MeetingAudioSourceClient {
         engine?.stop()
         engine = nil
         converter = nil
-        targetFormat = nil
+        captureFormat = nil
+        outputFormat = nil
         currentSink?.cancel()
         currentSink = nil
         chunks = []
@@ -191,23 +193,28 @@ final class AVFoundationMicrophoneMeetingAudioSource: MeetingAudioSourceClient {
         let inputNode = engine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0,
-            let targetFormat = AVAudioFormat(
+            let outputFormat = AVAudioFormat(
                 commonFormat: .pcmFormatFloat32,
                 sampleRate: 16_000,
                 channels: 1,
                 interleaved: false
             ),
-            let converter = AVAudioConverter(from: inputFormat, to: targetFormat)
+            let captureFormat = ActiveChannelMonoMixer.makeFloatFormat(
+                sampleRate: 16_000,
+                channelCount: inputFormat.channelCount
+            ),
+            let converter = AVAudioConverter(from: inputFormat, to: captureFormat)
         else {
             throw MeetingRecordingError.captureFailed("Microphone input format is unavailable.")
         }
 
         let outputURL = tempDirectory.appendingPathComponent("voicepen-meeting-mic-\(UUID().uuidString).wav")
-        let sink = try MeetingAudioBufferFileSink(source: source, outputURL: outputURL, format: targetFormat)
+        let sink = try MeetingAudioBufferFileSink(source: source, outputURL: outputURL, format: outputFormat)
 
         self.engine = engine
         self.converter = converter
-        self.targetFormat = targetFormat
+        self.captureFormat = captureFormat
+        self.outputFormat = outputFormat
         currentSink = sink
         currentSegmentStartOffset = offset
         recordingError = nil
@@ -224,7 +231,8 @@ final class AVFoundationMicrophoneMeetingAudioSource: MeetingAudioSourceClient {
             inputNode.removeTap(onBus: 0)
             self.engine = nil
             self.converter = nil
-            self.targetFormat = nil
+            self.captureFormat = nil
+            self.outputFormat = nil
             currentSink = nil
             sourceStatus = .failed
             throw error
@@ -237,7 +245,8 @@ final class AVFoundationMicrophoneMeetingAudioSource: MeetingAudioSourceClient {
         engine.stop()
         self.engine = nil
         converter = nil
-        targetFormat = nil
+        captureFormat = nil
+        outputFormat = nil
 
         if let recordingError {
             sourceStatus = .failed
@@ -255,13 +264,14 @@ final class AVFoundationMicrophoneMeetingAudioSource: MeetingAudioSourceClient {
 
     private func processInputBuffer(_ buffer: AVAudioPCMBuffer) {
         guard let converter,
-            let targetFormat,
-            let outputBuffer = AVAudioPCMBuffer(
-                pcmFormat: targetFormat,
+            let captureFormat,
+            let outputFormat,
+            let captureBuffer = AVAudioPCMBuffer(
+                pcmFormat: captureFormat,
                 frameCapacity: convertedFrameCapacity(
                     inputFrames: buffer.frameLength,
                     inputSampleRate: buffer.format.sampleRate,
-                    outputSampleRate: targetFormat.sampleRate
+                    outputSampleRate: captureFormat.sampleRate
                 )
             )
         else {
@@ -272,7 +282,7 @@ final class AVFoundationMicrophoneMeetingAudioSource: MeetingAudioSourceClient {
 
         let inputProvider = MeetingAudioConverterInputProvider(buffer: buffer)
         var conversionError: NSError?
-        let status = converter.convert(to: outputBuffer, error: &conversionError) { _, inputStatus in
+        let status = converter.convert(to: captureBuffer, error: &conversionError) { _, inputStatus in
             inputProvider.next(inputStatus: inputStatus)
         }
 
@@ -282,7 +292,15 @@ final class AVFoundationMicrophoneMeetingAudioSource: MeetingAudioSourceClient {
             return
         }
 
-        guard outputBuffer.frameLength > 0 else { return }
+        guard captureBuffer.frameLength > 0,
+            let outputBuffer = ActiveChannelMonoMixer.makeMonoBuffer(
+                from: captureBuffer,
+                outputFormat: outputFormat
+            ),
+            outputBuffer.frameLength > 0
+        else {
+            return
+        }
         do {
             try currentSink?.append(outputBuffer)
         } catch {
