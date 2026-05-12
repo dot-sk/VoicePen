@@ -327,6 +327,7 @@ final class CoreAudioSystemOutputSource: MeetingAudioSourceClient {
     private let tempDirectory: URL
     private let fileManager: FileManager
     private let settingsProvider: () -> MeetingSystemAudioSourceSettings
+    private let processResolver: MeetingSystemAudioProcessResolving
     private let queue = DispatchQueue(label: "voicepen.meeting.system-audio")
     private var tap: AudioHardwareTap?
     private var aggregateDevice: AudioHardwareAggregateDevice?
@@ -340,11 +341,13 @@ final class CoreAudioSystemOutputSource: MeetingAudioSourceClient {
     init(
         tempDirectory: URL,
         fileManager: FileManager = .default,
-        settingsProvider: @escaping () -> MeetingSystemAudioSourceSettings = { .all }
+        settingsProvider: @escaping () -> MeetingSystemAudioSourceSettings = { .all },
+        processResolver: MeetingSystemAudioProcessResolving = LiveMeetingSystemAudioProcessResolver()
     ) {
         self.tempDirectory = tempDirectory
         self.fileManager = fileManager
         self.settingsProvider = settingsProvider
+        self.processResolver = processResolver
     }
 
     var status: MeetingSourceHealth {
@@ -443,24 +446,15 @@ final class CoreAudioSystemOutputSource: MeetingAudioSourceClient {
 
     private func makeTapDescription() throws -> CATapDescription {
         let plan = MeetingSystemAudioTapPlan.build(settings: settingsProvider())
+        let processObjectIDs = meetingSystemAudioProcessObjectIDs(for: plan, resolver: processResolver)
         let description: CATapDescription
         switch plan.mode {
         case .all:
             description = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
         case .selectedAppsOnly:
-            description = CATapDescription(stereoMixdownOfProcesses: [])
+            description = CATapDescription(stereoMixdownOfProcesses: processObjectIDs)
         case .allExceptSelectedApps:
-            description = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
-        }
-
-        if plan.usesBundleIdentifierFilter {
-            guard #available(macOS 26.0, *) else {
-                throw MeetingRecordingError.captureFailed(
-                    "System audio app filtering requires macOS 26 or later."
-                )
-            }
-            description.bundleIDs = plan.bundleIdentifiers
-            description.isProcessRestoreEnabled = true
+            description = CATapDescription(stereoGlobalTapButExcludeProcesses: processObjectIDs)
         }
 
         description.name = "VoicePen Meeting System Audio"
@@ -502,6 +496,128 @@ final class CoreAudioSystemOutputSource: MeetingAudioSourceClient {
         self.aggregateDevice = nil
         self.tap = nil
     }
+}
+
+nonisolated protocol MeetingSystemAudioProcessResolving: Sendable {
+    func processObjectIDs(matchingBundleIdentifiers bundleIdentifiers: [String]) -> [AudioObjectID]
+}
+
+nonisolated struct LiveMeetingSystemAudioProcessResolver: MeetingSystemAudioProcessResolving {
+    func processObjectIDs(matchingBundleIdentifiers bundleIdentifiers: [String]) -> [AudioObjectID] {
+        let selectedBundleIdentifiers = normalizedBundleIdentifiers(bundleIdentifiers)
+        guard !selectedBundleIdentifiers.isEmpty else { return [] }
+
+        return processObjectIDs().filter { processObjectID in
+            guard let bundleIdentifier = bundleIdentifier(forProcessObjectID: processObjectID) else {
+                return false
+            }
+            return selectedBundleIdentifiers.contains { selectedBundleIdentifier in
+                MeetingSystemAudioProcessBundleMatcher.matches(
+                    bundleIdentifier,
+                    selectedBundleIdentifier: selectedBundleIdentifier
+                )
+            }
+        }
+    }
+
+    private func processObjectIDs() -> [AudioObjectID] {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyProcessObjectList,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var propertySize: UInt32 = 0
+        guard
+            AudioObjectGetPropertyDataSize(
+                AudioObjectID(kAudioObjectSystemObject),
+                &address,
+                0,
+                nil,
+                &propertySize
+            ) == noErr,
+            propertySize >= UInt32(MemoryLayout<AudioObjectID>.size)
+        else {
+            return []
+        }
+
+        let count = Int(propertySize) / MemoryLayout<AudioObjectID>.size
+        var processObjectIDs = [AudioObjectID](repeating: kAudioObjectUnknown, count: count)
+        let status = processObjectIDs.withUnsafeMutableBufferPointer { buffer -> OSStatus in
+            guard let baseAddress = buffer.baseAddress else { return noErr }
+            return AudioObjectGetPropertyData(
+                AudioObjectID(kAudioObjectSystemObject),
+                &address,
+                0,
+                nil,
+                &propertySize,
+                baseAddress
+            )
+        }
+
+        guard status == noErr else { return [] }
+        return processObjectIDs.filter { $0 != kAudioObjectUnknown }
+    }
+
+    private func bundleIdentifier(forProcessObjectID processObjectID: AudioObjectID) -> String? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioProcessPropertyBundleID,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        guard AudioObjectHasProperty(processObjectID, &address) else { return nil }
+
+        var bundleIdentifierReference: Unmanaged<CFString>?
+        var propertySize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        let status = AudioObjectGetPropertyData(
+            processObjectID,
+            &address,
+            0,
+            nil,
+            &propertySize,
+            &bundleIdentifierReference
+        )
+        guard status == noErr, let bundleIdentifierReference else { return nil }
+
+        let bundleIdentifier = bundleIdentifierReference.takeRetainedValue() as String
+        let trimmedBundleIdentifier = bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedBundleIdentifier.isEmpty ? nil : trimmedBundleIdentifier
+    }
+
+    private func normalizedBundleIdentifiers(_ bundleIdentifiers: [String]) -> [String] {
+        var seen = Set<String>()
+        var normalized: [String] = []
+        for bundleIdentifier in bundleIdentifiers {
+            let trimmed = bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, seen.insert(trimmed).inserted else { continue }
+            normalized.append(trimmed)
+        }
+        return normalized
+    }
+}
+
+nonisolated enum MeetingSystemAudioProcessBundleMatcher {
+    static func matches(_ bundleIdentifier: String, selectedBundleIdentifier: String) -> Bool {
+        let bundleIdentifier = bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        let selectedBundleIdentifier = selectedBundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !bundleIdentifier.isEmpty, !selectedBundleIdentifier.isEmpty else { return false }
+        return bundleIdentifier == selectedBundleIdentifier
+            || bundleIdentifier.hasPrefix("\(selectedBundleIdentifier).")
+    }
+}
+
+nonisolated func meetingSystemAudioProcessObjectIDs(
+    for plan: MeetingSystemAudioTapPlan,
+    resolver: MeetingSystemAudioProcessResolving
+) -> [AudioObjectID] {
+    guard plan.usesBundleIdentifierFilter else { return [] }
+
+    var seen = Set<AudioObjectID>()
+    var processObjectIDs: [AudioObjectID] = []
+    for processObjectID in resolver.processObjectIDs(matchingBundleIdentifiers: plan.bundleIdentifiers) {
+        guard processObjectID != kAudioObjectUnknown, seen.insert(processObjectID).inserted else { continue }
+        processObjectIDs.append(processObjectID)
+    }
+    return processObjectIDs
 }
 
 nonisolated private final class CoreAudioTapInputHandler: @unchecked Sendable {
