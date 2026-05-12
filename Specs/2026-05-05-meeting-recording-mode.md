@@ -1,7 +1,7 @@
 ---
 id: SPEC-011
 status: active
-updated: 2026-05-07
+updated: 2026-05-09
 tests:
   - VoicePenTests/Meetings/MeetingRecordingStateTests.swift
   - VoicePenTests/Meetings/MeetingPipelineTests.swift
@@ -103,6 +103,7 @@ action items, ticket drafts, engineering notes, pause, or resume.
 - When Meeting system audio source is set to all system audio, VoicePen shall build a global system output tap.
 - When Meeting system audio source is set to selected apps only, VoicePen shall build a non-exclusive app-filtered system output tap for the selected bundle identifiers.
 - When Meeting system audio source is set to all except selected apps, VoicePen shall build an exclusive app-filtered system output tap excluding the selected bundle identifiers.
+- When the current macOS release does not support bundle-ID system audio taps, VoicePen shall resolve selected bundle identifiers to CoreAudio process object IDs and build the app-filtered tap instead of failing capture solely because bundle-ID filtering is unavailable.
 - When selected apps only has no selected apps at recording start, VoicePen shall persistently switch Meeting system audio source to all system audio, surface a warning, and start recording.
 - When selected apps only has no selected app running at recording start, VoicePen shall persistently switch Meeting system audio source to all system audio, surface a warning, and start recording.
 - When all except selected apps has no selected apps at recording start, VoicePen shall persistently switch Meeting system audio source to all system audio, surface a warning, and start recording.
@@ -175,6 +176,7 @@ action items, ticket drafts, engineering notes, pause, or resume.
 | Meeting processing progress | A meeting has multiple chunks to process | The recording panel shows determinate processing progress as an approximate percentage |
 | Hung later chunk | First chunk transcribes and second chunk hangs | VoicePen saves the first chunk as a partial meeting and keeps recovery audio retryable for 7 days |
 | Selected app filter unavailable | Meeting system audio is set to selected apps only and none of those apps are running | VoicePen switches the setting to all system audio, shows a warning, and starts recording |
+| Selected app filter on older macOS | Meeting system audio is set to selected apps only on a macOS release without bundle-ID tap filtering | VoicePen builds the filtered tap from CoreAudio process object IDs instead of failing recording start |
 | Empty exclusion filter | Meeting system audio is set to all except selected apps with no selected apps | VoicePen switches the setting to all system audio, shows a warning, and starts recording |
 | All system audio settings | Meeting system audio source is set to all system audio | Config settings hides selected-app controls |
 | Add selected apps | Meeting system audio source is selected apps only or all except selected apps, then the user uses the add-apps control and chooses several `.app` bundles | The apps are selectable and appear in the selected-app list with bundle identifiers |
@@ -193,7 +195,7 @@ action items, ticket drafts, engineering notes, pause, or resume.
 ## Test Mapping
 
 - Automated: `VoicePenTests/Meetings/MeetingRecordingStateTests.swift` covers start, stop, cancel, composite microphone/system-audio source recording, active wall-clock duration, cleanup after canceled start, and partial source failure with fakes.
-- Automated: `VoicePenTests/Meetings/MeetingRecordingStateTests.swift` covers Meeting system audio tap planning and preflight fallback.
+- Automated: `VoicePenTests/Meetings/MeetingRecordingStateTests.swift` covers Meeting system audio tap planning, older-macOS process-object app filtering, and preflight fallback.
 - Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers local transcription flow, chunk ordering, overlapping source merging before transcription, optional meeting timecodes, separate diarization speaker labels, app version metadata, active wall-clock duration, limit handling, silent source chunks, known subtitle/outro artifact cleanup, chunk timeout partial salvage, recovery audio retention and retry, temporary audio cleanup, and no automatic insertion.
 - Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers removing repeated short trailing Meeting transcription hallucinations.
 - Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers diarization chunk planning, full-recording diarization request wiring, very-short Auto diarization skip with exact-count override, speaker turn postprocessing, word overlap speaker merge, segment midpoint fallback, uncovered-gap behavior, tiny-overlap rejection, diarization failure fallback, and separate diarization execution before ASR chunk formatting.
