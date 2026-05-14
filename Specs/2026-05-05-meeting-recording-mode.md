@@ -154,7 +154,7 @@ action items, ticket drafts, engineering notes, pause, or resume.
 - Meeting detail shall show user-facing processing information: the local model that decoded the meeting, the app version used for decoding when it is known, and the total processing time, without exposing backend/version metadata as a primary detail.
 - Meeting detail shall show Meeting transcript timecode status only when the feature is unavailable or not produced for that saved transcript; when timecodes are present in the transcript, the detail shall not duplicate that obvious status as metadata.
 - Meeting history shall not contribute to the general dictation minutes, word counts, streaks, or milestones.
-- The main window sidebar shall place Meetings immediately after Home and before History.
+- The main window activity bar shall place Meetings immediately after Home and before Sessions.
 - While Meeting Mode is recording or processing, VoicePen shall show meeting-specific status icons in the menu bar and main window navigation.
 - While Meeting Mode is actively recording, the menu bar icon shall show a clear recording indicator with a non-intrusive red pulse so the user can notice that capture is still running.
 - OpenRouter shall not be called anywhere in Meeting Mode v1.

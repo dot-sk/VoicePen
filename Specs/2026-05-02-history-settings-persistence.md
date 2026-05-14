@@ -40,7 +40,7 @@ VoicePen stores app data in a local SQLite database under Application Support, m
 - When History detail shows processing metadata, VoicePen shall omit the app version row when the saved decoding app version is unknown.
 - When About settings shows the App block, VoicePen shall group app status, privacy, local storage, database path, and Open at login controls there.
 - When About settings shows local storage, VoicePen shall show one approximate database disk usage value without splitting text payload and database sizes.
-- When the History UI is shown, VoicePen shall not expose a file-reveal action for the SQLite history database; users inspect sessions through the in-app list and detail pane.
+- When the Sessions UI is shown, VoicePen shall not expose a file-reveal action for the SQLite history database; users inspect sessions through the in-app list and detail pane.
 - When Home shows total transcribed audio time, it shall label the total with recognized word count and countable session count.
 - When Home shows total transcribed audio time, it shall also show an approximate time-saved estimate by comparing recognized word count against a professional typing baseline.
 - When VoicePen shows usage stats, it shall also show lightweight progress signals: active streak, words dictated today, best dictation day, the latest reached milestone, and the next milestone.
@@ -51,16 +51,16 @@ VoicePen stores app data in a local SQLite database under Application Support, m
 - When the user copies text from a visible history row, VoicePen shall temporarily replace that row's copy icon with a checkmark so the completed copy action is visible.
 - When the user copies text from a visible history detail copy action, VoicePen shall temporarily replace that copy icon with a checkmark so the completed copy action is visible.
 - Copy actions that show temporary copied feedback shall keep stable dimensions while switching between normal and copied states.
-- When the user chooses to clear History, VoicePen shall ask for explicit confirmation before deleting saved history entries.
+- When the user chooses to clear Sessions, VoicePen shall ask for explicit confirmation before deleting saved history entries.
 - When a history row has actions such as copy or delete, VoicePen shall keep hover controls available for pointer users and also expose the same actions through a row context menu and accessibility actions.
 - When the history list shows a successful entry, VoicePen shall use a green checkmark without repeating a success label; non-success entries shall show a status or error reason.
 - When the user opens a history entry detail, VoicePen shall show the final text immediately and keep the raw transcript in an expandable section.
 - When the user opens a history entry detail, VoicePen shall show the repeat insertion action as an icon-only retry control.
 - When the user opens a history entry detail, icon-only copy actions shall stay attached to the visible final text and expandable raw transcript sections.
 - When the user expands raw transcript for one history entry, VoicePen shall keep that expansion state scoped to that entry rather than applying it to every history entry detail.
-- When the History UI has visible entries from multiple local calendar days, VoicePen shall group the list into sticky day sections while preserving newest-first entry order within each day.
+- When the Sessions UI has visible entries from multiple local calendar days, VoicePen shall group the list into sticky day sections while preserving newest-first entry order within each day.
 - When the Open VoicePen at login setting is displayed, VoicePen shall reflect the current macOS login item status instead of only the last saved preference.
-- When no feature-flag-only sections are enabled, the main window sidebar shall show Home, Meetings, and History as primary navigation, followed by a Settings block ordered Dictionary, Model, Settings, Permissions, and About.
+- When no feature-flag-only sections are enabled, the main window activity bar shall show Home, Meetings, and Sessions as primary navigation, followed by Settings icons ordered Dictionary, Model, Settings, Permissions, and About.
 - When tests touch persistence, they shall use temporary data paths rather than real user data directories.
 
 ## Examples
@@ -82,7 +82,7 @@ VoicePen stores app data in a local SQLite database under Application Support, m
 | Usage stats after text compression or eviction | Older text payloads are compressed or evicted by the budget | Total dictated duration and estimated time saved still include those retained rows |
 | About app details | Open About settings | The App block shows status, privacy, storage, database path, and Open at login controls |
 | About storage display | History has saved rows | About settings show approximate database disk usage as one value |
-| History database file | Open History | No history database reveal action is shown |
+| History database file | Open Sessions | No history database reveal action is shown |
 | Usage time saved | History contains completed dictations with recognized text | Home shows estimated time saved versus manual typing at the professional typing baseline |
 | Usage total caption | History contains completed dictations with recognized text | Home labels the total with transcribed word count and session count |
 | Lightweight progress stats | History contains entries across multiple days | Home shows current streak, today's words, best day, latest reached milestone, and next milestone |
@@ -91,7 +91,7 @@ VoicePen stores app data in a local SQLite database under Application Support, m
 | History row copy feedback | Copy a row with final text | The row copy icon temporarily changes from copy to checkmark |
 | History detail copy feedback | Copy final or raw transcript text from the detail pane | The clicked copy icon temporarily changes from copy to checkmark |
 | Stable copy feedback | Copy action changes to copied feedback | The button keeps its existing dimensions |
-| Clear history confirmation | Press Clear in History | A confirmation alert appears before saved history entries are deleted |
+| Clear history confirmation | Press Clear in Sessions | A confirmation alert appears before saved history entries are deleted |
 | History row actions | Secondary-click or use accessibility actions on a history row | Copy text and delete session are available without relying on hover-only controls |
 | History success status | Entry inserted successfully | Row shows a green checkmark without `Insert attempted` text |
 | History problem status | Entry is empty or failed | Row shows the status or error reason next to the status icon |
@@ -100,13 +100,13 @@ VoicePen stores app data in a local SQLite database under Application Support, m
 | Raw transcript expansion | Expand raw transcript on one history entry, then select another entry | The other entry keeps its own raw transcript expansion state |
 | History day groups | History contains entries from multiple local calendar days | Entries appear under sticky day sections while preserving newest-first order within each day |
 | Open at login external change | macOS Login Items status changes outside VoicePen | VoicePen refreshes the toggle to the current system status |
-| Settings sidebar | Open main VoicePen window without feature-flag-only sections | Sidebar shows Home, Meetings, History, then a Settings block with Dictionary, Model, Settings, Permissions, and About |
+| Activity bar | Open main VoicePen window without feature-flag-only sections | Activity bar shows Home, Meetings, Sessions, then Settings icons for Dictionary, Model, Settings, Permissions, and About |
 | Test storage | Persistence test run | Temporary directory is used |
 
 ## Test Mapping
 
 - Automated: `VoicePenTests/Persistence/DatabaseMigratorTests.swift` covers schema migration.
-- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers main window sidebar grouping and ordering, Home usage total caption, About App block placement, one-value disk usage display, history processing metadata display, stable shared copy-button feedback, and history row context/accessibility actions.
+- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers main window activity bar grouping and ordering, Home usage total caption, About App block placement, one-value disk usage display, history processing metadata display, stable shared copy-button feedback, and history row context/accessibility actions.
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers that History does not expose a SQLite file-reveal action.
 - Automated: `VoicePenTests/History/HistoryDayGroupsTests.swift` covers History and Meeting list grouping by local calendar day while preserving entry order.
 - Automated: `VoicePenTests/Settings/AppSettingsStoreTests.swift` and `VoicePenTests/Settings/UserConfigStoreTests.swift` cover settings defaults, persistence, and normalization.
@@ -116,13 +116,13 @@ VoicePen stores app data in a local SQLite database under Application Support, m
 - Automated: `VoicePenTests/History/VoiceHistoryFilterTests.swift` and `VoicePenTests/History/VoiceTranscriptionUsageStatsTests.swift` cover history filtering, estimated time-saved usage stats, streaks, daily word counts, best day, latest reached milestone, and next milestone.
 - Manual: open Home with several history entries and verify the progress stats appear near the usage summary without success popups.
 - Manual: open About settings and verify the App block contains status, privacy, storage, database path, and Open at login controls.
-- Manual: open History with at least two entries, click a non-selected entry, and verify the row becomes active and the detail pane changes to that entry.
-- Manual: hover a completed History row, copy it with the row copy button or double-click, and verify the row copy icon temporarily changes to a checkmark while the clipboard receives the row text.
-- Manual: secondary-click a completed History row and verify Copy Text and Delete Session are available; verify keyboard or VoiceOver accessibility actions expose the same actions.
-- Manual: verify successful History rows show only a green checkmark status, while empty or failed rows show a textual reason.
-- Manual: select a completed History entry and verify final text is visible immediately while raw transcript is collapsed under a disclosure that can be expanded.
-- Manual: expand Raw transcript on one History entry, select another entry, and verify the second entry keeps its own raw transcript expansion state.
-- Manual: open History with entries from several days and verify sessions are grouped by day and the current day header sticks while scrolling.
+- Manual: open Sessions with at least two entries, click a non-selected entry, and verify the row becomes active and the detail pane changes to that entry.
+- Manual: hover a completed Sessions row, copy it with the row copy button or double-click, and verify the row copy icon temporarily changes to a checkmark while the clipboard receives the row text.
+- Manual: secondary-click a completed Sessions row and verify Copy Text and Delete Session are available; verify keyboard or VoiceOver accessibility actions expose the same actions.
+- Manual: verify successful Sessions rows show only a green checkmark status, while empty or failed rows show a textual reason.
+- Manual: select a completed Sessions entry and verify final text is visible immediately while raw transcript is collapsed under a disclosure that can be expanded.
+- Manual: expand Raw transcript on one Sessions entry, select another entry, and verify the second entry keeps its own raw transcript expansion state.
+- Manual: open Sessions with entries from several days and verify sessions are grouped by day and the current day header sticks while scrolling.
 - Manual: verify README local data paths match where a running development build creates its database.
 
 ## Notes

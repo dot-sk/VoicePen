@@ -6,13 +6,13 @@ struct VoicePenMainWindow: View {
     @ObservedObject var controller: AppController
     @State private var selectedSection: VoicePenSettingsSection? = .general
 
-    private let primarySidebarSections: [VoicePenSettingsSection] = [
+    private let primaryActivityBarSections: [VoicePenSettingsSection] = [
         .general,
         .meetings,
         .history
     ]
 
-    private var settingsSidebarSections: [VoicePenSettingsSection] {
+    private var settingsActivityBarSections: [VoicePenSettingsSection] {
         var sections: [VoicePenSettingsSection] = [
             .dictionary,
             .model,
@@ -32,63 +32,33 @@ struct VoicePenMainWindow: View {
     }
 
     var body: some View {
-        NavigationSplitView {
-            List(selection: $selectedSection) {
-                Section {
-                    HStack(spacing: 10) {
-                        Image(systemName: controller.menuBarSystemImage)
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(.tint)
-                            .frame(width: 28, height: 28)
+        HStack(spacing: 0) {
+            VoicePenActivityBar(
+                controller: controller,
+                selectedSection: $selectedSection,
+                primarySections: primaryActivityBarSections,
+                settingsSections: settingsActivityBarSections,
+                systemImage: systemImage(for:)
+            )
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("VoicePen")
-                                .font(.system(size: 14, weight: .semibold))
+            Divider()
 
-                            Text(controller.appState.menuTitle)
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Spacer()
-                    }
-                    .padding(.vertical, 4)
-                }
-
-                Section {
-                    ForEach(primarySidebarSections) { section in
-                        NavigationLink(value: section) {
-                            Label(section.title, systemImage: systemImage(for: section))
-                        }
-                    }
-                }
-
-                Section("Settings") {
-                    ForEach(settingsSidebarSections) { section in
-                        NavigationLink(value: section) {
-                            Label(section.title, systemImage: systemImage(for: section))
-                        }
-                    }
+            NavigationStack {
+                if let selectedSection {
+                    detailView(for: selectedSection)
+                        .navigationTitle(selectedSection.title)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ContentUnavailableView(
+                        "Select a section",
+                        systemImage: "sidebar.left",
+                        description: Text("VoicePen settings will appear here.")
+                    )
+                    .navigationTitle("VoicePen")
                 }
             }
-            .listStyle(.sidebar)
-            .scrollIndicators(.automatic)
-            .navigationTitle("VoicePen")
-            .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 260)
-        } detail: {
-            if let selectedSection {
-                detailView(for: selectedSection)
-                    .navigationTitle(selectedSection.title)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ContentUnavailableView(
-                    "Select a section",
-                    systemImage: "sidebar.left",
-                    description: Text("VoicePen settings will appear here.")
-                )
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .navigationSplitViewStyle(.balanced)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             MeetingRecordingPanel(controller: controller)
         }
@@ -142,6 +112,114 @@ struct VoicePenMainWindow: View {
                 settingsStore: controller.settingsStore
             )
         }
+    }
+}
+
+private struct VoicePenActivityBar: View {
+    @ObservedObject var controller: AppController
+    @Binding var selectedSection: VoicePenSettingsSection?
+
+    let primarySections: [VoicePenSettingsSection]
+    let settingsSections: [VoicePenSettingsSection]
+    let systemImage: (VoicePenSettingsSection) -> String
+
+    var body: some View {
+        VStack(spacing: 0) {
+            appStatusIcon
+
+            activityDivider
+
+            activityButtons(primarySections)
+
+            activityDivider
+
+            activityButtons(settingsSections)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 8)
+        .frame(width: 52)
+        .frame(maxHeight: .infinity)
+        .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    private var appStatusIcon: some View {
+        Image(systemName: controller.menuBarSystemImage)
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(.tint)
+            .frame(width: 40, height: 40)
+            .help("VoicePen: \(controller.appState.menuTitle)")
+            .accessibilityLabel("VoicePen")
+            .accessibilityValue(controller.appState.menuTitle)
+    }
+
+    private var activityDivider: some View {
+        Divider()
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+    }
+
+    @ViewBuilder
+    private func activityButtons(_ sections: [VoicePenSettingsSection]) -> some View {
+        ForEach(sections) { section in
+            VoicePenActivityBarButton(
+                section: section,
+                systemImage: systemImage(section),
+                isSelected: selectedSection == section
+            ) {
+                selectedSection = section
+            }
+        }
+    }
+}
+
+private struct VoicePenActivityBarButton: View {
+    let section: VoicePenSettingsSection
+    let systemImage: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    private var backgroundColor: Color {
+        if isSelected {
+            return Color.accentColor.opacity(0.16)
+        }
+        if isHovered {
+            return Color.primary.opacity(0.08)
+        }
+        return .clear
+    }
+
+    var body: some View {
+        Button(action: action) {
+            ZStack(alignment: .leading) {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                        .fill(Color.accentColor)
+                        .frame(width: 3, height: 24)
+                }
+
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(backgroundColor)
+                    .frame(width: 36, height: 36)
+                    .padding(.leading, 8)
+
+                Image(systemName: systemImage)
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    .frame(width: 24, height: 24)
+                    .padding(6)
+                    .frame(width: 52, height: 40)
+            }
+            .frame(width: 52, height: 40)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help(section.title)
+        .accessibilityLabel(section.title)
+        .accessibilityValue(isSelected ? "Selected" : "")
     }
 }
 
@@ -975,9 +1053,6 @@ private struct MeetingsView: View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
                 HStack {
-                    Text("Meetings")
-                        .font(.headline)
-
                     Spacer()
 
                     meetingRecordingControls
@@ -1510,9 +1585,6 @@ private struct HistoryView: View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
                 HStack {
-                    Text("Sessions")
-                        .font(.headline)
-
                     Spacer()
 
                     Button(role: .destructive) {
@@ -1527,7 +1599,7 @@ private struct HistoryView: View {
 
                 if !historyStore.entries.isEmpty {
                     VStack(spacing: 8) {
-                        TextField("Search history", text: $searchText)
+                        TextField("Search sessions", text: $searchText)
                             .textFieldStyle(.roundedBorder)
                     }
                     .padding(.horizontal, 16)
@@ -1592,7 +1664,7 @@ private struct HistoryView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes all saved transcription history from VoicePen.")
+            Text("This removes all saved voice sessions from VoicePen.")
         }
         .alert("Delete voice session?", isPresented: deleteConfirmationBinding) {
             Button("Delete", role: .destructive) {

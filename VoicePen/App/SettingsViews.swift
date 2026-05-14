@@ -23,7 +23,7 @@ enum VoicePenSettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .permissions:
             return "Permissions"
         case .model:
-            return "Model"
+            return "Models"
         case .modes:
             return "Modes"
         case .ai:
@@ -35,7 +35,7 @@ enum VoicePenSettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .meetings:
             return "Meetings"
         case .history:
-            return "History"
+            return "Sessions"
         case .about:
             return "About"
         }
