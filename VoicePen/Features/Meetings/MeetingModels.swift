@@ -139,12 +139,22 @@ nonisolated struct MeetingHistoryEntry: Codable, Identifiable, Equatable, Sendab
         guard !trimmed.isEmpty else {
             return errorMessage ?? status.title
         }
-        return trimmed
+        let preview = String(trimmed.prefix(Self.previewCharacterLimit))
+        let cleaned = preview.replacingOccurrences(
+            of: Self.leadingTimecodePattern,
+            with: "",
+            options: .regularExpression
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? trimmed : cleaned
     }
 
     var usageWordCount: Int {
         recognizedWordCount ?? VoiceHistoryEntry.wordCount(in: transcriptText)
     }
+
+    private static let previewCharacterLimit = 300
+    private static let leadingTimecodePattern = #"(?m)^\s*\[\d{2}:\d{2}:\d{2}\s*-\s*\d{2}:\d{2}:\d{2}\]\s*"#
 }
 
 nonisolated enum MeetingSourceKind: String, Codable, Equatable, Sendable {

@@ -5,11 +5,18 @@ import UniformTypeIdentifiers
 struct VoicePenMainWindow: View {
     @ObservedObject var controller: AppController
     @State private var selectedSection: VoicePenSettingsSection? = .general
-    private var sidebarSections: [VoicePenSettingsSection] {
+
+    private let primarySidebarSections: [VoicePenSettingsSection] = [
+        .general,
+        .meetings,
+        .history
+    ]
+
+    private var settingsSidebarSections: [VoicePenSettingsSection] {
         var sections: [VoicePenSettingsSection] = [
-            .general,
-            .meetings,
-            .history
+            .dictionary,
+            .model,
+            .config
         ]
         if VoicePenConfig.modesFeatureEnabled {
             sections.append(.modes)
@@ -18,9 +25,6 @@ struct VoicePenMainWindow: View {
             sections.append(.ai)
         }
         sections.append(contentsOf: [
-            .dictionary,
-            .model,
-            .config,
             .permissions,
             .about
         ])
@@ -51,8 +55,16 @@ struct VoicePenMainWindow: View {
                     .padding(.vertical, 4)
                 }
 
+                Section {
+                    ForEach(primarySidebarSections) { section in
+                        NavigationLink(value: section) {
+                            Label(section.title, systemImage: systemImage(for: section))
+                        }
+                    }
+                }
+
                 Section("Settings") {
-                    ForEach(sidebarSections) { section in
+                    ForEach(settingsSidebarSections) { section in
                         NavigationLink(value: section) {
                             Label(section.title, systemImage: systemImage(for: section))
                         }
@@ -97,8 +109,7 @@ struct VoicePenMainWindow: View {
         case .general:
             GeneralSettingsView(
                 controller: controller,
-                historyStore: controller.historyStore,
-                settingsStore: controller.settingsStore
+                historyStore: controller.historyStore
             )
         case .permissions:
             PermissionsSettingsView(controller: controller)
@@ -125,7 +136,11 @@ struct VoicePenMainWindow: View {
         case .history:
             HistoryView(controller: controller, historyStore: controller.historyStore)
         case .about:
-            AboutView()
+            AboutView(
+                controller: controller,
+                historyStore: controller.historyStore,
+                settingsStore: controller.settingsStore
+            )
         }
     }
 }

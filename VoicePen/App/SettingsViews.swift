@@ -19,7 +19,7 @@ enum VoicePenSettingsSection: String, CaseIterable, Identifiable, Hashable {
     var title: String {
         switch self {
         case .general:
-            return "General"
+            return "Home"
         case .permissions:
             return "Permissions"
         case .model:
@@ -29,7 +29,7 @@ enum VoicePenSettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .ai:
             return "AI"
         case .config:
-            return "Config"
+            return "Settings"
         case .dictionary:
             return "Dictionary"
         case .meetings:
@@ -44,7 +44,7 @@ enum VoicePenSettingsSection: String, CaseIterable, Identifiable, Hashable {
     var systemImage: String {
         switch self {
         case .general:
-            return "gearshape"
+            return "house"
         case .permissions:
             return "hand.raised"
         case .model:
@@ -54,7 +54,7 @@ enum VoicePenSettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .ai:
             return "sparkles"
         case .config:
-            return "doc.text"
+            return "slider.horizontal.3"
         case .dictionary:
             return "text.book.closed"
         case .meetings:
@@ -68,7 +68,15 @@ enum VoicePenSettingsSection: String, CaseIterable, Identifiable, Hashable {
 }
 
 struct AboutView: View {
+    @ObservedObject var controller: AppController
+    @ObservedObject var historyStore: VoiceHistoryStore
+    @ObservedObject var settingsStore: AppSettingsStore
+
     private let linkedInURL = URL(string: "https://www.linkedin.com/in/khokhlachev/")!
+
+    private var historyStorageCaption: String {
+        historyStore.storageStats.formattedDiskUsageSize
+    }
 
     var body: some View {
         Form {
@@ -107,6 +115,23 @@ struct AboutView: View {
             } footer: {
                 Text("Model downloads happen only after confirmation. Transcription runs locally with installed models.")
             }
+
+            Section {
+                LabeledContent("Status", value: controller.appState.menuTitle)
+                LabeledContent("Privacy", value: "Offline only, 0 analytics")
+                LabeledContent("Storage", value: historyStorageCaption)
+                LabeledContent("Database", value: controller.historyURL.path)
+                Toggle(
+                    "Open VoicePen at login",
+                    isOn: Binding(
+                        get: { settingsStore.openAtLogin },
+                        set: { controller.updateOpenAtLogin($0) }
+                    ))
+            } header: {
+                Text("App")
+            } footer: {
+                Text("VoicePen records only while the push-to-talk shortcut is held. Audio and text stay on this Mac.")
+            }
         }
         .formStyle(.grouped)
         .padding(18)
@@ -116,24 +141,9 @@ struct AboutView: View {
 struct GeneralSettingsView: View {
     @ObservedObject var controller: AppController
     @ObservedObject var historyStore: VoiceHistoryStore
-    @ObservedObject var settingsStore: AppSettingsStore
 
     private var stats: VoiceTranscriptionUsageStats {
         VoiceTranscriptionUsageStats(entries: historyStore.entries)
-    }
-
-    private var hotkeyPreference: Binding<HotkeyPreference> {
-        Binding(
-            get: { settingsStore.hotkeyPreference },
-            set: { controller.updateHotkeyPreference($0) }
-        )
-    }
-
-    private var holdDuration: Binding<Double> {
-        Binding(
-            get: { settingsStore.hotkeyHoldDuration },
-            set: { controller.updateHotkeyHoldDuration($0) }
-        )
     }
 
     private var transcribedTotalCaption: String {
@@ -144,10 +154,6 @@ struct GeneralSettingsView: View {
 
     private var estimatedTimeSavedCaption: String {
         "Estimated versus typing the recognized text at \(Int(VoiceTranscriptionUsageStats.manualTypingWordsPerMinute)) WPM"
-    }
-
-    private var historyStorageCaption: String {
-        historyStore.storageStats.formattedDiskUsageSize
     }
 
     private var todayWordsText: String {
@@ -225,76 +231,6 @@ struct GeneralSettingsView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 12)
-            }
-
-            Section {
-                Picker("Push-to-talk hotkey", selection: hotkeyPreference) {
-                    ForEach(HotkeyPreference.allCases) { preference in
-                        Text(preference.displayName)
-                            .tag(preference)
-                    }
-                }
-                .pickerStyle(.menu)
-
-                if settingsStore.hotkeyPreference == .custom {
-                    LabeledContent {
-                        KeyboardShortcuts.Recorder(for: .voicePenPushToTalk) { _ in
-                            Task { @MainActor in
-                                controller.customHotkeyDidChange()
-                            }
-                        }
-                        .controlSize(.small)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Custom shortcut")
-                            ShortcutLimitNotice()
-                        }
-                    }
-                }
-
-                LabeledContent {
-                    HStack(spacing: 10) {
-                        Slider(
-                            value: holdDuration,
-                            in: VoicePenConfig.minimumHotkeyHoldDuration...VoicePenConfig.maximumHotkeyHoldDuration,
-                            step: 0.05
-                        )
-                        .frame(width: 220)
-                        Text(settingsStore.hotkeyHoldDuration, format: .number.precision(.fractionLength(2)))
-                            .monospacedDigit()
-                            .frame(width: 42, alignment: .trailing)
-                        Text("s")
-                            .foregroundStyle(.secondary)
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        Text("Hold duration")
-                        HelpTipButton(
-                            title: "Hold duration",
-                            text: "Recording starts only after the selected shortcut is held for the configured duration. Release it to transcribe and insert text."
-                        )
-                    }
-                }
-            } header: {
-                Text("Shortcut")
-            }
-
-            Section {
-                LabeledContent("Status", value: controller.appState.menuTitle)
-                LabeledContent("Privacy", value: "Offline only, 0 analytics")
-                LabeledContent("Storage", value: historyStorageCaption)
-                LabeledContent("Database", value: controller.historyURL.path)
-                Toggle(
-                    "Open VoicePen at login",
-                    isOn: Binding(
-                        get: { controller.settingsStore.openAtLogin },
-                        set: { controller.updateOpenAtLogin($0) }
-                    ))
-            } header: {
-                Text("App")
-            } footer: {
-                Text("VoicePen records only while the push-to-talk shortcut is held. Audio and text stay on this Mac.")
             }
         }
         .formStyle(.grouped)
@@ -721,6 +657,20 @@ struct ConfigSettingsView: View {
     @State private var isConfigReloaded = false
     @State private var configReloadFeedbackTask: Task<Void, Never>?
 
+    private var hotkeyPreference: Binding<HotkeyPreference> {
+        Binding(
+            get: { settingsStore.hotkeyPreference },
+            set: { controller.updateHotkeyPreference($0) }
+        )
+    }
+
+    private var holdDuration: Binding<Double> {
+        Binding(
+            get: { settingsStore.hotkeyHoldDuration },
+            set: { controller.updateHotkeyHoldDuration($0) }
+        )
+    }
+
     private var boostDictationInputGain: Binding<Bool> {
         Binding(
             get: { settingsStore.boostDictationInputGain },
@@ -758,6 +708,59 @@ struct ConfigSettingsView: View {
 
     var body: some View {
         Form {
+            Section {
+                Picker("Push-to-talk hotkey", selection: hotkeyPreference) {
+                    ForEach(HotkeyPreference.allCases) { preference in
+                        Text(preference.displayName)
+                            .tag(preference)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                if settingsStore.hotkeyPreference == .custom {
+                    LabeledContent {
+                        KeyboardShortcuts.Recorder(for: .voicePenPushToTalk) { _ in
+                            Task { @MainActor in
+                                controller.customHotkeyDidChange()
+                            }
+                        }
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Custom shortcut")
+                            ShortcutLimitNotice()
+                        }
+                    }
+                }
+
+                LabeledContent {
+                    HStack(spacing: 10) {
+                        Slider(
+                            value: holdDuration,
+                            in: VoicePenConfig.minimumHotkeyHoldDuration...VoicePenConfig.maximumHotkeyHoldDuration,
+                            step: 0.05
+                        )
+                        .frame(width: 220)
+                        Text(settingsStore.hotkeyHoldDuration, format: .number.precision(.fractionLength(2)))
+                            .monospacedDigit()
+                            .frame(width: 42, alignment: .trailing)
+                        Text("s")
+                            .foregroundStyle(.secondary)
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Text("Hold duration")
+                        HelpTipButton(
+                            title: "Hold duration",
+                            text: "Recording starts only after the selected shortcut is held for the configured duration. Release it to transcribe and insert text."
+                        )
+                    }
+                }
+            } header: {
+                Text("Shortcut")
+            }
+
             Section {
                 Toggle("Boost microphone level during dictation", isOn: boostDictationInputGain)
                 Toggle("Meeting voice leveling", isOn: meetingVoiceLevelingEnabled)

@@ -1,10 +1,11 @@
 ---
 id: SPEC-011
 status: active
-updated: 2026-05-09
+updated: 2026-05-14
 tests:
   - VoicePenTests/Meetings/MeetingRecordingStateTests.swift
   - VoicePenTests/Meetings/MeetingPipelineTests.swift
+  - VoicePenTests/Meetings/MeetingHistoryEntryTests.swift
   - VoicePenTests/Meetings/MeetingHistoryStoreTests.swift
   - VoicePenTests/History/HistoryDayGroupsTests.swift
   - VoicePenTests/Persistence/DatabaseMigratorTests.swift
@@ -108,15 +109,15 @@ action items, ticket drafts, engineering notes, pause, or resume.
 - When selected apps only has no selected app running at recording start, VoicePen shall persistently switch Meeting system audio source to all system audio, surface a warning, and start recording.
 - When all except selected apps has no selected apps at recording start, VoicePen shall persistently switch Meeting system audio source to all system audio, surface a warning, and start recording.
 - Meeting system audio source mode and selected app list shall persist across launches; invalid stored modes fall back to all system audio and invalid app entries are ignored.
-- When Meeting system audio source is set to all system audio, Config settings shall hide the selected-app controls.
-- When Meeting system audio source is set to selected apps only or all except selected apps, Config settings shall show selected-app controls and allow choosing one or more macOS `.app` bundles at once.
-- When the Config Meeting system audio source control changes, VoicePen shall persist the selected mode and hide or show selected-app controls without SwiftUI publishing warnings.
+- When Meeting system audio source is set to all system audio, the Settings screen shall hide the selected-app controls.
+- When Meeting system audio source is set to selected apps only or all except selected apps, the Settings screen shall show selected-app controls and allow choosing one or more macOS `.app` bundles at once.
+- When the Settings screen Meeting system audio source control changes, VoicePen shall persist the selected mode and hide or show selected-app controls without SwiftUI publishing warnings.
 - When one source fails mid-recording, VoicePen shall stop capture and mark the session partial.
 - When microphone and system audio overlap in the same meeting time window, VoicePen shall merge them into one timeline audio chunk before transcription, so dialogue order follows meeting time instead of source order.
-- Meeting transcript timecodes shall be controlled by a persistent Config setting that is enabled by default in Config settings.
+- Meeting transcript timecodes shall be controlled by a persistent Settings screen setting that is enabled by default.
 - When Meeting transcript timecodes are enabled, meeting transcripts shall include meeting-relative timecodes for each transcribed segment returned by local transcription; chunks without returned segments shall not receive synthetic timecodes.
 - When Meeting transcript timecodes are enabled, VoicePen shall request fine-grained timestamp decoding from local models and shall trim leading or trailing inactive source-audio time from displayed segment intervals when source activity is available.
-- Meeting diarization shall be controlled by a persistent Config setting in the Meeting features section.
+- Meeting diarization shall be controlled by a persistent Settings screen setting in the Meeting features section.
 - Meeting diarization settings help shall describe experimental speaker labels from a separate local diarization model.
 - When Meeting diarization is enabled and the local diarization model is installed, VoicePen shall warm the diarization model automatically at app start, after enabling the setting, and after a successful diarization model download.
 - Model settings shall keep the Meeting diarization model lifecycle limited to download, progress, status, and delete controls while warm-up remains automatic when diarization is enabled.
@@ -145,6 +146,7 @@ action items, ticket drafts, engineering notes, pause, or resume.
 - When the Meetings screen opens, VoicePen shall load meeting history list metadata and transcript previews without reading or decompressing every saved full transcript.
 - When a meeting history entry becomes focused, VoicePen shall load and decompress the full transcript for that focused entry only.
 - When a new meeting history row appears in the Meetings list, its text shall be visible immediately without requiring the user to scroll the list first.
+- Meeting list preview text shall omit leading transcript timecodes while preserving transcript text and speaker labels.
 - When the Meetings list has entries from multiple local calendar days, VoicePen shall group the list into sticky day sections while preserving newest-first entry order within each day.
 - Meeting detail shall not expose an Insert Transcript action and shall never auto-paste meeting output.
 - When meeting transcript exceeds one chunk, VoicePen shall preserve chunk order.
@@ -152,7 +154,7 @@ action items, ticket drafts, engineering notes, pause, or resume.
 - Meeting detail shall show user-facing processing information: the local model that decoded the meeting, the app version used for decoding when it is known, and the total processing time, without exposing backend/version metadata as a primary detail.
 - Meeting detail shall show Meeting transcript timecode status only when the feature is unavailable or not produced for that saved transcript; when timecodes are present in the transcript, the detail shall not duplicate that obvious status as metadata.
 - Meeting history shall not contribute to the general dictation minutes, word counts, streaks, or milestones.
-- The main window settings navigation shall place Meeting Mode immediately after General settings, before Modes, AI, Dictionary, and the remaining settings sections.
+- The main window sidebar shall place Meetings immediately after Home and before History.
 - While Meeting Mode is recording or processing, VoicePen shall show meeting-specific status icons in the menu bar and main window navigation.
 - While Meeting Mode is actively recording, the menu bar icon shall show a clear recording indicator with a non-intrusive red pulse so the user can notice that capture is still running.
 - OpenRouter shall not be called anywhere in Meeting Mode v1.
@@ -178,11 +180,12 @@ action items, ticket drafts, engineering notes, pause, or resume.
 | Selected app filter unavailable | Meeting system audio is set to selected apps only and none of those apps are running | VoicePen switches the setting to all system audio, shows a warning, and starts recording |
 | Selected app filter on older macOS | Meeting system audio is set to selected apps only on a macOS release without bundle-ID tap filtering | VoicePen builds the filtered tap from CoreAudio process object IDs instead of failing recording start |
 | Empty exclusion filter | Meeting system audio is set to all except selected apps with no selected apps | VoicePen switches the setting to all system audio, shows a warning, and starts recording |
-| All system audio settings | Meeting system audio source is set to all system audio | Config settings hides selected-app controls |
+| All system audio settings | Meeting system audio source is set to all system audio | Settings screen hides selected-app controls |
 | Add selected apps | Meeting system audio source is selected apps only or all except selected apps, then the user uses the add-apps control and chooses several `.app` bundles | The apps are selectable and appear in the selected-app list with bundle identifiers |
 | Retry failed meeting | User uses retry on a failed meeting before recovery audio expires | VoicePen reprocesses local audio and updates the same meeting history entry |
 | Expired recovery audio | Seven days pass after a failed meeting | VoicePen deletes retained audio and keeps the failed meeting row without retry |
 | New meeting row | A meeting finishes and a new row appears in Meetings history | The row preview text is visible immediately |
+| Timecoded meeting preview | A saved meeting transcript line starts with a meeting timecode | The Meetings list preview hides the timecode and keeps the spoken text |
 | Open Meetings | Saved meetings include large or compressed transcripts | The list opens from metadata and previews without decompressing every full transcript |
 | Focus meeting | User selects a saved meeting | The full transcript for that meeting is loaded for the detail pane |
 | Meeting day groups | Saved meetings include entries from multiple local calendar days | Meetings appear under sticky day sections while preserving newest-first order within each day |
@@ -203,13 +206,14 @@ action items, ticket drafts, engineering notes, pause, or resume.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers prompting for an expected Meeting diarization speaker count when diarization is enabled.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers Meeting diarization model lifecycle state, automatic warmup when diarization is enabled, automatic warmup after a successful diarization model download, and keeping transcription model warmup running when Meeting recording starts.
 - Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers Meeting voice leveling routing and fallback.
+- Automated: `VoicePenTests/Meetings/MeetingHistoryEntryTests.swift` covers Meeting list preview fallback text and omission of leading transcript timecodes.
 - Automated: `VoicePenTests/Meetings/MeetingHistoryStoreTests.swift` covers append, preview-only list load, focused full transcript load, delete, compression, separate storage budget, partial entries, error entries, model/app version metadata, recovery manifests, and expired recovery cleanup.
 - Automated: `VoicePenTests/History/HistoryDayGroupsTests.swift` covers Meeting and History list grouping by local calendar day while preserving entry order.
 - Automated: `VoicePenTests/Persistence/DatabaseMigratorTests.swift` covers `meeting_history` creation and migration from old databases.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers consent gating, permission gating, meeting state, Meeting system audio source settings updates, selected-app fallback, meeting processing state, meeting timeout recovery, and no conflict with dictation history.
-- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers menu and sidebar meeting commands, header recording controls, meeting processing UI, Config placement for Meeting features, Meeting system audio source settings controls, stable shared copy-button feedback, meeting status icons in navigation surfaces, recording limit display, and recording pulses in the menu bar, Meetings header, and persistent status panel.
+- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers menu and sidebar meeting commands, header recording controls, meeting processing UI, Settings screen placement for Meeting features, Meeting system audio source settings controls, stable shared copy-button feedback, meeting status icons in navigation surfaces, recording limit display, and recording pulses in the menu bar, Meetings header, and persistent status panel.
 - Automated: `VoicePenTests/Settings/AppSettingsStoreTests.swift` covers Meeting system audio source defaults, persistence, invalid mode fallback, and invalid selected-app filtering.
-- Manual: switch Config Meeting system audio source between all system audio and filtered modes; verify selected-app controls hide and show without SwiftUI publishing warnings, then use the add-apps control, select multiple macOS `.app` bundles, and verify they appear with bundle identifiers.
+- Manual: switch the Settings screen Meeting system audio source between all system audio and filtered modes; verify selected-app controls hide and show without SwiftUI publishing warnings, then use the add-apps control, select multiple macOS `.app` bundles, and verify they appear with bundle identifiers.
 - Manual: record real meeting audio with microphone plus Zoom, Meet, or browser audio and verify both sides appear in the transcript.
 - Manual: finish a new meeting while the Meetings screen is open and verify the new history row text appears without scrolling.
 - Manual: open Meetings with entries from several days and verify meetings are grouped by day and the current day header sticks while scrolling.

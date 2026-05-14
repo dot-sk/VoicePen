@@ -1,7 +1,7 @@
 ---
 id: SPEC-004
 status: implemented
-updated: 2026-05-06
+updated: 2026-05-14
 tests:
   - VoicePenTests/App/VoicePenAppCommandTests.swift
   - VoicePenTests/Persistence/DatabaseMigratorTests.swift
@@ -38,10 +38,11 @@ VoicePen stores app data in a local SQLite database under Application Support, m
 - When older history text is compressed or evicted, VoicePen shall keep each history row's duration, status, timing, model metadata, app version used for decoding, and recognized word count so total dictated time and estimated time saved remain complete.
 - When a voice history entry is saved after decoding, VoicePen shall store the app version used for that decoding alongside the transcription model metadata.
 - When History detail shows processing metadata, VoicePen shall omit the app version row when the saved decoding app version is unknown.
-- When General settings storage summary is shown, VoicePen shall show one approximate database disk usage value without splitting text payload and database sizes.
+- When About settings shows the App block, VoicePen shall group app status, privacy, local storage, database path, and Open at login controls there.
+- When About settings shows local storage, VoicePen shall show one approximate database disk usage value without splitting text payload and database sizes.
 - When the History UI is shown, VoicePen shall not expose a file-reveal action for the SQLite history database; users inspect sessions through the in-app list and detail pane.
-- When VoicePen shows total transcribed audio time, it shall label the total with recognized word count and countable session count.
-- When VoicePen shows total transcribed audio time, it shall also show an approximate time-saved estimate by comparing recognized word count against a professional typing baseline.
+- When Home shows total transcribed audio time, it shall label the total with recognized word count and countable session count.
+- When Home shows total transcribed audio time, it shall also show an approximate time-saved estimate by comparing recognized word count against a professional typing baseline.
 - When VoicePen shows usage stats, it shall also show lightweight progress signals: active streak, words dictated today, best dictation day, the latest reached milestone, and the next milestone.
 - When VoicePen computes usage milestones, it shall use a progressive ladder that mixes early wins, lifetime word volume, dictation count, active streak, best-day volume, and time saved so a single high-volume day cannot unlock the full ladder.
 - When VoicePen computes active streak, it shall count consecutive local calendar days with at least one countable history entry, allowing the streak to remain active before today's first dictation when yesterday had activity.
@@ -59,7 +60,7 @@ VoicePen stores app data in a local SQLite database under Application Support, m
 - When the user expands raw transcript for one history entry, VoicePen shall keep that expansion state scoped to that entry rather than applying it to every history entry detail.
 - When the History UI has visible entries from multiple local calendar days, VoicePen shall group the list into sticky day sections while preserving newest-first entry order within each day.
 - When the Open VoicePen at login setting is displayed, VoicePen shall reflect the current macOS login item status instead of only the last saved preference.
-- When the main settings window shows its sidebar, VoicePen shall keep a flat settings list ordered with primary dictation settings before history, permissions, and app information.
+- When no feature-flag-only sections are enabled, the main window sidebar shall show Home, Meetings, and History as primary navigation, followed by a Settings block ordered Dictionary, Model, Settings, Permissions, and About.
 - When tests touch persistence, they shall use temporary data paths rather than real user data directories.
 
 ## Examples
@@ -79,11 +80,12 @@ VoicePen stores app data in a local SQLite database under Application Support, m
 | History decode metadata | New completed dictation is saved | The entry stores both transcription model metadata and the app version used during decoding |
 | Unknown history app version | Older history entry has no saved decoding app version | History detail omits the App version metadata row |
 | Usage stats after text compression or eviction | Older text payloads are compressed or evicted by the budget | Total dictated duration and estimated time saved still include those retained rows |
-| General storage display | History has saved rows | General settings show approximate database disk usage as one value |
+| About app details | Open About settings | The App block shows status, privacy, storage, database path, and Open at login controls |
+| About storage display | History has saved rows | About settings show approximate database disk usage as one value |
 | History database file | Open History | No history database reveal action is shown |
-| Usage time saved | History contains completed dictations with recognized text | General settings shows estimated time saved versus manual typing at the professional typing baseline |
-| Usage total caption | History contains completed dictations with recognized text | General settings labels the total with transcribed word count and session count |
-| Lightweight progress stats | History contains entries across multiple days | General settings shows current streak, today's words, best day, latest reached milestone, and next milestone |
+| Usage time saved | History contains completed dictations with recognized text | Home shows estimated time saved versus manual typing at the professional typing baseline |
+| Usage total caption | History contains completed dictations with recognized text | Home labels the total with transcribed word count and session count |
+| Lightweight progress stats | History contains entries across multiple days | Home shows current streak, today's words, best day, latest reached milestone, and next milestone |
 | Single high-volume day | One day contains thousands of dictated words | Early volume and daily-record milestones may unlock, but longer streak and elite lifetime milestones remain locked |
 | History selection | Click an older visible history row | Row becomes active and the detail pane shows that row |
 | History row copy feedback | Copy a row with final text | The row copy icon temporarily changes from copy to checkmark |
@@ -98,13 +100,13 @@ VoicePen stores app data in a local SQLite database under Application Support, m
 | Raw transcript expansion | Expand raw transcript on one history entry, then select another entry | The other entry keeps its own raw transcript expansion state |
 | History day groups | History contains entries from multiple local calendar days | Entries appear under sticky day sections while preserving newest-first order within each day |
 | Open at login external change | macOS Login Items status changes outside VoicePen | VoicePen refreshes the toggle to the current system status |
-| Settings sidebar | Open main VoicePen window | Primary dictation sections appear before history, permissions, and app information in a flat settings list |
+| Settings sidebar | Open main VoicePen window without feature-flag-only sections | Sidebar shows Home, Meetings, History, then a Settings block with Dictionary, Model, Settings, Permissions, and About |
 | Test storage | Persistence test run | Temporary directory is used |
 
 ## Test Mapping
 
 - Automated: `VoicePenTests/Persistence/DatabaseMigratorTests.swift` covers schema migration.
-- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers main window sidebar ordering, General usage total caption, one-value disk usage display, history processing metadata display, stable shared copy-button feedback, and history row context/accessibility actions.
+- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers main window sidebar grouping and ordering, Home usage total caption, About App block placement, one-value disk usage display, history processing metadata display, stable shared copy-button feedback, and history row context/accessibility actions.
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers that History does not expose a SQLite file-reveal action.
 - Automated: `VoicePenTests/History/HistoryDayGroupsTests.swift` covers History and Meeting list grouping by local calendar day while preserving entry order.
 - Automated: `VoicePenTests/Settings/AppSettingsStoreTests.swift` and `VoicePenTests/Settings/UserConfigStoreTests.swift` cover settings defaults, persistence, and normalization.
@@ -112,7 +114,8 @@ VoicePen stores app data in a local SQLite database under Application Support, m
 - Automated: `VoicePenTests/History/VoiceHistoryStoreTests.swift` covers unlimited local history rows, batch text compression, text payload eviction, storage stats, ordering, deletion, clearing, and persisted history metadata including app version.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers saving the app version used for decoding with voice history model metadata.
 - Automated: `VoicePenTests/History/VoiceHistoryFilterTests.swift` and `VoicePenTests/History/VoiceTranscriptionUsageStatsTests.swift` cover history filtering, estimated time-saved usage stats, streaks, daily word counts, best day, latest reached milestone, and next milestone.
-- Manual: open General settings with several history entries and verify the progress stats appear near the usage summary without success popups.
+- Manual: open Home with several history entries and verify the progress stats appear near the usage summary without success popups.
+- Manual: open About settings and verify the App block contains status, privacy, storage, database path, and Open at login controls.
 - Manual: open History with at least two entries, click a non-selected entry, and verify the row becomes active and the detail pane changes to that entry.
 - Manual: hover a completed History row, copy it with the row copy button or double-click, and verify the row copy icon temporarily changes to a checkmark while the clipboard receives the row text.
 - Manual: secondary-click a completed History row and verify Copy Text and Delete Session are available; verify keyboard or VoiceOver accessibility actions expose the same actions.

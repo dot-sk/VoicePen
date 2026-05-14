@@ -19,6 +19,9 @@ Before changing behavior:
 5. Update the spec in the same change when behavior, edge cases, or tests change.
 6. Run `make test` before handoff when local tooling is available.
 
+Work spec first even for small behavior moves: update the relevant acceptance
+criteria and test mapping before changing production behavior.
+
 Write an ADR in `Docs/adr/` only for technical decisions that are expensive to
 reverse: architecture, persistence shape, model/backend strategy,
 privacy/security posture, distribution, or dependencies.
@@ -119,7 +122,14 @@ generated text, assert the required structure and signals that must be present;
 avoid maintaining lists of incidental strings that must not appear unless their
 absence is the actual safety or privacy requirement.
 
+When behavior moves or replaces an old path, tests should positively assert the
+new intended behavior. Do not add tests whose main purpose is to prove the old
+UI path, old copy, or old implementation detail is absent.
+
 ## Local Test Runner
+
+Run unit tests through `make test`. Do not invoke `swift test` or
+`xcrun swift test` directly for local verification.
 
 `make test` commonly needs to write into Xcode and SwiftPM cache
 locations under the user's home directory (`~/Library/Caches`, `~/.cache`, and
