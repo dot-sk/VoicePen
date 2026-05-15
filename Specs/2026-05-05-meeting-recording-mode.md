@@ -65,9 +65,11 @@ duration, audio source labels, ASR model, and app version. Opening the Meetings
 screen must not read or decompress every saved full transcript.
 
 Meeting Mode v1 captures both microphone input and system output audio where
-available, chunks transcript processing by start time, caps meeting processing
-at 120 minutes, applies best-effort system voice leveling before transcription,
-and uses 1 minute chunk windows. Meeting system audio can be configured before
+available, chunks transcript processing by start time, automatically stops live
+recording at 120 minutes, applies best-effort system voice leveling before
+transcription, and uses 1 minute chunk windows. The 120 minute limit applies to
+live capture only; local processing and retry shall process available recovery
+audio beyond that duration. Meeting system audio can be configured before
 recording to capture all system audio, capture selected apps only, or capture
 all system audio except selected apps. Selected apps are persisted by bundle
 identifier with a display name for settings UI. If VoicePen cannot apply the
@@ -95,7 +97,9 @@ creation, or transcript editing.
 - When recording is stopped and audio is not discarded as all-silent preprocessing, VoicePen shall transcribe locally and save a meeting entry.
 - When recording is stopped and decoding returns model metadata, VoicePen shall save the app version used for that decoding alongside the local model metadata.
 - When recording is stopped, the saved meeting duration shall use the active wall-clock recording duration, not the sum of microphone and system audio source chunk durations.
-- When recording exceeds the 120 minute processing limit and supported audio produces transcript text, VoicePen shall process only the supported window, save the meeting as a partial transcript, and show a user-facing error reason that includes the limit in minutes.
+- When active recording reaches the 120 minute limit, VoicePen shall automatically stop recording and start local transcription.
+- When recording reaches the 120 minute limit and transcription produces usable transcript text, VoicePen shall save the meeting without marking it failed or partial solely because the limit was reached.
+- When retrying a failed or partial meeting with available recovery audio longer than 120 minutes, VoicePen shall process the available recovery audio beyond 120 minutes instead of rejecting or truncating it because of the recording limit.
 - When local transcription runs but produces no usable transcript text, VoicePen shall save the meeting as failed even if capture or processing was incomplete.
 - Meeting history rows shall not let technical incomplete-capture or incomplete-processing flags override the product status shown to the user.
 - When a saved meeting duration is shorter than one minute, meeting history items shall display the duration in seconds instead of fractional minutes.
@@ -201,8 +205,8 @@ creation, or transcript editing.
 | Stop meeting | User stops an active recording from the Meetings header | Local transcription runs, processing status is shown, meeting history is saved with active wall-clock duration, temporary audio is deleted after success |
 | Meeting decode metadata | Meeting transcription returns local model metadata | Meeting history stores the local model metadata and app version used during decoding |
 | Unknown meeting app version | Older meeting entry has no saved decoding app version | Meeting detail omits the App version metadata row |
-| Recording limit exceeded with text | User records longer than the supported meeting limit and supported audio contains speech | VoicePen saves a partial transcript, caps processed duration at the supported limit, and shows that the limit was reached |
-| Recording limit exceeded without text | User records longer than the supported meeting limit and no supported audio yields text | VoicePen saves a failed meeting with no transcript and shows that the limit was reached |
+| Recording limit reached with text | Active recording reaches the 120 minute limit and captured audio contains speech | VoicePen automatically stops recording, transcribes locally, and saves the meeting without a duration-limit failure |
+| Retry long recovery audio | User retries an older failed meeting whose available recovery audio is longer than 120 minutes | VoicePen processes the available recovery audio beyond 120 minutes and updates the same entry when transcription succeeds |
 | Silent meeting recording | User stops a meeting recording where every captured chunk is audio silence before transcription | VoicePen deletes temporary audio, shows an informational alert, and does not save a meeting row or recovery audio |
 | Hung meeting processing | Local processing does not return | VoicePen exits processing and surfaces a timeout error |
 | Meeting processing progress | A meeting has multiple chunks to process | The recording panel shows determinate processing progress as an approximate percentage |
@@ -239,7 +243,7 @@ creation, or transcript editing.
 
 - Automated: `VoicePenTests/Meetings/MeetingRecordingStateTests.swift` covers start, stop, cancel, composite microphone/system-audio source recording, active wall-clock duration, cleanup after canceled start, and partial source failure with fakes.
 - Automated: `VoicePenTests/Meetings/MeetingRecordingStateTests.swift` covers Meeting system audio tap planning, older-macOS process-object app filtering, and preflight fallback.
-- Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers local transcription flow, chunk ordering, overlapping source merging before transcription, optional meeting timecodes, separate diarization speaker labels, app version metadata, active wall-clock duration, limit handling, silent source chunks, all-silent discard, known subtitle/outro artifact cleanup, chunk timeout partial salvage, recovery audio retention and retry, temporary audio cleanup, and no automatic insertion.
+- Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers local transcription flow, chunk ordering, overlapping source merging before transcription, optional meeting timecodes, separate diarization speaker labels, app version metadata, active wall-clock duration, processing recovery audio beyond the live recording limit, silent source chunks, all-silent discard, known subtitle/outro artifact cleanup, chunk timeout partial salvage, recovery audio retention and retry, temporary audio cleanup, and no automatic insertion.
 - Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers removing repeated short trailing Meeting transcription hallucinations.
 - Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers diarization chunk planning, full-recording diarization request wiring, very-short Auto diarization skip with exact-count override, speaker turn postprocessing, word overlap speaker merge, segment midpoint fallback, uncovered-gap behavior, tiny-overlap rejection, diarization failure fallback, and separate diarization execution before ASR chunk formatting.
 - Automated: `VoicePenTests/Meetings/MeetingDiarizationModelDownloadTests.swift` covers Meeting diarization Hugging Face artifact selection, URL construction, and proxy-aware download session configuration.
@@ -253,7 +257,7 @@ creation, or transcript editing.
 - Automated: `VoicePenTests/TranscriptWorkspace/TranscriptEditorMetricsTests.swift` covers transcript editor line, character, and selected-character counting, including empty text, trailing newlines, and Unicode text.
 - Automated: `VoicePenTests/TranscriptWorkspace/TranscriptDayGroupsTests.swift` covers shared list grouping by local calendar day while preserving entry order.
 - Automated: `VoicePenTests/Persistence/DatabaseMigratorTests.swift` covers `meeting_history` creation and migration from old databases.
-- Automated: `VoicePenTests/App/AppControllerTests.swift` covers consent gating, permission gating, meeting state, Meeting system audio source settings updates, selected-app fallback, meeting processing state, silent recording discard prompt/no-history behavior, meeting timeout recovery, and no conflict with dictation history.
+- Automated: `VoicePenTests/App/AppControllerTests.swift` covers consent gating, permission gating, meeting state, Meeting system audio source settings updates, selected-app fallback, meeting processing state, live recording limit auto-stop, silent recording discard prompt/no-history behavior, meeting timeout recovery, and no conflict with dictation history.
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers menu and sidebar meeting commands, header recording controls, shared transcript workspace wiring, Meetings Command-R recording shortcut wiring, right sidebar metadata/actions content, empty search UI, allowed actions, absence of out-of-stage playback/waveform/audio-player/export/speaker-profile/voice-profile/editing actions, meeting processing UI, Settings screen placement for Meeting features, Meeting system audio source settings controls, stable shared copy-button feedback behavior, meeting status icons in navigation surfaces, recording limit display, and recording pulses in the menu bar, Meetings header, and persistent status panel.
 - Manual: Meetings desktop UI review covers the three-pane visual layout, independent pane scrolling, compact search field, right sidebar compactness, bottom Delete recording placement, transcript editor Copy action, line numbers, bounded line-number separator, selected-character count, read-only transcript selection/copying, and clearing transcript selection when switching focused meeting rows.
 - Automated: `VoicePenTests/Settings/AppSettingsStoreTests.swift` covers Meeting system audio source defaults, persistence, invalid mode fallback, and invalid selected-app filtering.

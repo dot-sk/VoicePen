@@ -98,7 +98,7 @@ final class MeetingPipeline {
         do {
             let chunkingResult = try await chunker.split(
                 recording.chunks,
-                maximumDuration: Self.maximumMeetingDuration,
+                maximumDuration: Self.processingDuration(for: recording),
                 chunkDuration: Self.chunkDuration
             )
             cleanupURLs.append(contentsOf: chunkingResult.temporaryURLs)
@@ -145,7 +145,7 @@ final class MeetingPipeline {
         do {
             let chunkingResult = try await chunker.split(
                 recording.chunks,
-                maximumDuration: Self.maximumMeetingDuration,
+                maximumDuration: Self.processingDuration(for: recording),
                 chunkDuration: Self.chunkDuration
             )
             cleanupURLs.append(contentsOf: chunkingResult.temporaryURLs)
@@ -202,7 +202,7 @@ final class MeetingPipeline {
             throw MeetingRecordingError.noCapturedAudio
         }
 
-        var timings = MeetingPipelineTimings(recording: cappedDuration(recording.duration))
+        var timings = MeetingPipelineTimings(recording: recording.duration)
         let language = TranscriptionLanguageResolver.resolve(languageProvider())
         let mode = speechPreprocessingModeProvider()
         let meetingVoiceLevelingEnabled = meetingVoiceLevelingEnabledProvider()
@@ -296,8 +296,7 @@ final class MeetingPipeline {
         }
 
         let transcript = transcriptParts.joined(separator: "\n")
-        let durationExceeded = durationLimitExceeded(recording)
-        let status: MeetingRecordingStatus = recording.sourceFlags.partial || durationExceeded ? .partial : .completed
+        let status: MeetingRecordingStatus = recording.sourceFlags.partial ? .partial : .completed
         let sourceFlags = MeetingSourceFlags(
             microphoneCaptured: recording.sourceFlags.microphoneCaptured,
             systemAudioCaptured: recording.sourceFlags.systemAudioCaptured,
@@ -318,7 +317,7 @@ final class MeetingPipeline {
             transcriptText: transcript,
             status: status,
             sourceFlags: sourceFlags,
-            errorMessage: errorMessage(recording: recording, processingError: durationExceeded ? MeetingRecordingError.durationLimitExceeded : nil),
+            errorMessage: errorMessage(recording: recording, processingError: nil),
             timings: timings,
             modelMetadata: metadataWithAppVersion(modelMetadata),
             recoveryAudio: recoveryAudio
@@ -361,7 +360,7 @@ final class MeetingPipeline {
             let result = try await diarizer.diarize(
                 recording: MeetingDiarizationRecording(
                     chunks: chunks,
-                    maximumDuration: Self.maximumMeetingDuration,
+                    maximumDuration: Self.recordingDuration(for: chunks),
                     expectedSpeakerCount: expectedSpeakerCount
                 ))
             let turns = result.turns
@@ -455,7 +454,7 @@ final class MeetingPipeline {
         let entry = MeetingHistoryEntry(
             id: entryID,
             createdAt: recording.endedAt,
-            duration: timings.recording ?? cappedDuration(recording.duration),
+            duration: timings.recording ?? recording.duration,
             transcriptText: transcript.isEmpty ? existingTranscript : transcript,
             status: .partial,
             sourceFlags: flags,
@@ -475,7 +474,7 @@ final class MeetingPipeline {
         existingTranscript: String = "",
         recoveryAudio: MeetingRecoveryAudioManifest? = nil
     ) throws -> MeetingHistoryEntry {
-        let duration = cappedDuration(recording.duration)
+        let duration = recording.duration
         let retainedAudio =
             try recoveryAudio
             ?? recoveryAudioStore?.retain(recording: recording, entryID: entryID, createdAt: recording.endedAt)
@@ -504,17 +503,8 @@ final class MeetingPipeline {
         metadata?.withAppVersion(appVersionProvider())
     }
 
-    private func cappedDuration(_ duration: TimeInterval) -> TimeInterval {
-        min(duration, Self.maximumMeetingDuration)
-    }
-
-    private func durationLimitExceeded(_ recording: MeetingRecordingResult) -> Bool {
-        recording.duration > Self.maximumMeetingDuration
-    }
-
     private func errorMessage(recording: MeetingRecordingResult, processingError: Error?) -> String? {
         let messages = [
-            durationLimitExceeded(recording) ? MeetingRecordingError.durationLimitExceeded.localizedDescription : nil,
             recording.errorMessage,
             processingError?.localizedDescription
         ]
@@ -565,8 +555,12 @@ final class MeetingPipeline {
         return (value, TimeInterval(end - start) / 1_000_000_000)
     }
 
+    private static func processingDuration(for recording: MeetingRecordingResult) -> TimeInterval {
+        max(recording.duration, recordingDuration(for: recording.chunks))
+    }
+
     private static func recordingDuration(for chunks: [MeetingAudioChunk]) -> TimeInterval {
-        min(maximumMeetingDuration, chunks.map { $0.startOffset + $0.duration }.max() ?? 0)
+        chunks.map { $0.startOffset + $0.duration }.max() ?? 0
     }
 
     private static func elapsedTime(_ elapsed: TimeInterval) -> String {

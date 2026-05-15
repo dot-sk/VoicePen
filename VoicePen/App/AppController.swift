@@ -116,6 +116,7 @@ final class AppController: ObservableObject {
     private let modelDownloadTimeout: Duration
     private let modelWarmupTimeout: Duration
     private let meetingCaptureStartTimeout: Duration
+    private let meetingMaximumRecordingDuration: TimeInterval
     private let meetingProcessingTimeout: Duration
     private let appVersionProvider: () -> String
     let historyStore: VoiceHistoryStore
@@ -148,6 +149,7 @@ final class AppController: ObservableObject {
             settingsStore: settingsStore,
             userPrompts: userPrompts,
             captureStartTimeout: meetingCaptureStartTimeout,
+            maximumRecordingDuration: meetingMaximumRecordingDuration,
             processingTimeout: meetingProcessingTimeout,
             runningApplicationBundleIdentifiersProvider: meetingRunningApplicationBundleIdentifiersProvider,
             getAppState: { [weak self] in
@@ -338,6 +340,7 @@ final class AppController: ObservableObject {
         modelDownloadTimeout: Duration = VoicePenConfig.modelDownloadTimeout,
         modelWarmupTimeout: Duration = VoicePenConfig.modelWarmupTimeout,
         meetingCaptureStartTimeout: Duration = VoicePenConfig.meetingCaptureStartTimeout,
+        meetingMaximumRecordingDuration: TimeInterval = VoicePenConfig.meetingMaximumRecordingDuration,
         meetingProcessingTimeout: Duration = VoicePenConfig.meetingProcessingTimeout,
         appVersionProvider: @escaping () -> String = { VoicePenConfig.appVersion },
         historyStore: VoiceHistoryStore,
@@ -366,6 +369,7 @@ final class AppController: ObservableObject {
         self.modelDownloadTimeout = modelDownloadTimeout
         self.modelWarmupTimeout = modelWarmupTimeout
         self.meetingCaptureStartTimeout = meetingCaptureStartTimeout
+        self.meetingMaximumRecordingDuration = meetingMaximumRecordingDuration
         self.meetingProcessingTimeout = meetingProcessingTimeout
         self.appVersionProvider = appVersionProvider
         self.historyStore = historyStore

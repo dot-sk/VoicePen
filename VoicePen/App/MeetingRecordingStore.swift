@@ -9,6 +9,7 @@ final class MeetingRecordingStore {
         var startedAt: Date?
         var activeProcessingID: UUID?
         var statusTask: Task<Void, Never>?
+        var recordingLimitTask: Task<Void, Never>?
         var processingTask: Task<Void, Never>?
         var processingTimeoutTask: Task<Void, Never>?
 
@@ -42,6 +43,7 @@ final class MeetingRecordingStore {
         let settingsStore: AppSettingsStore
         let userPrompts: UserPromptPresenter
         let captureStartTimeout: Duration
+        let maximumRecordingDuration: TimeInterval
         let processingTimeout: Duration
         let runningApplicationBundleIdentifiersProvider: () -> Set<String>
         let getAppState: () -> AppState
@@ -215,6 +217,7 @@ final class MeetingRecordingStore {
 
         case .startSucceeded:
             startStatusUpdates()
+            startRecordingLimitMonitor()
 
         case let .startFailed(error):
             handleStartError(error)
@@ -359,11 +362,39 @@ final class MeetingRecordingStore {
         }
     }
 
+    private func startRecordingLimitMonitor() {
+        stopRecordingLimitMonitor()
+        let startedAt = state.startedAt ?? Date()
+        let elapsedTime = Date().timeIntervalSince(startedAt)
+        let remainingTime = max(0, environment.maximumRecordingDuration - elapsedTime)
+        let sleepDuration = Self.duration(seconds: remainingTime)
+
+        state.recordingLimitTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: sleepDuration)
+            } catch {
+                return
+            }
+
+            guard let self,
+                environment.getAppState() == .meetingRecording
+            else { return }
+
+            _ = stop()
+        }
+    }
+
     private func stopStatusUpdates() {
         state.statusTask?.cancel()
         state.statusTask = nil
+        stopRecordingLimitMonitor()
         state.startedAt = nil
         updateSourceStatus(.idle)
+    }
+
+    private func stopRecordingLimitMonitor() {
+        state.recordingLimitTask?.cancel()
+        state.recordingLimitTask = nil
     }
 
     private func startProcessingTimeoutMonitor(id: UUID) {
@@ -398,5 +429,10 @@ final class MeetingRecordingStore {
     private func updateSourceStatus(_ sourceStatus: MeetingSourceStatus) {
         state.sourceStatus = sourceStatus
         environment.setSourceStatus(sourceStatus)
+    }
+
+    private static func duration(seconds: TimeInterval) -> Duration {
+        let nanoseconds = Int64(max(0, (seconds * 1_000_000_000).rounded(.up)))
+        return .nanoseconds(nanoseconds)
     }
 }
