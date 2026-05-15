@@ -21,14 +21,14 @@ understand macOS audio routing or local transcription model behavior.
 ## Behavior
 
 VoicePen keeps using the macOS default microphone. It provides audio controls in
-Config settings with two independent best-effort controls: boosting default
+the Settings screen with two independent best-effort controls: boosting default
 microphone input level during push-to-talk dictation, and applying system voice
 leveling to Meeting Mode audio before local transcription.
 
 ## Acceptance Criteria
 
 - When VoicePen shows settings, it shall not include a dedicated Audio sidebar section.
-- When VoicePen shows Config settings, it shall include audio controls for dictation microphone boost and Meeting voice leveling.
+- When VoicePen shows the Settings screen, it shall include audio controls for dictation microphone boost and Meeting voice leveling.
 - When no audio settings have been saved, VoicePen shall enable dictation microphone boost and Meeting voice leveling by default.
 - When push-to-talk dictation starts and microphone boost is enabled, VoicePen shall attempt to set the current default input device's settable input volume to maximum before recording.
 - When dictation recording ends, is canceled, fails to start, times out, or fails during processing, VoicePen shall attempt to restore the original input volume it changed.
@@ -54,7 +54,7 @@ leveling to Meeting Mode audio before local transcription.
 ## Test Mapping
 
 - Automated: `VoicePenTests/Settings/AppSettingsStoreTests.swift` covers audio setting defaults and persistence.
-- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers audio controls living in Config settings and shared settings bindings.
+- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers audio controls living in the Settings screen and shared settings bindings.
 - Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers dictation microphone boost lifecycle and best-effort failures.
 - Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers Meeting voice leveling routing, fallback, and processed temporary file cleanup.
 - Automated: `VoicePenTests/Recording/DefaultInputGainControllerTests.swift` covers input gain set/restore behavior with fake CoreAudio.

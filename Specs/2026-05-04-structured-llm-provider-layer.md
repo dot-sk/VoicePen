@@ -50,7 +50,7 @@ prompt or registry logic.
 - The AI settings section shall display only whether the OpenRouter API key is configured, never the key value itself.
 - The AI settings section shall not expose Developer-mode intent parser controls; Modes settings owns feature-specific command parsing behavior.
 - The AI settings section shall not expose advanced LLM tuning fields such as provider timeouts or Ollama thinking mode; those remain editable through TOML config only.
-- The AI settings section shall not expose generic config file controls; opening and reloading TOML config belongs to the dedicated Config settings section.
+- The AI settings section shall not expose generic config file controls; opening and reloading TOML config belongs to the dedicated Settings screen.
 
 ## Examples
 
@@ -64,14 +64,14 @@ prompt or registry logic.
 | Provider switch in AI settings | User selects OpenRouter | OpenRouter fields replace Ollama fields in the provider settings block |
 | Ollama availability | Ollama is selected in AI settings | A green indicator is shown when the configured Ollama server responds; a red indicator is shown when it is unreachable |
 | Developer command parsing | User wants to enable AI command parsing | User changes the setting in Modes, not AI |
-| Advanced settings | User wants to tune `timeout_seconds` or `think` | User edits `~/.voicepen/config.toml` through Config settings |
-| Config controls | User wants to open or reload TOML | Config settings owns the action, AI settings only reflects loaded values |
+| Advanced settings | User wants to tune `timeout_seconds` or `think` | User edits `~/.voicepen/config.toml` through the Settings screen |
+| Config controls | User wants to open or reload TOML | Settings screen owns the action, AI settings only reflects loaded values |
 
 ## Test Mapping
 
 - Automated: `VoicePenTests/LLM/LLMClientTests.swift` covers Ollama and OpenRouter request shape, Ollama availability ping behavior, status failures, timeouts, invalid JSON, strict schema unsupported errors, unreachable provider errors, and API key redaction.
 - Automated: `VoicePenTests/Settings/UserConfigStoreTests.swift` covers default LLM provider config, OpenRouter empty-key config validation, AI settings summary values, immediate settings persistence while preserving TOML-only advanced values, and OpenRouter API key status without exposing the key.
-- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers that the settings sidebar exposes the AI section, routes it to the AI settings view, writes provider-specific controls through shared settings bindings, defers provider picker persistence until after the current view update, shows active provider controls and Ollama availability UI, leaves Developer command parsing in Modes, and keeps generic config controls in Config settings.
+- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers that the settings sidebar exposes the AI section when enabled, routes it to the AI settings view, writes provider-specific controls through shared settings bindings, defers provider picker persistence until after the current view update, shows active provider controls and Ollama availability UI, leaves Developer command parsing in Modes, and keeps generic config controls in the Settings screen.
 - Manual: edit LLM values in Settings > AI, switch between Ollama and OpenRouter, then open Settings > Config > Open Config File and verify the TOML values changed immediately while provider timeout and Ollama thinking remain whatever TOML configured.
 
 ## Notes

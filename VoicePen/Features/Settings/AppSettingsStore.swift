@@ -1,6 +1,5 @@
 import Combine
 import Foundation
-import SQLite3
 
 @MainActor
 final class AppSettingsStore: ObservableObject {
@@ -15,6 +14,7 @@ final class AppSettingsStore: ObservableObject {
     @Published private(set) var meetingDiarizationEnabled: Bool
     @Published private(set) var meetingSystemAudioSourceMode: MeetingSystemAudioSourceMode
     @Published private(set) var meetingAudioAppSelections: [MeetingAudioAppSelection]
+    @Published private(set) var appAppearanceMode: AppAppearanceMode
     @Published private(set) var openAtLogin: Bool
     @Published private(set) var developerModeOverride: DeveloperMode?
     @Published private(set) var hasAcknowledgedMeetingRecordingConsent: Bool
@@ -36,6 +36,7 @@ final class AppSettingsStore: ObservableObject {
         self.meetingDiarizationEnabled = false
         self.meetingSystemAudioSourceMode = .all
         self.meetingAudioAppSelections = []
+        self.appAppearanceMode = .system
         self.openAtLogin = false
         self.developerModeOverride = nil
         self.hasAcknowledgedMeetingRecordingConsent = false
@@ -67,40 +68,45 @@ final class AppSettingsStore: ObservableObject {
                 try fetchValue(forKey: Self.meetingSystemAudioSourceModeKey, from: database)
                 ?? MeetingSystemAudioSourceMode.all.rawValue
             let meetingAudioAppSelections = try fetchValue(forKey: Self.meetingAudioAppSelectionsKey, from: database)
+            let appAppearanceMode =
+                try fetchValue(forKey: Self.appAppearanceModeKey, from: database)
+                ?? AppAppearanceMode.system.rawValue
             let openAtLogin = try fetchValue(forKey: Self.openAtLoginKey, from: database) ?? "false"
             let developerModeOverride = try fetchValue(forKey: Self.developerModeOverrideKey, from: database)
             let meetingConsent = try fetchValue(forKey: Self.meetingConsentKey, from: database) ?? "false"
-            return (
-                language,
-                modelId,
-                preprocessing,
-                hotkey,
-                holdDuration,
-                boostDictationInputGain,
-                meetingVoiceLeveling,
-                meetingTranscriptTimecodes,
-                meetingDiarization,
-                meetingSystemAudioSourceMode,
-                meetingAudioAppSelections,
-                openAtLogin,
-                developerModeOverride,
-                meetingConsent
+            return LoadedSettings(
+                language: language,
+                modelId: modelId,
+                preprocessing: preprocessing,
+                hotkey: hotkey,
+                holdDuration: holdDuration,
+                boostDictationInputGain: boostDictationInputGain,
+                meetingVoiceLeveling: meetingVoiceLeveling,
+                meetingTranscriptTimecodes: meetingTranscriptTimecodes,
+                meetingDiarization: meetingDiarization,
+                meetingSystemAudioSourceMode: meetingSystemAudioSourceMode,
+                meetingAudioAppSelections: meetingAudioAppSelections,
+                appAppearanceMode: appAppearanceMode,
+                openAtLogin: openAtLogin,
+                developerModeOverride: developerModeOverride,
+                meetingConsent: meetingConsent
             )
         }
-        transcriptionLanguage = Self.normalizeLanguage(values.0)
-        selectedModelId = Self.normalizeModelId(values.1, fallback: defaultModelId)
-        speechPreprocessingMode = Self.normalizeSpeechPreprocessingMode(values.2)
-        hotkeyPreference = Self.normalizeHotkeyPreference(values.3)
-        hotkeyHoldDuration = Self.normalizeHotkeyHoldDuration(values.4)
-        boostDictationInputGain = Self.normalizeBoolean(values.5)
-        meetingVoiceLevelingEnabled = Self.normalizeBoolean(values.6)
-        meetingTranscriptTimecodesEnabled = Self.normalizeBoolean(values.7)
-        meetingDiarizationEnabled = Self.normalizeBoolean(values.8)
-        meetingSystemAudioSourceMode = Self.normalizeMeetingSystemAudioSourceMode(values.9)
-        meetingAudioAppSelections = Self.normalizeMeetingAudioAppSelections(values.10)
-        openAtLogin = Self.normalizeBoolean(values.11)
-        developerModeOverride = Self.normalizeDeveloperModeOverride(values.12)
-        hasAcknowledgedMeetingRecordingConsent = Self.normalizeBoolean(values.13)
+        transcriptionLanguage = Self.normalizeLanguage(values.language)
+        selectedModelId = Self.normalizeModelId(values.modelId, fallback: defaultModelId)
+        speechPreprocessingMode = Self.normalizeSpeechPreprocessingMode(values.preprocessing)
+        hotkeyPreference = Self.normalizeHotkeyPreference(values.hotkey)
+        hotkeyHoldDuration = Self.normalizeHotkeyHoldDuration(values.holdDuration)
+        boostDictationInputGain = Self.normalizeBoolean(values.boostDictationInputGain)
+        meetingVoiceLevelingEnabled = Self.normalizeBoolean(values.meetingVoiceLeveling)
+        meetingTranscriptTimecodesEnabled = Self.normalizeBoolean(values.meetingTranscriptTimecodes)
+        meetingDiarizationEnabled = Self.normalizeBoolean(values.meetingDiarization)
+        meetingSystemAudioSourceMode = Self.normalizeMeetingSystemAudioSourceMode(values.meetingSystemAudioSourceMode)
+        meetingAudioAppSelections = Self.normalizeMeetingAudioAppSelections(values.meetingAudioAppSelections)
+        appAppearanceMode = Self.normalizeAppAppearanceMode(values.appAppearanceMode)
+        openAtLogin = Self.normalizeBoolean(values.openAtLogin)
+        developerModeOverride = Self.normalizeDeveloperModeOverride(values.developerModeOverride)
+        hasAcknowledgedMeetingRecordingConsent = Self.normalizeBoolean(values.meetingConsent)
     }
 
     func updateTranscriptionLanguage(_ language: String) throws {
@@ -204,6 +210,14 @@ final class AppSettingsStore: ObservableObject {
         openAtLogin = isEnabled
     }
 
+    func updateAppAppearanceMode(_ mode: AppAppearanceMode) throws {
+        try withDatabase { database in
+            try DatabaseMigrator.migrate(database)
+            try setValue(mode.rawValue, forKey: Self.appAppearanceModeKey, in: database)
+        }
+        appAppearanceMode = mode
+    }
+
     func updateDeveloperModeOverride(_ mode: DeveloperMode) throws {
         try withDatabase { database in
             try DatabaseMigrator.migrate(database)
@@ -220,76 +234,33 @@ final class AppSettingsStore: ObservableObject {
         hasAcknowledgedMeetingRecordingConsent = isAcknowledged
     }
 
-    private func withDatabase<T>(_ body: (OpaquePointer) throws -> T) throws -> T {
-        let directory = databaseURL.deletingLastPathComponent()
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-
-        var database: OpaquePointer?
-        guard
-            sqlite3_open_v2(
-                databaseURL.path,
-                &database,
-                SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX,
-                nil
-            ) == SQLITE_OK, let database
-        else {
-            let message = database.map { String(cString: sqlite3_errmsg($0)) } ?? "Unable to open database"
-            throw AppSettingsStoreError.sqlite(message)
-        }
-
-        defer {
-            sqlite3_close(database)
-        }
-
+    private func withDatabase<T>(_ body: (SQLiteConnection) throws -> T) throws -> T {
+        let database = try SQLiteConnection.open(
+            at: databaseURL,
+            fileManager: fileManager,
+            makeError: AppSettingsStoreError.sqlite
+        )
         return try body(database)
     }
 
-    private func fetchValue(forKey key: String, from database: OpaquePointer) throws -> String? {
-        let statement = try prepare("SELECT value FROM app_settings WHERE key = ? LIMIT 1;", in: database)
-        defer { sqlite3_finalize(statement) }
+    private func fetchValue(forKey key: String, from database: SQLiteConnection) throws -> String? {
+        let statement = try database.prepare("SELECT value FROM app_settings WHERE key = ? LIMIT 1;")
 
-        sqlite3_bind_text(statement, 1, key, -1, SQLITE_TRANSIENT)
+        statement.bindText(key, at: 1)
 
-        guard sqlite3_step(statement) == SQLITE_ROW else {
+        guard try statement.step() == .row else {
             return nil
         }
 
-        guard let text = sqlite3_column_text(statement, 0) else {
-            return nil
-        }
-        return String(cString: text)
+        return statement.optionalString(at: 0)
     }
 
-    private func setValue(_ value: String, forKey key: String, in database: OpaquePointer) throws {
-        let statement = try prepare(
-            "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?);",
-            in: database
-        )
-        defer { sqlite3_finalize(statement) }
+    private func setValue(_ value: String, forKey key: String, in database: SQLiteConnection) throws {
+        let statement = try database.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?);")
 
-        sqlite3_bind_text(statement, 1, key, -1, SQLITE_TRANSIENT)
-        sqlite3_bind_text(statement, 2, value, -1, SQLITE_TRANSIENT)
-        try stepDone(statement, database: database)
-    }
-
-    private func execute(_ sql: String, in database: OpaquePointer) throws {
-        guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else {
-            throw AppSettingsStoreError.sqlite(String(cString: sqlite3_errmsg(database)))
-        }
-    }
-
-    private func prepare(_ sql: String, in database: OpaquePointer) throws -> OpaquePointer {
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
-            throw AppSettingsStoreError.sqlite(String(cString: sqlite3_errmsg(database)))
-        }
-        return statement
-    }
-
-    private func stepDone(_ statement: OpaquePointer, database: OpaquePointer) throws {
-        guard sqlite3_step(statement) == SQLITE_DONE else {
-            throw AppSettingsStoreError.sqlite(String(cString: sqlite3_errmsg(database)))
-        }
+        statement.bindText(key, at: 1)
+        statement.bindText(value, at: 2)
+        try statement.stepDone()
     }
 
     private static func normalizeLanguage(_ language: String) -> String {
@@ -339,6 +310,10 @@ final class AppSettingsStore: ObservableObject {
 
     private static func normalizeMeetingSystemAudioSourceMode(_ value: String) -> MeetingSystemAudioSourceMode {
         MeetingSystemAudioSourceMode(rawValue: value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? .all
+    }
+
+    private static func normalizeAppAppearanceMode(_ value: String) -> AppAppearanceMode {
+        AppAppearanceMode(rawValue: value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? .system
     }
 
     private static func normalizeMeetingAudioAppSelections(_ value: String?) -> [MeetingAudioAppSelection] {
@@ -391,6 +366,7 @@ final class AppSettingsStore: ObservableObject {
     private static let meetingDiarizationEnabledKey = "meeting.diarizationEnabled"
     private static let meetingSystemAudioSourceModeKey = "meeting.systemAudioSourceMode"
     private static let meetingAudioAppSelectionsKey = "meeting.systemAudioAppSelections"
+    private static let appAppearanceModeKey = "app.appearanceMode"
     private static let hotkeyPreferenceKey = "hotkey.preference"
     private static let hotkeyHoldDurationKey = "hotkey.holdDuration"
     private static let openAtLoginKey = "app.openAtLogin"
@@ -408,6 +384,43 @@ struct TranscriptionLanguage: Identifiable, Equatable {
     }
 }
 
+private struct LoadedSettings {
+    let language: String
+    let modelId: String
+    let preprocessing: String
+    let hotkey: String
+    let holdDuration: String
+    let boostDictationInputGain: String
+    let meetingVoiceLeveling: String
+    let meetingTranscriptTimecodes: String
+    let meetingDiarization: String
+    let meetingSystemAudioSourceMode: String
+    let meetingAudioAppSelections: String?
+    let appAppearanceMode: String
+    let openAtLogin: String
+    let developerModeOverride: String?
+    let meetingConsent: String
+}
+
+nonisolated enum AppAppearanceMode: String, CaseIterable, Identifiable, Sendable {
+    case system
+    case light
+    case dark
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .system:
+            return "System"
+        case .light:
+            return "Light"
+        case .dark:
+            return "Dark"
+        }
+    }
+}
+
 private enum AppSettingsStoreError: LocalizedError {
     case sqlite(String)
 
@@ -418,5 +431,3 @@ private enum AppSettingsStoreError: LocalizedError {
         }
     }
 }
-
-private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)

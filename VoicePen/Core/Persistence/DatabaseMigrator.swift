@@ -2,7 +2,7 @@ import Foundation
 import SQLite3
 
 nonisolated enum DatabaseMigrator {
-    static let currentSchemaVersion = 9
+    static let currentSchemaVersion = 10
 
     private static let migrations: [DatabaseMigration] = [
         DatabaseMigration(
@@ -154,6 +154,16 @@ nonisolated enum DatabaseMigrator {
                 ADD COLUMN recovery_audio_json TEXT;
                 """
             ]
+        ),
+        DatabaseMigration(
+            version: 10,
+            name: "Add meeting speaker count",
+            statements: [
+                """
+                ALTER TABLE meeting_history
+                ADD COLUMN speaker_count INTEGER;
+                """
+            ]
         )
     ]
 
@@ -171,6 +181,10 @@ nonisolated enum DatabaseMigrator {
         }
     }
 
+    static func migrate(_ database: SQLiteConnection) throws {
+        try migrate(database.rawDatabase)
+    }
+
     static func userVersion(in database: OpaquePointer) throws -> Int {
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(database, "PRAGMA user_version;", -1, &statement, nil) == SQLITE_OK, let statement else {
@@ -183,6 +197,10 @@ nonisolated enum DatabaseMigrator {
         }
 
         return Int(sqlite3_column_int(statement, 0))
+    }
+
+    static func userVersion(in database: SQLiteConnection) throws -> Int {
+        try userVersion(in: database.rawDatabase)
     }
 
     private static func run(_ migration: DatabaseMigration, in database: OpaquePointer) throws {

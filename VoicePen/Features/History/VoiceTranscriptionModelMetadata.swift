@@ -54,6 +54,13 @@ nonisolated struct VoiceTranscriptionModelMetadata: Codable, Equatable, Sendable
         )
     }
 
+    var visibleAppVersion: String? {
+        guard let appVersion, appVersion != Self.unknown.version else {
+            return nil
+        }
+        return appVersion
+    }
+
     func withAppVersion(_ appVersion: String) -> VoiceTranscriptionModelMetadata {
         VoiceTranscriptionModelMetadata(
             modelId: modelId,

@@ -1,6 +1,54 @@
 import Compression
 import Foundation
 
+struct StoredTextComponent {
+    var plainText: String
+    var compressedText: Data?
+}
+
+struct StoredTextPayload {
+    var format: String
+    var components: [StoredTextComponent]
+    var missingCompressedPayloadError: () -> Error
+
+    var isEvicted: Bool {
+        format == VoiceHistoryTextStorageFormat.evicted
+    }
+
+    var byteCount: Int {
+        switch format {
+        case VoiceHistoryTextStorageFormat.evicted:
+            return 0
+        case VoiceHistoryTextStorageFormat.zlib:
+            return components.reduce(0) { $0 + ($1.compressedText?.count ?? 0) }
+        default:
+            return components.reduce(0) { $0 + $1.plainText.utf8.count }
+        }
+    }
+
+    func resolvedTexts() throws -> [String] {
+        if isEvicted {
+            return components.map { _ in "" }
+        }
+
+        guard format == VoiceHistoryTextStorageFormat.zlib else {
+            return components.map(\.plainText)
+        }
+
+        return try components.map { component in
+            guard let compressedText = component.compressedText else {
+                throw missingCompressedPayloadError()
+            }
+            return try VoiceHistoryTextCompressor.decompress(compressedText)
+        }
+    }
+
+    func preferredText() throws -> String {
+        let texts = try resolvedTexts()
+        return texts.reversed().first { !$0.isEmpty } ?? texts.first ?? ""
+    }
+}
+
 struct StoredTextRow {
     var id: String
     var rawText: String
@@ -11,11 +59,7 @@ struct StoredTextRow {
     var recognizedWordCount: Int?
 
     var textByteCount: Int {
-        if textStorageFormat == VoiceHistoryTextStorageFormat.zlib {
-            return (compressedRawText?.count ?? 0) + (compressedFinalText?.count ?? 0)
-        }
-
-        return rawText.utf8.count + finalText.utf8.count
+        payload.byteCount
     }
 
     func resolvedWordCount() throws -> Int {
@@ -23,21 +67,20 @@ struct StoredTextRow {
             return recognizedWordCount
         }
 
-        return VoiceHistoryEntry.wordCount(in: try resolvedBestText())
+        return VoiceHistoryEntry.wordCount(in: try payload.preferredText())
     }
 
-    private func resolvedBestText() throws -> String {
-        if textStorageFormat == VoiceHistoryTextStorageFormat.zlib {
-            guard let compressedRawText, let compressedFinalText else {
-                throw VoiceHistoryStoreError.invalidRow("Compressed history text is missing payload")
+    var payload: StoredTextPayload {
+        StoredTextPayload(
+            format: textStorageFormat,
+            components: [
+                StoredTextComponent(plainText: rawText, compressedText: compressedRawText),
+                StoredTextComponent(plainText: finalText, compressedText: compressedFinalText)
+            ],
+            missingCompressedPayloadError: {
+                VoiceHistoryStoreError.invalidRow("Compressed history text is missing payload")
             }
-
-            let rawText = try VoiceHistoryTextCompressor.decompress(compressedRawText)
-            let finalText = try VoiceHistoryTextCompressor.decompress(compressedFinalText)
-            return finalText.isEmpty ? rawText : finalText
-        }
-
-        return finalText.isEmpty ? rawText : finalText
+        )
     }
 }
 

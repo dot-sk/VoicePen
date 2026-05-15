@@ -2,6 +2,14 @@
 
 This repository uses a strict spec-driven workflow for AI-assisted changes.
 
+## Quick Path
+
+- Read `AGENTS.md` and `Specs/index.md` before behavior work.
+- If the change affects behavior, update or create a spec first.
+- If the change is presentation-only, no spec is needed.
+- Make the smallest local change that satisfies the spec or request.
+- Verify with the narrowest useful check; run `make test` for production behavior changes.
+
 ## Start Or Resume
 
 After any `CompactContext`, resume, or handoff, re-read `AGENTS.md` and
@@ -9,6 +17,33 @@ After any `CompactContext`, resume, or handoff, re-read `AGENTS.md` and
 repository contract, not the compacted summary.
 
 ## Behavior Changes
+
+Use this split before editing:
+
+Needs a spec:
+
+- workflows
+- data or persistence
+- permissions
+- settings semantics
+- domain rules
+- API contracts
+- error handling
+- model or backend behavior
+
+Does not need a spec:
+
+- spacing
+- colors
+- typography
+- icon size
+- hover or visual chrome
+- wording polish with no behavior change
+- other presentation-only adjustments that do not change product behavior
+
+If a visual change is part of a larger product behavior, document the behavior
+in the relevant spec and keep the visual detail as implementation/UI
+verification context only.
 
 Before changing behavior:
 
@@ -19,6 +54,13 @@ Before changing behavior:
 5. Update the spec in the same change when behavior, edge cases, or tests change.
 6. Run `make test` before handoff when local tooling is available.
 
+Work spec first even for small behavior moves: update the relevant acceptance
+criteria and test mapping before changing production behavior.
+
+When changing behavior covered by an `implemented` spec, update its acceptance
+criteria and test mapping first. Keep or return the status to `implemented`
+only after code and verification match the updated behavior.
+
 Write an ADR in `Docs/adr/` only for technical decisions that are expensive to
 reverse: architecture, persistence shape, model/backend strategy,
 privacy/security posture, distribution, or dependencies.
@@ -26,9 +68,9 @@ privacy/security posture, distribution, or dependencies.
 ## Feature Architecture
 
 Keep `AppController` as a thin app-facing facade for SwiftUI, menu commands,
-published app state, and cross-feature wiring. Do not add substantial feature
-lifecycle logic, long-running task ownership, timeout orchestration, permission
-flows, or domain-specific state machines directly to `AppController`.
+published app state, and cross-feature wiring. Feature lifecycle, async
+orchestration, permissions, timeouts, and domain-specific state machines should
+live in local feature stores, view models, services, or pipelines.
 
 For new features or refactors with meaningful state transitions, prefer a local
 feature store in the app layer:
@@ -97,32 +139,58 @@ Write commit messages using Conventional Commits: `type(scope): summary` or
 
 Use Swift Testing unit tests for business logic: core behavior, persistence,
 model routing, dictionary logic, grouping/filtering decisions, and pipeline
-decisions. Do not unit-test SwiftUI view structure or incidental layout. Extract
-business decisions from views into small testable types when practical. Use UI
-tests only when behavior depends on the macOS UI surface, and keep view-level
-tests to stable product contracts rather than exact source structure. When
-automated coverage is not practical, add a manual verification item in `Test
-Mapping` with enough detail for another engineer to repeat it.
+decisions. Extract business decisions from views into small testable types when
+practical.
+
+Automated tests should cover stable behavior contracts: state transitions,
+persistence, routing, permissions, pipeline decisions, parsing, model selection,
+and domain logic. Use UI tests only when behavior depends on the macOS UI
+surface, and keep view-level tests focused on stable product contracts.
+
+Do not unit-test presentation-only details: SwiftUI hierarchy, exact layout,
+colors, fonts, icon names, sizes, spacing, padding, corner radii, hover chrome,
+exact chrome copy, or source snapshots. Verify important visual changes with
+manual UI review or screenshots. Only test exact visual/status tokens when that
+exact token is itself a product contract.
 
 Follow `Docs/testing.md` for local test layering and async test style. Prefer
 task handles, explicit async checkpoints, continuations, clocks, or schedulers
 over polling sleeps in unit tests.
 
 Do not add tests that verify copywriting, marketing text, explanatory prose, or
-exact wording of settings/help text. For labels, disclosures, prompts,
-diagnostics, or other user-facing text, test the behavior contract: that text is
-passed, surfaced, or includes a required semantic signal. Avoid asserting full
-prose unless exact wording is itself the product requirement.
+exact wording of settings/help text unless exact wording is itself the product
+requirement. For labels, disclosures, prompts, diagnostics, or other
+user-facing text, test the behavior contract: that text is passed, surfaced, or
+includes a required semantic signal.
 
 Prefer positive assertions over negative substring checks. For prompts and other
 generated text, assert the required structure and signals that must be present;
 avoid maintaining lists of incidental strings that must not appear unless their
 absence is the actual safety or privacy requirement.
 
+When behavior moves or replaces an old path, tests should positively assert the
+new intended behavior. Do not add tests whose main purpose is to prove the old
+UI path, old copy, or old implementation detail is absent.
+
 ## Local Test Runner
+
+Run unit tests through `make test`. Do not invoke `swift test` or
+`xcrun swift test` directly for local verification.
+
+For production behavior changes, run `make test` before handoff. For docs or
+spec-only changes, no test run is required unless the change also updates code
+or test expectations. For presentation-only code changes, prefer focused
+build/typecheck/manual UI verification; run `make test` only if affected logic
+changed.
 
 `make test` commonly needs to write into Xcode and SwiftPM cache
 locations under the user's home directory (`~/Library/Caches`, `~/.cache`, and
 CoreSimulator logs). The workspace sandbox blocks those writes before tests
 execute, so request escalated execution for `make test` immediately
 instead of trying a sandboxed run first.
+
+In handoff, state exact verification:
+
+- Verified with: ...
+- Not verified: ...
+- Could not run because: ...

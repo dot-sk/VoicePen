@@ -116,6 +116,7 @@ final class AppController: ObservableObject {
     private let modelDownloadTimeout: Duration
     private let modelWarmupTimeout: Duration
     private let meetingCaptureStartTimeout: Duration
+    private let meetingMaximumRecordingDuration: TimeInterval
     private let meetingProcessingTimeout: Duration
     private let appVersionProvider: () -> String
     let historyStore: VoiceHistoryStore
@@ -148,6 +149,7 @@ final class AppController: ObservableObject {
             settingsStore: settingsStore,
             userPrompts: userPrompts,
             captureStartTimeout: meetingCaptureStartTimeout,
+            maximumRecordingDuration: meetingMaximumRecordingDuration,
             processingTimeout: meetingProcessingTimeout,
             runningApplicationBundleIdentifiersProvider: meetingRunningApplicationBundleIdentifiersProvider,
             getAppState: { [weak self] in
@@ -338,6 +340,7 @@ final class AppController: ObservableObject {
         modelDownloadTimeout: Duration = VoicePenConfig.modelDownloadTimeout,
         modelWarmupTimeout: Duration = VoicePenConfig.modelWarmupTimeout,
         meetingCaptureStartTimeout: Duration = VoicePenConfig.meetingCaptureStartTimeout,
+        meetingMaximumRecordingDuration: TimeInterval = VoicePenConfig.meetingMaximumRecordingDuration,
         meetingProcessingTimeout: Duration = VoicePenConfig.meetingProcessingTimeout,
         appVersionProvider: @escaping () -> String = { VoicePenConfig.appVersion },
         historyStore: VoiceHistoryStore,
@@ -366,6 +369,7 @@ final class AppController: ObservableObject {
         self.modelDownloadTimeout = modelDownloadTimeout
         self.modelWarmupTimeout = modelWarmupTimeout
         self.meetingCaptureStartTimeout = meetingCaptureStartTimeout
+        self.meetingMaximumRecordingDuration = meetingMaximumRecordingDuration
         self.meetingProcessingTimeout = meetingProcessingTimeout
         self.appVersionProvider = appVersionProvider
         self.historyStore = historyStore
@@ -549,6 +553,7 @@ final class AppController: ObservableObject {
             try meetingHistoryStore?.load()
             try meetingHistoryStore?.cleanupExpiredRecoveryAudio()
             try settingsStore.load(defaultModelId: recommendedModel.id)
+            applyAppAppearanceMode(settingsStore.appAppearanceMode)
             try syncOpenAtLoginState()
             modelWarmup = scheduleModelWarmupIfInstalled()
             meetingDiarizationModelWarmup = scheduleMeetingDiarizationModelWarmupIfNeeded()
@@ -1628,6 +1633,15 @@ final class AppController: ObservableObject {
         }
     }
 
+    func updateAppAppearanceMode(_ mode: AppAppearanceMode) {
+        do {
+            try settingsStore.updateAppAppearanceMode(mode)
+            applyAppAppearanceMode(mode)
+        } catch {
+            setError(error)
+        }
+    }
+
     func refreshOpenAtLoginState() {
         do {
             try syncOpenAtLoginState()
@@ -1640,6 +1654,17 @@ final class AppController: ObservableObject {
         let systemIsEnabled = launchAtLogin.isEnabled
         guard settingsStore.openAtLogin != systemIsEnabled else { return }
         try settingsStore.updateOpenAtLogin(systemIsEnabled)
+    }
+
+    private func applyAppAppearanceMode(_ mode: AppAppearanceMode) {
+        switch mode {
+        case .system:
+            NSApplication.shared.appearance = nil
+        case .light:
+            NSApplication.shared.appearance = NSAppearance(named: .aqua)
+        case .dark:
+            NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
+        }
     }
 
     private func handleTranscriptionError(_ error: TranscriptionError) {

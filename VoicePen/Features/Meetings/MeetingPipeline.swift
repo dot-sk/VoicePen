@@ -98,7 +98,7 @@ final class MeetingPipeline {
         do {
             let chunkingResult = try await chunker.split(
                 recording.chunks,
-                maximumDuration: Self.maximumMeetingDuration,
+                maximumDuration: Self.processingDuration(for: recording),
                 chunkDuration: Self.chunkDuration
             )
             cleanupURLs.append(contentsOf: chunkingResult.temporaryURLs)
@@ -116,6 +116,9 @@ final class MeetingPipeline {
             _ = try? saveFailedEntry(recording: recording, error: TranscriptionError.transcriptionTimedOut)
             try removeTemporaryAudioFiles(cleanupURLs)
             throw CancellationError()
+        } catch MeetingPipelineNoSpeechError.noSpeechDetected {
+            try removeTemporaryAudioFiles(cleanupURLs)
+            throw MeetingPipelineNoSpeechError.noSpeechDetected
         } catch {
             let entry = try saveFailedEntry(recording: recording, error: error)
             try removeTemporaryAudioFiles(cleanupURLs)
@@ -142,7 +145,7 @@ final class MeetingPipeline {
         do {
             let chunkingResult = try await chunker.split(
                 recording.chunks,
-                maximumDuration: Self.maximumMeetingDuration,
+                maximumDuration: Self.processingDuration(for: recording),
                 chunkDuration: Self.chunkDuration
             )
             cleanupURLs.append(contentsOf: chunkingResult.temporaryURLs)
@@ -155,7 +158,8 @@ final class MeetingPipeline {
                 expectedDiarizationSpeakerCount: nil,
                 entryID: entry.id,
                 existingTranscript: entry.transcriptText,
-                existingRecoveryAudio: recoveryAudio
+                existingRecoveryAudio: recoveryAudio,
+                existingSpeakerCount: entry.speakerCount
             )
             try removeTemporaryAudioFiles(cleanupURLs)
             if retryEntry.status == .completed {
@@ -168,7 +172,8 @@ final class MeetingPipeline {
                 error: TranscriptionError.transcriptionTimedOut,
                 entryID: entry.id,
                 existingTranscript: entry.transcriptText,
-                recoveryAudio: recoveryAudio
+                recoveryAudio: recoveryAudio,
+                speakerCount: entry.speakerCount
             )
             try removeTemporaryAudioFiles(cleanupURLs)
             throw CancellationError()
@@ -178,7 +183,8 @@ final class MeetingPipeline {
                 error: error,
                 entryID: entry.id,
                 existingTranscript: entry.transcriptText,
-                recoveryAudio: recoveryAudio
+                recoveryAudio: recoveryAudio,
+                speakerCount: entry.speakerCount
             )
             try removeTemporaryAudioFiles(cleanupURLs)
             return failedEntry
@@ -193,13 +199,14 @@ final class MeetingPipeline {
         expectedDiarizationSpeakerCount: Int?,
         entryID: UUID = UUID(),
         existingTranscript: String = "",
-        existingRecoveryAudio: MeetingRecoveryAudioManifest? = nil
+        existingRecoveryAudio: MeetingRecoveryAudioManifest? = nil,
+        existingSpeakerCount: Int? = nil
     ) async throws -> MeetingHistoryEntry {
         guard !chunks.isEmpty else {
             throw MeetingRecordingError.noCapturedAudio
         }
 
-        var timings = MeetingPipelineTimings(recording: cappedDuration(recording.duration))
+        var timings = MeetingPipelineTimings(recording: recording.duration)
         let language = TranscriptionLanguageResolver.resolve(languageProvider())
         let mode = speechPreprocessingModeProvider()
         let meetingVoiceLevelingEnabled = meetingVoiceLevelingEnabledProvider()
@@ -207,13 +214,15 @@ final class MeetingPipeline {
         let orderedChunks = chunks.sorted(by: chunkOrder)
         let sourceSpansByChunkURL = Dictionary(grouping: sourceSpans, by: \.chunkURL)
         let diarization = await measure {
-            await meetingSpeakerTurns(
+            await meetingSpeakerAnalysis(
                 chunks: orderedChunks,
                 enabled: meetingDiarizationEnabled,
                 expectedSpeakerCount: expectedDiarizationSpeakerCount
             )
         }
-        let speakerTurns = diarization.value
+        let speakerAnalysis = diarization.value
+        let speakerTurns = speakerAnalysis.turns
+        let detectedSpeakerCount = speakerAnalysis.speakerCount ?? existingSpeakerCount
         if meetingDiarizationEnabled {
             AppLogger.info(
                 "Meeting diarization timing: elapsed=\(Self.elapsedTime(diarization.elapsed)), turns=\(speakerTurns.count)"
@@ -221,7 +230,7 @@ final class MeetingPipeline {
         }
         var transcriptParts: [String] = []
         var modelMetadata: VoiceTranscriptionModelMetadata?
-        var skippedChunkCount = 0
+        var noSpeechChunkCount = 0
         await reportProcessingProgress(completedChunks: 0, totalChunks: orderedChunks.count)
 
         for (index, chunk) in orderedChunks.enumerated() {
@@ -260,14 +269,12 @@ final class MeetingPipeline {
                     "Meeting chunk processed: chunk=\(MeetingDiarizationDebug.interval(chunk.startOffset, chunk.startOffset + chunk.duration)), preprocessing=\(Self.elapsedTime(processedChunk.preprocessing)), transcription=\(Self.elapsedTime(processedChunk.transcription)), textChars=\(processedChunk.text.count)"
                 )
 
-                if processedChunk.text.isEmpty {
-                    skippedChunkCount += 1
-                } else {
+                if !processedChunk.text.isEmpty {
                     transcriptParts.append(processedChunk.text)
                 }
                 await reportProcessingProgress(completedChunks: index + 1, totalChunks: orderedChunks.count)
             } catch AudioPreprocessingError.noSpeechDetected {
-                skippedChunkCount += 1
+                noSpeechChunkCount += 1
                 await reportProcessingProgress(completedChunks: index + 1, totalChunks: orderedChunks.count)
                 continue
             } catch TranscriptionError.transcriptionTimedOut {
@@ -280,6 +287,7 @@ final class MeetingPipeline {
                     error: TranscriptionError.transcriptionTimedOut,
                     timings: timings,
                     modelMetadata: modelMetadata,
+                    speakerCount: detectedSpeakerCount,
                     entryID: entryID,
                     existingTranscript: existingTranscript,
                     existingRecoveryAudio: existingRecoveryAudio
@@ -287,13 +295,15 @@ final class MeetingPipeline {
             }
         }
 
-        guard skippedChunkCount < orderedChunks.count else {
+        guard !transcriptParts.isEmpty else {
+            if noSpeechChunkCount == orderedChunks.count {
+                throw MeetingPipelineNoSpeechError.noSpeechDetected
+            }
             throw AudioPreprocessingError.noSpeechDetected
         }
 
         let transcript = transcriptParts.joined(separator: "\n")
-        let durationExceeded = durationLimitExceeded(recording)
-        let status: MeetingRecordingStatus = recording.sourceFlags.partial || durationExceeded ? .partial : .completed
+        let status: MeetingRecordingStatus = recording.sourceFlags.partial ? .partial : .completed
         let sourceFlags = MeetingSourceFlags(
             microphoneCaptured: recording.sourceFlags.microphoneCaptured,
             systemAudioCaptured: recording.sourceFlags.systemAudioCaptured,
@@ -314,9 +324,10 @@ final class MeetingPipeline {
             transcriptText: transcript,
             status: status,
             sourceFlags: sourceFlags,
-            errorMessage: errorMessage(recording: recording, processingError: durationExceeded ? MeetingRecordingError.durationLimitExceeded : nil),
+            errorMessage: errorMessage(recording: recording, processingError: nil),
             timings: timings,
             modelMetadata: metadataWithAppVersion(modelMetadata),
+            speakerCount: detectedSpeakerCount,
             recoveryAudio: recoveryAudio
         )
         try historyStore.append(entry)
@@ -330,25 +341,25 @@ final class MeetingPipeline {
         }
     }
 
-    private func meetingSpeakerTurns(
+    private func meetingSpeakerAnalysis(
         chunks: [MeetingAudioChunk],
         enabled: Bool,
         expectedSpeakerCount: Int?
-    ) async -> [SpeakerTurn] {
+    ) async -> MeetingSpeakerAnalysis {
         guard enabled else {
             AppLogger.debug("Meeting diarization disabled for this meeting")
-            return []
+            return .empty
         }
         guard let diarizer else {
             AppLogger.info("Meeting diarization unavailable: no diarizer configured")
-            return []
+            return .empty
         }
         let recordingDuration = Self.recordingDuration(for: chunks)
         if expectedSpeakerCount == nil, recordingDuration < Self.minimumAutoDiarizationDuration {
             AppLogger.info(
                 "Meeting diarization skipped: recording=\(MeetingDiarizationDebug.interval(0, recordingDuration)) is shorter than auto diarization minimum \(Self.elapsedTime(Self.minimumAutoDiarizationDuration)); choose an exact speaker count to force diarization for very short recordings"
             )
-            return []
+            return .empty
         }
         AppLogger.info(
             "Meeting diarization requested: chunks=\(chunks.count), expectedSpeakers=\(expectedSpeakerCount.map(String.init) ?? "auto")"
@@ -357,17 +368,17 @@ final class MeetingPipeline {
             let result = try await diarizer.diarize(
                 recording: MeetingDiarizationRecording(
                     chunks: chunks,
-                    maximumDuration: Self.maximumMeetingDuration,
+                    maximumDuration: Self.recordingDuration(for: chunks),
                     expectedSpeakerCount: expectedSpeakerCount
                 ))
             let turns = result.turns
             AppLogger.info(
                 "Meeting diarization returned: backend=\(result.backend), turns=\(turns.count), coverage=\(MeetingDiarizationDebug.coverage(turns)), speakers=\(MeetingDiarizationDebug.speakerCounts(turns))"
             )
-            return turns
+            return MeetingSpeakerAnalysis(result: result)
         } catch {
             AppLogger.info("Meeting diarization skipped: \(error.localizedDescription)")
-            return []
+            return .empty
         }
     }
 
@@ -435,6 +446,7 @@ final class MeetingPipeline {
         error: Error,
         timings: MeetingPipelineTimings,
         modelMetadata: VoiceTranscriptionModelMetadata?,
+        speakerCount: Int?,
         entryID: UUID = UUID(),
         existingTranscript: String = "",
         existingRecoveryAudio: MeetingRecoveryAudioManifest? = nil
@@ -451,13 +463,14 @@ final class MeetingPipeline {
         let entry = MeetingHistoryEntry(
             id: entryID,
             createdAt: recording.endedAt,
-            duration: timings.recording ?? cappedDuration(recording.duration),
+            duration: timings.recording ?? recording.duration,
             transcriptText: transcript.isEmpty ? existingTranscript : transcript,
             status: .partial,
             sourceFlags: flags,
             errorMessage: errorMessage(recording: recording, processingError: error),
             timings: timings,
             modelMetadata: metadataWithAppVersion(modelMetadata),
+            speakerCount: speakerCount,
             recoveryAudio: recoveryAudio
         )
         try historyStore.append(entry)
@@ -469,9 +482,10 @@ final class MeetingPipeline {
         error: Error,
         entryID: UUID = UUID(),
         existingTranscript: String = "",
-        recoveryAudio: MeetingRecoveryAudioManifest? = nil
+        recoveryAudio: MeetingRecoveryAudioManifest? = nil,
+        speakerCount: Int? = nil
     ) throws -> MeetingHistoryEntry {
-        let duration = cappedDuration(recording.duration)
+        let duration = recording.duration
         let retainedAudio =
             try recoveryAudio
             ?? recoveryAudioStore?.retain(recording: recording, entryID: entryID, createdAt: recording.endedAt)
@@ -490,6 +504,7 @@ final class MeetingPipeline {
             errorMessage: errorMessage(recording: recording, processingError: error),
             timings: MeetingPipelineTimings(recording: duration),
             modelMetadata: nil,
+            speakerCount: speakerCount,
             recoveryAudio: retainedAudio
         )
         try historyStore.append(entry)
@@ -500,17 +515,8 @@ final class MeetingPipeline {
         metadata?.withAppVersion(appVersionProvider())
     }
 
-    private func cappedDuration(_ duration: TimeInterval) -> TimeInterval {
-        min(duration, Self.maximumMeetingDuration)
-    }
-
-    private func durationLimitExceeded(_ recording: MeetingRecordingResult) -> Bool {
-        recording.duration > Self.maximumMeetingDuration
-    }
-
     private func errorMessage(recording: MeetingRecordingResult, processingError: Error?) -> String? {
         let messages = [
-            durationLimitExceeded(recording) ? MeetingRecordingError.durationLimitExceeded.localizedDescription : nil,
             recording.errorMessage,
             processingError?.localizedDescription
         ]
@@ -561,8 +567,12 @@ final class MeetingPipeline {
         return (value, TimeInterval(end - start) / 1_000_000_000)
     }
 
+    private static func processingDuration(for recording: MeetingRecordingResult) -> TimeInterval {
+        max(recording.duration, recordingDuration(for: recording.chunks))
+    }
+
     private static func recordingDuration(for chunks: [MeetingAudioChunk]) -> TimeInterval {
-        min(maximumMeetingDuration, chunks.map { $0.startOffset + $0.duration }.max() ?? 0)
+        chunks.map { $0.startOffset + $0.duration }.max() ?? 0
     }
 
     private static func elapsedTime(_ elapsed: TimeInterval) -> String {
@@ -575,6 +585,32 @@ private struct MeetingProcessedChunk: Sendable {
     var preprocessing: TimeInterval
     var transcription: TimeInterval
     var modelMetadata: VoiceTranscriptionModelMetadata?
+}
+
+private struct MeetingSpeakerAnalysis: Sendable {
+    var turns: [SpeakerTurn]
+    var speakerCount: Int?
+
+    static let empty = MeetingSpeakerAnalysis(turns: [], speakerCount: nil)
+
+    init(turns: [SpeakerTurn], speakerCount: Int?) {
+        self.turns = turns
+        self.speakerCount = speakerCount
+    }
+
+    init(result: MeetingDiarizationResult) {
+        self.turns = result.turns
+        self.speakerCount = Self.detectedSpeakerCount(in: result)
+    }
+
+    private static func detectedSpeakerCount(in result: MeetingDiarizationResult) -> Int? {
+        if !result.speakers.isEmpty {
+            return result.speakers.count
+        }
+
+        let count = Set(result.turns.map(\.speakerId)).count
+        return count > 0 ? count : nil
+    }
 }
 
 private enum MeetingTranscriptFormatter {
@@ -767,9 +803,10 @@ private enum MeetingTranscriptSpeakerMerger {
         AppLogger.info(
             "Meeting transcript speaker merge started: segments=\(segments.count), turns=\(speakerTurns.count), speakers=\(MeetingDiarizationDebug.speakerCounts(speakerTurns))"
         )
+        let lookup = SpeakerTurnLookup(speakerTurns: speakerTurns)
         return segments.flatMap { segment in
             guard !segment.words.isEmpty else {
-                let assignment = bestTurn(for: segment.interval, in: speakerTurns)
+                let assignment = lookup.bestTurn(for: segment.interval)
                 logSegmentAssignment(
                     segment: segment,
                     speakerTurn: assignment.turn,
@@ -785,7 +822,7 @@ private enum MeetingTranscriptSpeakerMerger {
             }
 
             let wordAssignments = segment.words.map { word in
-                let assignment = bestTurn(for: word.interval, in: speakerTurns)
+                let assignment = lookup.bestTurn(for: word.interval)
                 return (word: word, speakerTurn: assignment.turn)
             }
             let groups = groupedWords(wordAssignments)
@@ -895,35 +932,7 @@ private enum MeetingTranscriptSpeakerMerger {
         )
     }
 
-    private static func bestTurn(
-        for interval: (start: TimeInterval, end: TimeInterval),
-        in speakerTurns: [SpeakerTurn]
-    ) -> (turn: SpeakerTurn?, source: String) {
-        let intervalDuration = max(0, interval.end - interval.start)
-        let scoredTurns = speakerTurns.map { turn in
-            (
-                turn: turn,
-                overlap: max(0, min(interval.end, turn.endOffset) - max(interval.start, turn.startOffset))
-            )
-        }
-        if let best = scoredTurns.max(by: { $0.overlap < $1.overlap }),
-            isMeaningfulOverlap(best.overlap, intervalDuration: intervalDuration)
-        {
-            return (best.turn, "overlap=\(String(format: "%.2fs", best.overlap))")
-        }
-
-        let midpoint = (interval.start + interval.end) / 2
-        let midpointTurn = speakerTurns.first { turn in
-            midpoint >= turn.startOffset && midpoint <= turn.endOffset
-        }
-        if let midpointTurn {
-            return (midpointTurn, "midpoint")
-        }
-
-        return (nil, "no-overlap-or-midpoint")
-    }
-
-    private static func isMeaningfulOverlap(_ overlap: TimeInterval, intervalDuration: TimeInterval) -> Bool {
+    fileprivate static func isMeaningfulOverlap(_ overlap: TimeInterval, intervalDuration: TimeInterval) -> Bool {
         guard overlap > 0 else { return false }
         return overlap >= 0.35 || (intervalDuration > 0 && overlap / intervalDuration >= 0.2)
     }
@@ -942,6 +951,121 @@ private enum MeetingTranscriptSpeakerMerger {
         var duration: TimeInterval {
             max(0, interval.end - interval.start)
         }
+    }
+}
+
+private struct SpeakerTurnLookup {
+    private struct IndexedTurn {
+        var turn: SpeakerTurn
+        var originalIndex: Int
+    }
+
+    private let turnsByStart: [IndexedTurn]
+    private let prefixMaxEndOffsets: [TimeInterval]
+
+    init(speakerTurns: [SpeakerTurn]) {
+        let sortedTurns =
+            speakerTurns
+            .enumerated()
+            .map { index, turn in IndexedTurn(turn: turn, originalIndex: index) }
+            .sorted { lhs, rhs in
+                if lhs.turn.startOffset == rhs.turn.startOffset {
+                    return lhs.originalIndex < rhs.originalIndex
+                }
+                return lhs.turn.startOffset < rhs.turn.startOffset
+            }
+        turnsByStart = sortedTurns
+
+        var maxEndOffset = -Double.infinity
+        prefixMaxEndOffsets = sortedTurns.map { indexedTurn in
+            maxEndOffset = max(maxEndOffset, indexedTurn.turn.endOffset)
+            return maxEndOffset
+        }
+    }
+
+    func bestTurn(for interval: (start: TimeInterval, end: TimeInterval)) -> (turn: SpeakerTurn?, source: String) {
+        let intervalDuration = max(0, interval.end - interval.start)
+        if let best = bestOverlap(for: interval),
+            MeetingTranscriptSpeakerMerger.isMeaningfulOverlap(best.overlap, intervalDuration: intervalDuration)
+        {
+            return (best.turn.turn, "overlap=\(String(format: "%.2fs", best.overlap))")
+        }
+
+        let midpoint = (interval.start + interval.end) / 2
+        if let midpointTurn = firstTurn(containing: midpoint) {
+            return (midpointTurn, "midpoint")
+        }
+
+        return (nil, "no-overlap-or-midpoint")
+    }
+
+    private func bestOverlap(
+        for interval: (start: TimeInterval, end: TimeInterval)
+    ) -> (turn: IndexedTurn, overlap: TimeInterval)? {
+        guard !turnsByStart.isEmpty else { return nil }
+
+        let endIndex = upperBoundStart(interval.end)
+        guard endIndex > 0 else { return nil }
+
+        var best: (turn: IndexedTurn, overlap: TimeInterval)?
+        var index = endIndex - 1
+
+        while true {
+            guard prefixMaxEndOffsets[index] > interval.start else { break }
+
+            let indexedTurn = turnsByStart[index]
+            let turn = indexedTurn.turn
+            let overlap = max(0, min(interval.end, turn.endOffset) - max(interval.start, turn.startOffset))
+            if overlap > 0 && (best == nil || isBetterOverlap(overlap, indexedTurn: indexedTurn, than: best!)) {
+                best = (indexedTurn, overlap)
+            }
+
+            guard index > 0 else { break }
+            index -= 1
+        }
+
+        return best
+    }
+
+    private func firstTurn(containing time: TimeInterval) -> SpeakerTurn? {
+        let endIndex = upperBoundStart(time)
+        var match: IndexedTurn?
+
+        for indexedTurn in turnsByStart.prefix(endIndex) {
+            let turn = indexedTurn.turn
+            guard time >= turn.startOffset && time <= turn.endOffset else { continue }
+
+            if match == nil || indexedTurn.originalIndex < match!.originalIndex {
+                match = indexedTurn
+            }
+        }
+
+        return match?.turn
+    }
+
+    private func upperBoundStart(_ time: TimeInterval) -> Int {
+        var lowerBound = 0
+        var upperBound = turnsByStart.count
+
+        while lowerBound < upperBound {
+            let midpoint = (lowerBound + upperBound) / 2
+            if turnsByStart[midpoint].turn.startOffset <= time {
+                lowerBound = midpoint + 1
+            } else {
+                upperBound = midpoint
+            }
+        }
+
+        return lowerBound
+    }
+
+    private func isBetterOverlap(
+        _ overlap: TimeInterval,
+        indexedTurn: IndexedTurn,
+        than current: (turn: IndexedTurn, overlap: TimeInterval)
+    ) -> Bool {
+        overlap > current.overlap
+            || (overlap == current.overlap && indexedTurn.originalIndex < current.turn.originalIndex)
     }
 }
 

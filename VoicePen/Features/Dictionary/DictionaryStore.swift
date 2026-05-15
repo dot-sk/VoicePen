@@ -1,6 +1,5 @@
 import Combine
 import Foundation
-import SQLite3
 
 @MainActor
 final class DictionaryStore: ObservableObject {
@@ -40,16 +39,11 @@ final class DictionaryStore: ObservableObject {
         let normalizedDictionary = DictionaryFile(entries: DictionaryMerger.normalizedEntries(newDictionary.entries))
         try withDatabase { database in
             try DatabaseMigrator.migrate(database)
-            try execute("BEGIN IMMEDIATE TRANSACTION;", in: database)
-            do {
-                try execute("DELETE FROM dictionary_entries;", in: database)
+            try database.transaction {
+                try database.execute("DELETE FROM dictionary_entries;")
                 for entry in normalizedDictionary.entries {
                     try insert(entry, into: database)
                 }
-                try execute("COMMIT;", in: database)
-            } catch {
-                try? execute("ROLLBACK;", in: database)
-                throw error
             }
         }
         dictionary = normalizedDictionary
@@ -80,31 +74,16 @@ final class DictionaryStore: ObservableObject {
         TermNormalizer(entries: entries)
     }
 
-    private func withDatabase<T>(_ body: (OpaquePointer) throws -> T) throws -> T {
-        let directory = databaseURL.deletingLastPathComponent()
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-
-        var database: OpaquePointer?
-        guard
-            sqlite3_open_v2(
-                databaseURL.path,
-                &database,
-                SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX,
-                nil
-            ) == SQLITE_OK, let database
-        else {
-            let message = database.map { String(cString: sqlite3_errmsg($0)) } ?? "Unable to open database"
-            throw DictionaryStoreError.sqlite(message)
-        }
-
-        defer {
-            sqlite3_close(database)
-        }
-
+    private func withDatabase<T>(_ body: (SQLiteConnection) throws -> T) throws -> T {
+        let database = try SQLiteConnection.open(
+            at: databaseURL,
+            fileManager: fileManager,
+            makeError: DictionaryStoreError.sqlite
+        )
         return try body(database)
     }
 
-    private func seedSampleDictionaryIfNeeded(in database: OpaquePointer) throws {
+    private func seedSampleDictionaryIfNeeded(in database: SQLiteConnection) throws {
         let count = try dictionaryEntryCount(in: database)
         guard count == 0 else { return }
 
@@ -113,69 +92,61 @@ final class DictionaryStore: ObservableObject {
         }
     }
 
-    private func fetchDictionary(from database: OpaquePointer) throws -> DictionaryFile {
+    private func fetchDictionary(from database: SQLiteConnection) throws -> DictionaryFile {
         DictionaryFile(
             entries: try fetchEntries(from: database)
         )
     }
 
-    private func dictionaryEntryCount(in database: OpaquePointer) throws -> Int {
-        let statement = try prepare("SELECT COUNT(*) FROM dictionary_entries;", in: database)
-        defer { sqlite3_finalize(statement) }
+    private func dictionaryEntryCount(in database: SQLiteConnection) throws -> Int {
+        let statement = try database.prepare("SELECT COUNT(*) FROM dictionary_entries;")
 
-        guard sqlite3_step(statement) == SQLITE_ROW else {
+        guard try statement.step() == .row else {
             throw DictionaryStoreError.invalidRow("Unable to count dictionary entries")
         }
-        return Int(sqlite3_column_int(statement, 0))
+        return statement.int(at: 0)
     }
 
-    private func insert(_ entry: TermEntry, into database: OpaquePointer) throws {
-        let statement = try prepare(
+    private func insert(_ entry: TermEntry, into database: SQLiteConnection) throws {
+        let statement = try database.prepare(
             """
             INSERT OR REPLACE INTO dictionary_entries (
                 id,
                 canonical,
                 variants
             ) VALUES (?, ?, ?);
-            """,
-            in: database
+            """
         )
-        defer { sqlite3_finalize(statement) }
 
-        sqlite3_bind_text(statement, 1, entry.id, -1, SQLITE_TRANSIENT)
-        sqlite3_bind_text(statement, 2, entry.canonical, -1, SQLITE_TRANSIENT)
-        sqlite3_bind_text(statement, 3, entry.variants.joined(separator: "\n"), -1, SQLITE_TRANSIENT)
+        statement.bindText(entry.id, at: 1)
+        statement.bindText(entry.canonical, at: 2)
+        statement.bindText(entry.variants.joined(separator: "\n"), at: 3)
 
-        try stepDone(statement, database: database)
+        try statement.stepDone()
     }
 
-    private func fetchEntries(from database: OpaquePointer) throws -> [TermEntry] {
-        let statement = try prepare(
+    private func fetchEntries(from database: SQLiteConnection) throws -> [TermEntry] {
+        let statement = try database.prepare(
             """
             SELECT id, canonical, variants
             FROM dictionary_entries
             ORDER BY canonical COLLATE NOCASE ASC;
-            """,
-            in: database
+            """
         )
-        defer { sqlite3_finalize(statement) }
 
         var entries: [TermEntry] = []
         while true {
-            let result = sqlite3_step(statement)
-            switch result {
-            case SQLITE_ROW:
+            switch try statement.step() {
+            case .row:
                 entries.append(
                     TermEntry(
-                        id: stringColumn(statement, index: 0),
-                        canonical: stringColumn(statement, index: 1),
-                        variants: splitList(stringColumn(statement, index: 2))
+                        id: statement.string(at: 0),
+                        canonical: statement.string(at: 1),
+                        variants: splitList(statement.string(at: 2))
                     )
                 )
-            case SQLITE_DONE:
+            case .done:
                 return entries
-            default:
-                throw DictionaryStoreError.sqlite(String(cString: sqlite3_errmsg(database)))
             }
         }
     }
@@ -185,31 +156,6 @@ final class DictionaryStore: ObservableObject {
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-    }
-
-    private func execute(_ sql: String, in database: OpaquePointer) throws {
-        guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else {
-            throw DictionaryStoreError.sqlite(String(cString: sqlite3_errmsg(database)))
-        }
-    }
-
-    private func prepare(_ sql: String, in database: OpaquePointer) throws -> OpaquePointer {
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
-            throw DictionaryStoreError.sqlite(String(cString: sqlite3_errmsg(database)))
-        }
-        return statement
-    }
-
-    private func stepDone(_ statement: OpaquePointer, database: OpaquePointer) throws {
-        guard sqlite3_step(statement) == SQLITE_DONE else {
-            throw DictionaryStoreError.sqlite(String(cString: sqlite3_errmsg(database)))
-        }
-    }
-
-    private func stringColumn(_ statement: OpaquePointer, index: Int32) -> String {
-        guard let text = sqlite3_column_text(statement, index) else { return "" }
-        return String(cString: text)
     }
 
     private static let sampleDictionary = DictionaryFile(
@@ -263,5 +209,3 @@ private enum DictionaryStoreError: LocalizedError {
         }
     }
 }
-
-private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)

@@ -1,71 +1,39 @@
 # VoicePen
 
-VoicePen is a small offline macOS push-to-talk dictation app.
+VoicePen is a small offline macOS app for dictation, voice sessions, and meeting recording.
 
-It lives in the menu bar, records audio while the hotkey is held, transcribes locally, applies a custom dictionary, and pastes the final text into the active app.
+I built it for myself because I wanted something simple, comfortable, and free:
+quick push-to-talk dictation, a normal sessions/history flow, and a meeting
+recording mode with local transcription and experimental speaker diarization. I
+could not find that exact mix without subscriptions, cloud transcription, or too
+much product ceremony, so I decided to make it and keep the project in an
+open-source spirit.
 
-## Current Status
+It is still early and personal, but useful enough to share.
 
-VoicePen is an early Friends & Family build.
+## Features
 
-- Offline-first transcription.
-- No cloud transcription.
-- No analytics.
-- No runtime data collection.
-- Local history and dictionary storage.
-- Model files are downloaded only after user confirmation.
+- Push-to-talk dictation: hold the hotkey, speak, and VoicePen inserts the final text into the active app.
+- Sessions: keep local history for ordinary dictation sessions.
+- Meetings: record microphone plus system audio, transcribe locally, and optionally add timecodes and speaker labels.
+- Custom dictionary: normalize names, product terms, and recurring recognition mistakes.
+- Local-first privacy: no cloud transcription, no analytics, and no runtime data collection.
+
+## Status
+
+VoicePen is an early macOS build for my own workflow and a small Friends &
+Family circle. Expect rough edges, but also a bias toward practical fixes over
+big platform ideas.
 
 ## Requirements
 
 - macOS 15 or newer on Apple Silicon.
-- Xcode installed for local development.
 - Microphone permission.
 - Accessibility permission for text insertion and global hotkeys.
+- System Audio Recording permission for Meeting Mode.
+- Xcode installed for local development.
 
-## Spec-Driven Development
-
-VoicePen uses a strict AI spec-driven workflow. Product behavior should be described in `Specs/` before code changes are made.
-
-For any feature or behavior change:
-
-1. Find the relevant spec in `Specs/index.md`.
-2. If there is no spec, create one from `Specs/templates/feature-spec.md`.
-3. Fill in the frontmatter, problem, behavior, acceptance criteria, examples, and test mapping before implementation.
-4. Add or update tests that prove the acceptance criteria.
-5. Implement the smallest code change that satisfies the spec.
-6. Update the spec in the same change if the final behavior or test mapping changes.
-7. Run `make test` before opening or merging the pull request.
-
-For bug fixes, use `Specs/templates/bug-spec.md` when the bug is not already covered by an existing spec. The bug spec should include the current broken behavior, desired behavior, regression test, and any required manual verification.
-
-`make test` validates the specs and then runs the unit test suite. The spec validator checks frontmatter, required sections, acceptance criteria, test mapping, and links from `Specs/index.md`.
-
-Development tooling lives in `Docs/development.md`. Use `make install-hooks` to
-install Lefthook hooks, and `make format`, `make lint`, and `make dead-code` for
-formatting, linting, and unused-code analysis.
-
-Use ADRs in `Docs/adr/` for significant technical decisions and tradeoffs. Specs describe what VoicePen should do; ADRs explain why a durable architecture or process decision was chosen. Routine bug fixes and small implementation details do not need ADRs.
-
-## Build Locally
-
-```bash
-make resolve-packages
-make build
-```
-
-Run tests:
-
-```bash
-make test
-```
-
-Build and launch:
-
-```bash
-make run
-```
-
-## Install a Friends & Family Build
+## Install
 
 If you received `VoicePen.app` or `VoicePen.zip`:
 
@@ -75,74 +43,47 @@ If you received `VoicePen.app` or `VoicePen.zip`:
 4. Click `Open`.
 5. Confirm opening the app if macOS warns that it is from an unidentified developer.
 
-Do not double-click on first launch. Use **right-click -> Open** the first time.
-
-## If macOS Still Blocks the App
-
-Unsigned development builds can be quarantined by Gatekeeper.
-
-If right-click -> Open is not enough, run:
+Use **right-click -> Open** on the first launch. Unsigned development builds can
+be blocked by Gatekeeper; if that happens, run:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/VoicePen.app
-```
-
-Then open the app again with:
-
-```bash
 open /Applications/VoicePen.app
 ```
 
-This is expected for unsigned Friends & Family builds. A paid Apple Developer ID certificate and notarization are needed for the smooth public distribution flow.
-
-## Permissions
-
-VoicePen needs two macOS permissions.
-
-Microphone:
-
-- Used to record your voice.
-- Audio is processed locally.
-
-Accessibility:
-
-- Used for global hotkeys.
-- Used to paste recognized text into the currently focused app.
-
-To grant Accessibility manually:
-
-1. Open System Settings.
-2. Go to Privacy & Security.
-3. Open Accessibility.
-4. Enable VoicePen.
-5. Restart VoicePen if needed.
-
-If Accessibility still looks stuck, remove VoicePen from the list, quit the app, open it from `/Applications`, and grant the permission again.
-
-### Reset macOS Permissions
-
-If macOS keeps stale permissions after a signing identity change or a manual
-install, quit VoicePen and reset its TCC permissions:
+## Build Locally
 
 ```bash
-tccutil reset Microphone com.khokhlachev.VoicePen
-tccutil reset Accessibility com.khokhlachev.VoicePen
+make resolve-packages
+make build
+make run
 ```
 
-Then open VoicePen from `/Applications` and grant Microphone and Accessibility
-again when macOS asks.
-
-To reset every stored privacy permission for VoicePen in one go:
+Run tests:
 
 ```bash
-tccutil reset All com.khokhlachev.VoicePen
+make test
 ```
 
-If Accessibility still shows the old entry in System Settings, remove VoicePen
-from Privacy & Security -> Accessibility, quit VoicePen, open it again from
-`/Applications`, and enable it again.
+Development tooling lives in [`Docs/development.md`](Docs/development.md), and
+test guidance lives in [`Docs/testing.md`](Docs/testing.md).
 
-## Models
+## Development Workflow
+
+VoicePen uses a spec-driven workflow for product behavior. Before changing how
+the app behaves, update or create the relevant spec in [`Specs/`](Specs/).
+
+The short version:
+
+1. Find the relevant spec in [`Specs/index.md`](Specs/index.md).
+2. Update acceptance criteria before implementation.
+3. Add or update focused tests for the changed behavior.
+4. Implement the smallest useful change.
+5. Run `make test` before handoff for production behavior changes.
+
+Presentation-only and README changes do not need a spec.
+
+## Local Data
 
 VoicePen stores downloaded models here:
 
@@ -150,190 +91,28 @@ VoicePen stores downloaded models here:
 ~/Library/Application Support/VoicePen/Models/
 ```
 
-The default Whisper model is:
-
-```text
-ggml-large-v3-turbo-q5_0
-```
-
-The app also requires its Core ML encoder companion for fast accelerated transcription.
-
-## Local Data
-
-VoicePen stores local app data here:
+VoicePen stores settings, history, dictionary entries, and meeting transcripts
+in a local SQLite database:
 
 ```text
 ~/Library/Application Support/VoicePen/VoicePen.sqlite
 ```
 
-This database contains app settings, custom dictionary entries, usage stats, and voice session history.
-
-Proxy settings, if needed for model downloads, can be configured outside the app:
+Optional proxy settings for model downloads can be configured here:
 
 ```text
 ~/.voicepen/config.toml
 ```
 
-Example:
+## Support
 
-```toml
-[env]
-http_proxy = "http://proxy.example.local:2080/"
-```
+VoicePen is free because I wanted this workflow to exist without another
+subscription. Feedback, issues, and pull requests are welcome. I may add a
+"buy me a beer" link later for people who want to support the work, but the app
+should stay useful without paying for it.
 
-## Custom Dictionary
+## Maintainers
 
-The dictionary is edited inside the VoicePen app.
-
-Each term has:
-
-- canonical form;
-- variants that should be replaced with that canonical form.
-
-CSV import format:
-
-```csv
-canonical,variants
-PostgreSQL,"постгрес; постгресе; postgres"
-TypeScript,"тайп скрипт; type script"
-```
-
-Large dictionaries can slow down transcription post-processing. As a rough guide:
-
-- up to 100 terms is small;
-- 100-500 terms is usually fine;
-- 500+ terms can become noticeable;
-- 1,000+ terms should be trimmed or split.
-
-## CI
-
-GitHub Actions runs code-quality checks, unit tests, and unused-code analysis on
-code-impacting pull requests and pushes to `main`. Documentation-only changes
-skip those code checks.
-
-The workflow is in:
-
-```text
-.github/workflows/ci.yml
-```
-
-## Releases
-
-Release builds are created only for GitHub releases.
-
-### Update And Signing Secrets
-
-Auto-update releases use two different kinds of signing:
-
-- Sparkle EdDSA signing authenticates the downloaded update archive against the
-  public key in `SUPublicEDKey`.
-- macOS code signing gives `VoicePen.app` a stable signing identity so macOS
-  privacy permissions, including Microphone and Accessibility, can stay attached
-  to VoicePen across Sparkle updates.
-
-GitHub Actions needs these repository secrets:
-
-- `SPARKLE_PRIVATE_KEY`: private key printed by Sparkle's `generate_keys` tool.
-- `MACOS_SIGNING_CERTIFICATE_BASE64`: base64 content of the exported `.p12`
-  signing identity.
-- `MACOS_SIGNING_CERTIFICATE_PASSWORD`: password used when exporting the `.p12`.
-- `MACOS_SIGNING_IDENTITY`: certificate identity name passed to `codesign`.
-
-The Sparkle public key is stored in the app's `SUPublicEDKey`; keep the matching
-private key only in GitHub Actions secrets.
-
-Create a self-signed macOS signing identity in Keychain Access:
-
-1. Open `Keychain Access`.
-2. Choose `Keychain Access` -> `Certificate Assistant` ->
-   `Create a Certificate...`.
-3. Set `Name` to `VoicePen Release Signing`.
-4. Set `Identity Type` to `Self Signed Root`.
-5. Set `Certificate Type` to `Code Signing`.
-6. Enable `Let me override defaults`.
-7. In `Key Usage Extension`, keep `Signature` enabled.
-8. Finish the assistant and make sure the certificate has a private key under it.
-9. If needed, open the certificate's trust settings and trust it for code signing.
-
-Verify the identity is usable:
-
-```bash
-security find-identity -v -p codesigning
-```
-
-Export the certificate and private key from Keychain Access:
-
-1. Select the `VoicePen Release Signing` certificate together with its private
-   key.
-2. Choose `Export...`.
-3. Save it as a `.p12` file, for example `VoicePenReleaseSigning.p12`.
-4. Set a password for the exported `.p12`.
-
-Do not commit the `.p12` file or its password.
-
-Upload the secrets to GitHub:
-
-```bash
-read -s P12_PASSWORD
-gh secret set MACOS_SIGNING_CERTIFICATE_BASE64 --body "$(base64 -i VoicePenReleaseSigning.p12)"
-gh secret set MACOS_SIGNING_CERTIFICATE_PASSWORD --body "$P12_PASSWORD"
-gh secret set MACOS_SIGNING_IDENTITY --body "VoicePen Release Signing"
-unset P12_PASSWORD
-```
-
-Check that the repository has the expected secrets:
-
-```bash
-gh secret list
-```
-
-Use the same `.p12` for every release. If the signing identity changes, macOS may
-ask for Microphone and Accessibility permissions again after the next update.
-After one transition to a stable identity, later updates signed with the same
-identity should keep those permissions.
-
-A self-signed Code Signing certificate is enough for local trust identity
-stability. A paid Developer ID certificate and notarization are still recommended
-for public distribution because they improve the first-install Gatekeeper
-experience.
-
-Prepare a release pull request:
-
-```bash
-make prepare-release VERSION=1.1.0
-```
-
-This creates a branch named `release/v1.1.0`, bumps the Xcode app version, pushes the branch, and opens a pull request.
-
-After checks pass on the release pull request, create and push the release tag
-from the same release branch:
-
-```bash
-git checkout release/v1.1.0
-git pull --ff-only origin release/v1.1.0
-make publish-release VERSION=1.1.0
-```
-
-Before pushing the tag, `make publish-release` verifies that the release pull
-request is open, non-draft, has completed green checks, the Xcode marketing
-version matches `VERSION`, and the build number is higher than the previous
-release build.
-
-Pushing the tag starts the Release workflow from the version-bump branch:
-
-```text
-.github/workflows/release.yml
-```
-
-When the workflow finishes, download `VoicePen-macOS-unsigned.zip` from the GitHub Release page.
-The same workflow signs the archive for Sparkle and publishes
-`https://dot-sk.github.io/VoicePen/appcast.xml` through GitHub Pages.
-After the Release workflow succeeds, merge the release pull request into `main`.
-
-Local package build:
-
-```bash
-make package
-```
-
-The app is unsigned. First launch still requires **right-click -> Open**.
+- Release and signing notes: [`Docs/releasing.md`](Docs/releasing.md)
+- Architecture decisions: [`Docs/adr/`](Docs/adr/)
+- Product specs: [`Specs/`](Specs/)

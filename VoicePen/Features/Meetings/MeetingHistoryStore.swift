@@ -1,6 +1,5 @@
 import Combine
 import Foundation
-import SQLite3
 
 @MainActor
 final class MeetingHistoryStore: ObservableObject {
@@ -64,10 +63,9 @@ final class MeetingHistoryStore: ObservableObject {
             if let recoveryAudio = try fetchRecoveryAudio(id: id, from: database) {
                 try removeRecoveryAudio(recoveryAudio)
             }
-            let statement = try prepare("DELETE FROM meeting_history WHERE id = ?;", in: database)
-            defer { sqlite3_finalize(statement) }
-            sqlite3_bind_text(statement, 1, id.uuidString, -1, SQLITE_TRANSIENT)
-            try stepDone(statement, database: database)
+            let statement = try database.prepare("DELETE FROM meeting_history WHERE id = ?;")
+            statement.bindText(id.uuidString, at: 1)
+            try statement.stepDone()
             return try loadResult(from: database)
         }
         publish(result)
@@ -79,7 +77,7 @@ final class MeetingHistoryStore: ObservableObject {
             for recoveryAudio in try fetchRecoveryAudioEntries(from: database) {
                 try removeRecoveryAudio(recoveryAudio.manifest)
             }
-            try execute("DELETE FROM meeting_history;", in: database)
+            try database.execute("DELETE FROM meeting_history;")
             return try fetchStorageStats(from: database)
         }
         entries = []
@@ -102,7 +100,7 @@ final class MeetingHistoryStore: ObservableObject {
         publish(result)
     }
 
-    private func loadResult(from database: OpaquePointer) throws -> MeetingHistoryLoadResult {
+    private func loadResult(from database: SQLiteConnection) throws -> MeetingHistoryLoadResult {
         MeetingHistoryLoadResult(
             entries: try fetchEntrySummaries(from: database),
             storageStats: try fetchStorageStats(from: database)
@@ -114,29 +112,17 @@ final class MeetingHistoryStore: ObservableObject {
         storageStats = result.storageStats
     }
 
-    private func withDatabase<T>(_ body: (OpaquePointer) throws -> T) throws -> T {
-        let directory = databaseURL.deletingLastPathComponent()
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-
-        var database: OpaquePointer?
-        guard
-            sqlite3_open_v2(
-                databaseURL.path,
-                &database,
-                SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX,
-                nil
-            ) == SQLITE_OK, let database
-        else {
-            let message = database.map { String(cString: sqlite3_errmsg($0)) } ?? "Unable to open database"
-            throw MeetingHistoryStoreError.sqlite(message)
-        }
-
-        defer { sqlite3_close(database) }
+    private func withDatabase<T>(_ body: (SQLiteConnection) throws -> T) throws -> T {
+        let database = try SQLiteConnection.open(
+            at: databaseURL,
+            fileManager: fileManager,
+            makeError: MeetingHistoryStoreError.sqlite
+        )
         return try body(database)
     }
 
-    private func insert(_ entry: MeetingHistoryEntry, into database: OpaquePointer) throws {
-        let statement = try prepare(
+    private func insert(_ entry: MeetingHistoryEntry, into database: SQLiteConnection) throws {
+        let statement = try database.prepare(
             """
             INSERT OR REPLACE INTO meeting_history (
                 id,
@@ -149,52 +135,56 @@ final class MeetingHistoryStore: ObservableObject {
                 timings_json,
                 model_metadata_json,
                 recognized_word_count,
+                speaker_count,
                 text_storage_format,
                 transcript_text_compressed,
                 recovery_audio_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-            """,
-            in: database
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """
         )
-        defer { sqlite3_finalize(statement) }
 
-        sqlite3_bind_text(statement, 1, entry.id.uuidString, -1, SQLITE_TRANSIENT)
-        sqlite3_bind_double(statement, 2, entry.createdAt.timeIntervalSince1970)
-        sqlite3_bind_double(statement, 3, entry.duration)
-        sqlite3_bind_text(statement, 4, entry.transcriptText, -1, SQLITE_TRANSIENT)
-        sqlite3_bind_text(statement, 5, entry.status.rawValue, -1, SQLITE_TRANSIENT)
-        sqlite3_bind_text(statement, 6, try jsonString(entry.sourceFlags), -1, SQLITE_TRANSIENT)
+        statement.bindText(entry.id.uuidString, at: 1)
+        statement.bindDouble(entry.createdAt.timeIntervalSince1970, at: 2)
+        statement.bindDouble(entry.duration, at: 3)
+        statement.bindText(entry.transcriptText, at: 4)
+        statement.bindText(entry.status.rawValue, at: 5)
+        statement.bindText(try jsonString(entry.sourceFlags), at: 6)
 
         if let errorMessage = entry.errorMessage {
-            sqlite3_bind_text(statement, 7, errorMessage, -1, SQLITE_TRANSIENT)
+            statement.bindText(errorMessage, at: 7)
         } else {
-            sqlite3_bind_null(statement, 7)
+            statement.bindNull(at: 7)
         }
 
         if let timings = entry.timings {
-            sqlite3_bind_text(statement, 8, try jsonString(timings), -1, SQLITE_TRANSIENT)
+            statement.bindText(try jsonString(timings), at: 8)
         } else {
-            sqlite3_bind_null(statement, 8)
+            statement.bindNull(at: 8)
         }
 
         if let modelMetadata = entry.modelMetadata {
-            sqlite3_bind_text(statement, 9, try jsonString(modelMetadata), -1, SQLITE_TRANSIENT)
+            statement.bindText(try jsonString(modelMetadata), at: 9)
         } else {
-            sqlite3_bind_null(statement, 9)
+            statement.bindNull(at: 9)
         }
 
-        sqlite3_bind_int64(statement, 10, Int64(entry.usageWordCount))
-        sqlite3_bind_text(statement, 11, VoiceHistoryTextStorageFormat.plain, -1, SQLITE_TRANSIENT)
-        sqlite3_bind_null(statement, 12)
-        if let recoveryAudio = entry.recoveryAudio {
-            sqlite3_bind_text(statement, 13, try jsonString(recoveryAudio), -1, SQLITE_TRANSIENT)
+        statement.bindInt64(Int64(entry.usageWordCount), at: 10)
+        if let speakerCount = entry.speakerCount {
+            statement.bindInt64(Int64(speakerCount), at: 11)
         } else {
-            sqlite3_bind_null(statement, 13)
+            statement.bindNull(at: 11)
         }
-        try stepDone(statement, database: database)
+        statement.bindText(VoiceHistoryTextStorageFormat.plain, at: 12)
+        statement.bindNull(at: 13)
+        if let recoveryAudio = entry.recoveryAudio {
+            statement.bindText(try jsonString(recoveryAudio), at: 14)
+        } else {
+            statement.bindNull(at: 14)
+        }
+        try statement.stepDone()
     }
 
-    private func compressStoredTranscriptIfNeeded(in database: OpaquePointer) throws {
+    private func compressStoredTranscriptIfNeeded(in database: SQLiteConnection) throws {
         let rows = try fetchStoredTranscriptRows(from: database)
         let totalPlainBytes = rows.reduce(0) { $0 + $1.textByteCount }
 
@@ -213,7 +203,7 @@ final class MeetingHistoryStore: ObservableObject {
         try evictStoredTranscriptIfNeeded(in: database)
     }
 
-    private func evictStoredTranscriptIfNeeded(in database: OpaquePointer) throws {
+    private func evictStoredTranscriptIfNeeded(in database: SQLiteConnection) throws {
         let stats = try fetchStorageStats(from: database)
         guard stats.textPayloadBytes > transcriptPayloadLimitBytes else { return }
 
@@ -228,7 +218,7 @@ final class MeetingHistoryStore: ObservableObject {
         }
     }
 
-    private func fetchStoredTranscriptRows(from database: OpaquePointer) throws -> [MeetingStoredTextRow] {
+    private func fetchStoredTranscriptRows(from database: SQLiteConnection) throws -> [MeetingStoredTextRow] {
         try fetchTranscriptRows(
             """
             SELECT id, transcript_text, text_storage_format, transcript_text_compressed, recognized_word_count
@@ -240,7 +230,7 @@ final class MeetingHistoryStore: ObservableObject {
         )
     }
 
-    private func fetchPayloadTranscriptRows(from database: OpaquePointer) throws -> [MeetingStoredTextRow] {
+    private func fetchPayloadTranscriptRows(from database: SQLiteConnection) throws -> [MeetingStoredTextRow] {
         try fetchTranscriptRows(
             """
             SELECT id, transcript_text, text_storage_format, transcript_text_compressed, recognized_word_count
@@ -252,52 +242,47 @@ final class MeetingHistoryStore: ObservableObject {
         )
     }
 
-    private func fetchTranscriptRows(_ sql: String, from database: OpaquePointer) throws -> [MeetingStoredTextRow] {
-        let statement = try prepare(sql, in: database)
-        defer { sqlite3_finalize(statement) }
+    private func fetchTranscriptRows(_ sql: String, from database: SQLiteConnection) throws -> [MeetingStoredTextRow] {
+        let statement = try database.prepare(sql)
 
         var rows: [MeetingStoredTextRow] = []
         while true {
-            switch sqlite3_step(statement) {
-            case SQLITE_ROW:
+            switch try statement.step() {
+            case .row:
                 rows.append(
                     MeetingStoredTextRow(
-                        id: stringColumn(statement, index: 0),
-                        transcriptText: stringColumn(statement, index: 1),
-                        textStorageFormat: stringColumn(statement, index: 2),
-                        compressedTranscriptText: optionalDataColumn(statement, index: 3),
-                        recognizedWordCount: optionalIntColumn(statement, index: 4)
+                        id: statement.string(at: 0),
+                        transcriptText: statement.string(at: 1),
+                        textStorageFormat: statement.string(at: 2),
+                        compressedTranscriptText: statement.optionalData(at: 3),
+                        recognizedWordCount: statement.optionalInt(at: 4)
                     ))
-            case SQLITE_DONE:
+            case .done:
                 return rows
-            default:
-                throw MeetingHistoryStoreError.sqlite(String(cString: sqlite3_errmsg(database)))
             }
         }
     }
 
-    private func compressStoredTranscript(_ row: MeetingStoredTextRow, in database: OpaquePointer) throws {
+    private func compressStoredTranscript(_ row: MeetingStoredTextRow, in database: SQLiteConnection) throws {
         let compressedTranscriptText = try VoiceHistoryTextCompressor.compress(row.transcriptText)
-        let statement = try prepare(
+        let statement = try database.prepare(
             """
             UPDATE meeting_history
             SET transcript_text = '',
                 text_storage_format = ?,
                 transcript_text_compressed = ?
             WHERE id = ?;
-            """,
-            in: database
+            """
         )
-        defer { sqlite3_finalize(statement) }
 
-        sqlite3_bind_text(statement, 1, VoiceHistoryTextStorageFormat.zlib, -1, SQLITE_TRANSIENT)
-        bindBlob(compressedTranscriptText, to: statement, index: 2)
-        sqlite3_bind_text(statement, 3, row.id, -1, SQLITE_TRANSIENT)
-        try stepDone(statement, database: database)
+        statement.bindText(VoiceHistoryTextStorageFormat.zlib, at: 1)
+        statement.bindBlob(compressedTranscriptText, at: 2)
+        statement.bindText(row.id, at: 3)
+        try statement.stepDone()
     }
 
-    private func evictStoredTranscript(_ row: MeetingStoredTextRow, in database: OpaquePointer) throws {
-        let statement = try prepare(
+    private func evictStoredTranscript(_ row: MeetingStoredTextRow, in database: SQLiteConnection) throws {
+        let statement = try database.prepare(
             """
             UPDATE meeting_history
             SET transcript_text = '',
@@ -305,154 +290,137 @@ final class MeetingHistoryStore: ObservableObject {
                 transcript_text_compressed = NULL,
                 recognized_word_count = ?
             WHERE id = ?;
-            """,
-            in: database
+            """
         )
-        defer { sqlite3_finalize(statement) }
 
-        sqlite3_bind_text(statement, 1, VoiceHistoryTextStorageFormat.evicted, -1, SQLITE_TRANSIENT)
-        sqlite3_bind_int64(statement, 2, Int64(try row.resolvedWordCount()))
-        sqlite3_bind_text(statement, 3, row.id, -1, SQLITE_TRANSIENT)
-        try stepDone(statement, database: database)
+        statement.bindText(VoiceHistoryTextStorageFormat.evicted, at: 1)
+        statement.bindInt64(Int64(try row.resolvedWordCount()), at: 2)
+        statement.bindText(row.id, at: 3)
+        try statement.stepDone()
     }
 
-    private func fetchEntrySummaries(from database: OpaquePointer) throws -> [MeetingHistoryEntry] {
-        let statement = try prepare(
+    private func fetchEntrySummaries(from database: SQLiteConnection) throws -> [MeetingHistoryEntry] {
+        let statement = try database.prepare(
             """
-            SELECT id, created_at, duration, substr(transcript_text, 1, ?), status, source_flags_json, error_message, timings_json, model_metadata_json, recognized_word_count, text_storage_format, recovery_audio_json
+            SELECT id, created_at, duration, substr(transcript_text, 1, ?), status, source_flags_json, error_message, timings_json, model_metadata_json, recognized_word_count, speaker_count, text_storage_format, recovery_audio_json
             FROM meeting_history
             ORDER BY created_at DESC;
-            """,
-            in: database
+            """
         )
-        defer { sqlite3_finalize(statement) }
 
-        sqlite3_bind_int(statement, 1, Int32(Self.transcriptPreviewLimit))
+        statement.bindInt(Int32(Self.transcriptPreviewLimit), at: 1)
 
         var fetchedEntries: [MeetingHistoryEntry] = []
         while true {
-            switch sqlite3_step(statement) {
-            case SQLITE_ROW:
+            switch try statement.step() {
+            case .row:
                 fetchedEntries.append(try entrySummary(from: statement))
-            case SQLITE_DONE:
+            case .done:
                 return fetchedEntries
-            default:
-                throw MeetingHistoryStoreError.sqlite(String(cString: sqlite3_errmsg(database)))
             }
         }
     }
 
-    private func fetchEntry(id: MeetingHistoryEntry.ID, from database: OpaquePointer) throws -> MeetingHistoryEntry? {
-        let statement = try prepare(
+    private func fetchEntry(id: MeetingHistoryEntry.ID, from database: SQLiteConnection) throws -> MeetingHistoryEntry? {
+        let statement = try database.prepare(
             """
-            SELECT id, created_at, duration, transcript_text, status, source_flags_json, error_message, timings_json, model_metadata_json, recognized_word_count, text_storage_format, transcript_text_compressed, recovery_audio_json
+            SELECT id, created_at, duration, transcript_text, status, source_flags_json, error_message, timings_json, model_metadata_json, recognized_word_count, speaker_count, text_storage_format, transcript_text_compressed, recovery_audio_json
             FROM meeting_history
             WHERE id = ?;
-            """,
-            in: database
+            """
         )
-        defer { sqlite3_finalize(statement) }
 
-        sqlite3_bind_text(statement, 1, id.uuidString, -1, SQLITE_TRANSIENT)
+        statement.bindText(id.uuidString, at: 1)
 
-        switch sqlite3_step(statement) {
-        case SQLITE_ROW:
+        switch try statement.step() {
+        case .row:
             return try entry(from: statement)
-        case SQLITE_DONE:
+        case .done:
             return nil
-        default:
-            throw MeetingHistoryStoreError.sqlite(String(cString: sqlite3_errmsg(database)))
         }
     }
 
-    private func fetchRecoveryAudio(id: MeetingHistoryEntry.ID, from database: OpaquePointer) throws -> MeetingRecoveryAudioManifest? {
-        let statement = try prepare(
+    private func fetchRecoveryAudio(id: MeetingHistoryEntry.ID, from database: SQLiteConnection) throws -> MeetingRecoveryAudioManifest? {
+        let statement = try database.prepare(
             """
             SELECT recovery_audio_json
             FROM meeting_history
             WHERE id = ?;
-            """,
-            in: database
+            """
         )
-        defer { sqlite3_finalize(statement) }
 
-        sqlite3_bind_text(statement, 1, id.uuidString, -1, SQLITE_TRANSIENT)
+        statement.bindText(id.uuidString, at: 1)
 
-        switch sqlite3_step(statement) {
-        case SQLITE_ROW:
-            return try decodeOptional(MeetingRecoveryAudioManifest.self, from: optionalStringColumn(statement, index: 0))
-        case SQLITE_DONE:
+        switch try statement.step() {
+        case .row:
+            return try decodeOptional(MeetingRecoveryAudioManifest.self, from: statement.optionalString(at: 0))
+        case .done:
             return nil
-        default:
-            throw MeetingHistoryStoreError.sqlite(String(cString: sqlite3_errmsg(database)))
         }
     }
 
-    private func fetchRecoveryAudioEntries(from database: OpaquePointer) throws -> [MeetingRecoveryAudioEntry] {
-        let statement = try prepare(
+    private func fetchRecoveryAudioEntries(from database: SQLiteConnection) throws -> [MeetingRecoveryAudioEntry] {
+        let statement = try database.prepare(
             """
             SELECT id, recovery_audio_json
             FROM meeting_history
             WHERE recovery_audio_json IS NOT NULL
             ORDER BY created_at DESC;
-            """,
-            in: database
+            """
         )
-        defer { sqlite3_finalize(statement) }
 
         var entries: [MeetingRecoveryAudioEntry] = []
         while true {
-            switch sqlite3_step(statement) {
-            case SQLITE_ROW:
-                guard let id = UUID(uuidString: stringColumn(statement, index: 0)) else {
+            switch try statement.step() {
+            case .row:
+                guard let id = UUID(uuidString: statement.string(at: 0)) else {
                     throw MeetingHistoryStoreError.invalidRow("Invalid meeting entry id")
                 }
-                guard let manifest = try decodeOptional(MeetingRecoveryAudioManifest.self, from: optionalStringColumn(statement, index: 1)) else {
+                guard let manifest = try decodeOptional(MeetingRecoveryAudioManifest.self, from: statement.optionalString(at: 1)) else {
                     throw MeetingHistoryStoreError.invalidRow("Invalid meeting recovery audio")
                 }
                 entries.append(MeetingRecoveryAudioEntry(id: id, manifest: manifest))
-            case SQLITE_DONE:
+            case .done:
                 return entries
-            default:
-                throw MeetingHistoryStoreError.sqlite(String(cString: sqlite3_errmsg(database)))
             }
         }
     }
 
-    private func entry(from statement: OpaquePointer) throws -> MeetingHistoryEntry {
-        guard let id = UUID(uuidString: stringColumn(statement, index: 0)) else {
+    private func entry(from statement: SQLiteStatement) throws -> MeetingHistoryEntry {
+        guard let id = UUID(uuidString: statement.string(at: 0)) else {
             throw MeetingHistoryStoreError.invalidRow("Invalid meeting entry id")
         }
 
-        let format = stringColumn(statement, index: 10)
+        let format = statement.string(at: 11)
         let storedText = try transcriptText(
             format: format,
-            plainText: stringColumn(statement, index: 3),
-            compressedText: optionalDataColumn(statement, index: 11)
+            plainText: statement.string(at: 3),
+            compressedText: statement.optionalData(at: 12)
         )
 
         return MeetingHistoryEntry(
             id: id,
-            createdAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 1)),
-            duration: sqlite3_column_double(statement, 2),
+            createdAt: Date(timeIntervalSince1970: statement.double(at: 1)),
+            duration: statement.double(at: 2),
             transcriptText: storedText.text,
-            status: MeetingRecordingStatus(rawValue: stringColumn(statement, index: 4)) ?? .failed,
-            sourceFlags: try decode(MeetingSourceFlags.self, from: stringColumn(statement, index: 5)),
-            errorMessage: optionalStringColumn(statement, index: 6),
-            timings: try decodeOptional(MeetingPipelineTimings.self, from: optionalStringColumn(statement, index: 7)),
-            modelMetadata: try decodeOptional(VoiceTranscriptionModelMetadata.self, from: optionalStringColumn(statement, index: 8)),
-            recognizedWordCount: optionalIntColumn(statement, index: 9),
-            recoveryAudio: try decodeOptional(MeetingRecoveryAudioManifest.self, from: optionalStringColumn(statement, index: 12)),
+            status: MeetingRecordingStatus(rawValue: statement.string(at: 4)) ?? .failed,
+            sourceFlags: try decode(MeetingSourceFlags.self, from: statement.string(at: 5)),
+            errorMessage: statement.optionalString(at: 6),
+            timings: try decodeOptional(MeetingPipelineTimings.self, from: statement.optionalString(at: 7)),
+            modelMetadata: try decodeOptional(VoiceTranscriptionModelMetadata.self, from: statement.optionalString(at: 8)),
+            recognizedWordCount: statement.optionalInt(at: 9),
+            speakerCount: statement.optionalInt(at: 10),
+            recoveryAudio: try decodeOptional(MeetingRecoveryAudioManifest.self, from: statement.optionalString(at: 13)),
             isTextPayloadEvicted: storedText.isEvicted
         )
     }
 
-    private func entrySummary(from statement: OpaquePointer) throws -> MeetingHistoryEntry {
-        guard let id = UUID(uuidString: stringColumn(statement, index: 0)) else {
+    private func entrySummary(from statement: SQLiteStatement) throws -> MeetingHistoryEntry {
+        guard let id = UUID(uuidString: statement.string(at: 0)) else {
             throw MeetingHistoryStoreError.invalidRow("Invalid meeting entry id")
         }
 
-        let format = stringColumn(statement, index: 10)
+        let format = statement.string(at: 11)
         let transcriptPreview: String
         let isTextPayloadEvicted: Bool
         switch format {
@@ -463,22 +431,23 @@ final class MeetingHistoryStore: ObservableObject {
             transcriptPreview = Self.compressedTranscriptPreview
             isTextPayloadEvicted = false
         default:
-            transcriptPreview = stringColumn(statement, index: 3)
+            transcriptPreview = statement.string(at: 3)
             isTextPayloadEvicted = false
         }
 
         return MeetingHistoryEntry(
             id: id,
-            createdAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 1)),
-            duration: sqlite3_column_double(statement, 2),
+            createdAt: Date(timeIntervalSince1970: statement.double(at: 1)),
+            duration: statement.double(at: 2),
             transcriptText: transcriptPreview,
-            status: MeetingRecordingStatus(rawValue: stringColumn(statement, index: 4)) ?? .failed,
-            sourceFlags: try decode(MeetingSourceFlags.self, from: stringColumn(statement, index: 5)),
-            errorMessage: optionalStringColumn(statement, index: 6),
-            timings: try decodeOptional(MeetingPipelineTimings.self, from: optionalStringColumn(statement, index: 7)),
-            modelMetadata: try decodeOptional(VoiceTranscriptionModelMetadata.self, from: optionalStringColumn(statement, index: 8)),
-            recognizedWordCount: optionalIntColumn(statement, index: 9),
-            recoveryAudio: try decodeOptional(MeetingRecoveryAudioManifest.self, from: optionalStringColumn(statement, index: 11)),
+            status: MeetingRecordingStatus(rawValue: statement.string(at: 4)) ?? .failed,
+            sourceFlags: try decode(MeetingSourceFlags.self, from: statement.string(at: 5)),
+            errorMessage: statement.optionalString(at: 6),
+            timings: try decodeOptional(MeetingPipelineTimings.self, from: statement.optionalString(at: 7)),
+            modelMetadata: try decodeOptional(VoiceTranscriptionModelMetadata.self, from: statement.optionalString(at: 8)),
+            recognizedWordCount: statement.optionalInt(at: 9),
+            speakerCount: statement.optionalInt(at: 10),
+            recoveryAudio: try decodeOptional(MeetingRecoveryAudioManifest.self, from: statement.optionalString(at: 12)),
             isTextPayloadEvicted: isTextPayloadEvicted
         )
     }
@@ -488,41 +457,38 @@ final class MeetingHistoryStore: ObservableObject {
         plainText: String,
         compressedText: Data?
     ) throws -> (text: String, isEvicted: Bool) {
-        if format == VoiceHistoryTextStorageFormat.evicted {
-            return ("", true)
-        }
-
-        guard format == VoiceHistoryTextStorageFormat.zlib else {
-            return (plainText, false)
-        }
-
-        guard let compressedText else {
-            throw MeetingHistoryStoreError.invalidRow("Compressed meeting transcript is missing payload")
-        }
-        return (try VoiceHistoryTextCompressor.decompress(compressedText), false)
+        let payload = StoredTextPayload(
+            format: format,
+            components: [
+                StoredTextComponent(plainText: plainText, compressedText: compressedText)
+            ],
+            missingCompressedPayloadError: {
+                MeetingHistoryStoreError.invalidRow("Compressed meeting transcript is missing payload")
+            }
+        )
+        let texts = try payload.resolvedTexts()
+        return (texts.first ?? "", payload.isEvicted)
     }
 
-    private func fetchStorageStats(from database: OpaquePointer) throws -> VoiceHistoryStorageStats {
-        let statement = try prepare(
+    private func fetchStorageStats(from database: SQLiteConnection) throws -> VoiceHistoryStorageStats {
+        let statement = try database.prepare(
             """
             SELECT
                 COUNT(*),
                 COALESCE(SUM(length(CAST(transcript_text AS BLOB))), 0),
                 COALESCE(SUM(COALESCE(length(transcript_text_compressed), 0)), 0)
             FROM meeting_history;
-            """,
-            in: database
+            """
         )
-        defer { sqlite3_finalize(statement) }
 
-        guard sqlite3_step(statement) == SQLITE_ROW else {
-            throw MeetingHistoryStoreError.sqlite(String(cString: sqlite3_errmsg(database)))
+        guard try statement.step() == .row else {
+            throw MeetingHistoryStoreError.sqlite("Unable to read meeting history storage stats")
         }
 
         return VoiceHistoryStorageStats(
-            entryCount: Int(sqlite3_column_int(statement, 0)),
-            plainTextBytes: Int(sqlite3_column_int64(statement, 1)),
-            compressedTextBytes: Int(sqlite3_column_int64(statement, 2)),
+            entryCount: statement.int(at: 0),
+            plainTextBytes: Int(statement.int64(at: 1)),
+            compressedTextBytes: Int(statement.int64(at: 2)),
             databaseFileBytes: databaseFileSize()
         )
     }
@@ -536,19 +502,17 @@ final class MeetingHistoryStore: ObservableObject {
         return size.intValue
     }
 
-    private func clearRecoveryAudio(id: MeetingHistoryEntry.ID, in database: OpaquePointer) throws {
-        let statement = try prepare(
+    private func clearRecoveryAudio(id: MeetingHistoryEntry.ID, in database: SQLiteConnection) throws {
+        let statement = try database.prepare(
             """
             UPDATE meeting_history
             SET recovery_audio_json = NULL
             WHERE id = ?;
-            """,
-            in: database
+            """
         )
-        defer { sqlite3_finalize(statement) }
 
-        sqlite3_bind_text(statement, 1, id.uuidString, -1, SQLITE_TRANSIENT)
-        try stepDone(statement, database: database)
+        statement.bindText(id.uuidString, at: 1)
+        try statement.stepDone()
     }
 
     private func removeRecoveryAudio(_ manifest: MeetingRecoveryAudioManifest?) throws {
@@ -576,59 +540,6 @@ final class MeetingHistoryStore: ObservableObject {
         return try decode(type, from: json)
     }
 
-    private func execute(_ sql: String, in database: OpaquePointer) throws {
-        guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else {
-            throw MeetingHistoryStoreError.sqlite(String(cString: sqlite3_errmsg(database)))
-        }
-    }
-
-    private func prepare(_ sql: String, in database: OpaquePointer) throws -> OpaquePointer {
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
-            throw MeetingHistoryStoreError.sqlite(String(cString: sqlite3_errmsg(database)))
-        }
-        return statement
-    }
-
-    private func stepDone(_ statement: OpaquePointer, database: OpaquePointer) throws {
-        guard sqlite3_step(statement) == SQLITE_DONE else {
-            throw MeetingHistoryStoreError.sqlite(String(cString: sqlite3_errmsg(database)))
-        }
-    }
-
-    private func stringColumn(_ statement: OpaquePointer, index: Int32) -> String {
-        guard let text = sqlite3_column_text(statement, index) else { return "" }
-        return String(cString: text)
-    }
-
-    private func optionalStringColumn(_ statement: OpaquePointer, index: Int32) -> String? {
-        guard sqlite3_column_type(statement, index) != SQLITE_NULL else { return nil }
-        return stringColumn(statement, index: index)
-    }
-
-    private func optionalIntColumn(_ statement: OpaquePointer, index: Int32) -> Int? {
-        guard sqlite3_column_type(statement, index) != SQLITE_NULL else { return nil }
-        return Int(sqlite3_column_int64(statement, index))
-    }
-
-    private func optionalDataColumn(_ statement: OpaquePointer, index: Int32) -> Data? {
-        guard sqlite3_column_type(statement, index) != SQLITE_NULL else { return nil }
-        let byteCount = Int(sqlite3_column_bytes(statement, index))
-        guard byteCount > 0 else { return Data() }
-        guard let bytes = sqlite3_column_blob(statement, index) else { return nil }
-        return Data(bytes: bytes, count: byteCount)
-    }
-
-    private func bindBlob(_ data: Data, to statement: OpaquePointer, index: Int32) {
-        guard !data.isEmpty else {
-            sqlite3_bind_blob(statement, index, nil, 0, SQLITE_TRANSIENT)
-            return
-        }
-
-        _ = data.withUnsafeBytes { buffer in
-            sqlite3_bind_blob(statement, index, buffer.baseAddress, Int32(data.count), SQLITE_TRANSIENT)
-        }
-    }
 }
 
 private struct MeetingHistoryLoadResult {
@@ -649,11 +560,7 @@ private struct MeetingStoredTextRow {
     var recognizedWordCount: Int?
 
     var textByteCount: Int {
-        if textStorageFormat == VoiceHistoryTextStorageFormat.zlib {
-            return compressedTranscriptText?.count ?? 0
-        }
-
-        return transcriptText.utf8.count
+        payload.byteCount
     }
 
     func resolvedWordCount() throws -> Int {
@@ -661,14 +568,19 @@ private struct MeetingStoredTextRow {
             return recognizedWordCount
         }
 
-        if textStorageFormat == VoiceHistoryTextStorageFormat.zlib {
-            guard let compressedTranscriptText else {
-                throw MeetingHistoryStoreError.invalidRow("Compressed meeting transcript is missing payload")
-            }
-            return VoiceHistoryEntry.wordCount(in: try VoiceHistoryTextCompressor.decompress(compressedTranscriptText))
-        }
+        return VoiceHistoryEntry.wordCount(in: try payload.preferredText())
+    }
 
-        return VoiceHistoryEntry.wordCount(in: transcriptText)
+    private var payload: StoredTextPayload {
+        StoredTextPayload(
+            format: textStorageFormat,
+            components: [
+                StoredTextComponent(plainText: transcriptText, compressedText: compressedTranscriptText)
+            ],
+            missingCompressedPayloadError: {
+                MeetingHistoryStoreError.invalidRow("Compressed meeting transcript is missing payload")
+            }
+        )
     }
 }
 
@@ -685,5 +597,3 @@ enum MeetingHistoryStoreError: LocalizedError {
         }
     }
 }
-
-private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)

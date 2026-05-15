@@ -9,6 +9,7 @@ final class MeetingRecordingStore {
         var startedAt: Date?
         var activeProcessingID: UUID?
         var statusTask: Task<Void, Never>?
+        var recordingLimitTask: Task<Void, Never>?
         var processingTask: Task<Void, Never>?
         var processingTimeoutTask: Task<Void, Never>?
 
@@ -23,6 +24,7 @@ final class MeetingRecordingStore {
         case startFailed(Error)
         case stopRequested(UUID)
         case stopSucceeded(UUID, MeetingHistoryEntry)
+        case stopDiscardedNoSpeech(UUID)
         case stopFailed(UUID, Error)
         case cancelSucceeded
         case cancelFailed(Error)
@@ -41,6 +43,7 @@ final class MeetingRecordingStore {
         let settingsStore: AppSettingsStore
         let userPrompts: UserPromptPresenter
         let captureStartTimeout: Duration
+        let maximumRecordingDuration: TimeInterval
         let processingTimeout: Duration
         let runningApplicationBundleIdentifiersProvider: () -> Set<String>
         let getAppState: () -> AppState
@@ -55,6 +58,8 @@ final class MeetingRecordingStore {
 
     private static let microphonePermissionRequiredMessage = "Microphone permission is required to record dictation audio locally."
     private static let systemAudioPermissionRequiredMessage = "System Audio permission is required to capture meeting audio locally."
+    private static let noSpeechDetectedAlertTitle = "No speech detected"
+    private static let noSpeechDetectedAlertMessage = "VoicePen recorded silence, so this meeting was not saved."
 
     private(set) var state: State
     private let environment: Environment
@@ -138,6 +143,8 @@ final class MeetingRecordingStore {
             do {
                 let entry = try await meetingPipeline.stopAndProcess()
                 send(.stopSucceeded(processingID, entry))
+            } catch MeetingPipelineNoSpeechError.noSpeechDetected {
+                send(.stopDiscardedNoSpeech(processingID))
             } catch {
                 send(.stopFailed(processingID, error))
             }
@@ -210,6 +217,7 @@ final class MeetingRecordingStore {
 
         case .startSucceeded:
             startStatusUpdates()
+            startRecordingLimitMonitor()
 
         case let .startFailed(error):
             handleStartError(error)
@@ -226,6 +234,15 @@ final class MeetingRecordingStore {
             updateElapsedTime(entry.duration)
             environment.refreshBaseState()
             environment.setErrorMessage(nil)
+
+        case let .stopDiscardedNoSpeech(processingID):
+            guard state.activeProcessingID == processingID else { return }
+            finishProcessing(id: processingID)
+            stopStatusUpdates()
+            updateElapsedTime(0)
+            environment.refreshBaseState()
+            environment.setErrorMessage(nil)
+            showNoSpeechDetectedAlert()
 
         case let .stopFailed(processingID, error):
             guard state.activeProcessingID == processingID else { return }
@@ -315,6 +332,16 @@ final class MeetingRecordingStore {
         environment.presentError(error)
     }
 
+    private func showNoSpeechDetectedAlert() {
+        _ = environment.userPrompts.showAlert(
+            messageText: Self.noSpeechDetectedAlertTitle,
+            informativeText: Self.noSpeechDetectedAlertMessage,
+            style: .informational,
+            buttons: ["OK"],
+            activateBeforeShowing: true
+        )
+    }
+
     private func startStatusUpdates() {
         state.statusTask?.cancel()
         state.statusTask = Task { @MainActor [weak self] in
@@ -335,11 +362,39 @@ final class MeetingRecordingStore {
         }
     }
 
+    private func startRecordingLimitMonitor() {
+        stopRecordingLimitMonitor()
+        let startedAt = state.startedAt ?? Date()
+        let elapsedTime = Date().timeIntervalSince(startedAt)
+        let remainingTime = max(0, environment.maximumRecordingDuration - elapsedTime)
+        let sleepDuration = Self.duration(seconds: remainingTime)
+
+        state.recordingLimitTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: sleepDuration)
+            } catch {
+                return
+            }
+
+            guard let self,
+                environment.getAppState() == .meetingRecording
+            else { return }
+
+            _ = stop()
+        }
+    }
+
     private func stopStatusUpdates() {
         state.statusTask?.cancel()
         state.statusTask = nil
+        stopRecordingLimitMonitor()
         state.startedAt = nil
         updateSourceStatus(.idle)
+    }
+
+    private func stopRecordingLimitMonitor() {
+        state.recordingLimitTask?.cancel()
+        state.recordingLimitTask = nil
     }
 
     private func startProcessingTimeoutMonitor(id: UUID) {
@@ -374,5 +429,10 @@ final class MeetingRecordingStore {
     private func updateSourceStatus(_ sourceStatus: MeetingSourceStatus) {
         state.sourceStatus = sourceStatus
         environment.setSourceStatus(sourceStatus)
+    }
+
+    private static func duration(seconds: TimeInterval) -> Duration {
+        let nanoseconds = Int64(max(0, (seconds * 1_000_000_000).rounded(.up)))
+        return .nanoseconds(nanoseconds)
     }
 }

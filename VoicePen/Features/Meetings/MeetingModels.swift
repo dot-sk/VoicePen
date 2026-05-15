@@ -99,6 +99,7 @@ nonisolated struct MeetingHistoryEntry: Codable, Identifiable, Equatable, Sendab
     var timings: MeetingPipelineTimings?
     var modelMetadata: VoiceTranscriptionModelMetadata?
     var recognizedWordCount: Int?
+    var speakerCount: Int?
     var recoveryAudio: MeetingRecoveryAudioManifest?
     var isTextPayloadEvicted: Bool = false
 
@@ -113,6 +114,7 @@ nonisolated struct MeetingHistoryEntry: Codable, Identifiable, Equatable, Sendab
         timings: MeetingPipelineTimings?,
         modelMetadata: VoiceTranscriptionModelMetadata?,
         recognizedWordCount: Int? = nil,
+        speakerCount: Int? = nil,
         recoveryAudio: MeetingRecoveryAudioManifest? = nil,
         isTextPayloadEvicted: Bool = false
     ) {
@@ -126,6 +128,7 @@ nonisolated struct MeetingHistoryEntry: Codable, Identifiable, Equatable, Sendab
         self.timings = timings
         self.modelMetadata = modelMetadata
         self.recognizedWordCount = recognizedWordCount
+        self.speakerCount = speakerCount
         self.recoveryAudio = recoveryAudio
         self.isTextPayloadEvicted = isTextPayloadEvicted
     }
@@ -139,12 +142,22 @@ nonisolated struct MeetingHistoryEntry: Codable, Identifiable, Equatable, Sendab
         guard !trimmed.isEmpty else {
             return errorMessage ?? status.title
         }
-        return trimmed
+        let preview = String(trimmed.prefix(Self.previewCharacterLimit))
+        let cleaned = preview.replacingOccurrences(
+            of: Self.leadingTimecodePattern,
+            with: "",
+            options: .regularExpression
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? trimmed : cleaned
     }
 
     var usageWordCount: Int {
         recognizedWordCount ?? VoiceHistoryEntry.wordCount(in: transcriptText)
     }
+
+    private static let previewCharacterLimit = 300
+    private static let leadingTimecodePattern = #"(?m)^\s*\[\d{2}:\d{2}:\d{2}\s*-\s*\d{2}:\d{2}:\d{2}\]\s*"#
 }
 
 nonisolated enum MeetingSourceKind: String, Codable, Equatable, Sendable {
@@ -256,5 +269,13 @@ enum MeetingRecordingError: LocalizedError, Equatable {
         case .recoveryAudioExpired:
             return "Meeting audio retry window has expired."
         }
+    }
+}
+
+enum MeetingPipelineNoSpeechError: LocalizedError, Equatable {
+    case noSpeechDetected
+
+    var errorDescription: String? {
+        "VoicePen did not detect speech in the recording."
     }
 }

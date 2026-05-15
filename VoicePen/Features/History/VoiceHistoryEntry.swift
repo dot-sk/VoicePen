@@ -27,7 +27,7 @@ nonisolated struct VoiceHistoryEntry: Codable, Identifiable, Equatable, Sendable
     }
 
     var previewText: String {
-        let text = bestText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.isEmpty, isTextPayloadEvicted {
             return "Text removed from local cache"
         }
