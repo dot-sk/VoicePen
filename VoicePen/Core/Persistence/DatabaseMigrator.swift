@@ -171,6 +171,10 @@ nonisolated enum DatabaseMigrator {
         }
     }
 
+    static func migrate(_ database: SQLiteConnection) throws {
+        try migrate(database.rawDatabase)
+    }
+
     static func userVersion(in database: OpaquePointer) throws -> Int {
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(database, "PRAGMA user_version;", -1, &statement, nil) == SQLITE_OK, let statement else {
@@ -183,6 +187,10 @@ nonisolated enum DatabaseMigrator {
         }
 
         return Int(sqlite3_column_int(statement, 0))
+    }
+
+    static func userVersion(in database: SQLiteConnection) throws -> Int {
+        try userVersion(in: database.rawDatabase)
     }
 
     private static func run(_ migration: DatabaseMigration, in database: OpaquePointer) throws {

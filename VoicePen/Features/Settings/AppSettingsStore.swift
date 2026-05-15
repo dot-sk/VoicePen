@@ -1,6 +1,5 @@
 import Combine
 import Foundation
-import SQLite3
 
 @MainActor
 final class AppSettingsStore: ObservableObject {
@@ -220,76 +219,33 @@ final class AppSettingsStore: ObservableObject {
         hasAcknowledgedMeetingRecordingConsent = isAcknowledged
     }
 
-    private func withDatabase<T>(_ body: (OpaquePointer) throws -> T) throws -> T {
-        let directory = databaseURL.deletingLastPathComponent()
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-
-        var database: OpaquePointer?
-        guard
-            sqlite3_open_v2(
-                databaseURL.path,
-                &database,
-                SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX,
-                nil
-            ) == SQLITE_OK, let database
-        else {
-            let message = database.map { String(cString: sqlite3_errmsg($0)) } ?? "Unable to open database"
-            throw AppSettingsStoreError.sqlite(message)
-        }
-
-        defer {
-            sqlite3_close(database)
-        }
-
+    private func withDatabase<T>(_ body: (SQLiteConnection) throws -> T) throws -> T {
+        let database = try SQLiteConnection.open(
+            at: databaseURL,
+            fileManager: fileManager,
+            makeError: AppSettingsStoreError.sqlite
+        )
         return try body(database)
     }
 
-    private func fetchValue(forKey key: String, from database: OpaquePointer) throws -> String? {
-        let statement = try prepare("SELECT value FROM app_settings WHERE key = ? LIMIT 1;", in: database)
-        defer { sqlite3_finalize(statement) }
+    private func fetchValue(forKey key: String, from database: SQLiteConnection) throws -> String? {
+        let statement = try database.prepare("SELECT value FROM app_settings WHERE key = ? LIMIT 1;")
 
-        sqlite3_bind_text(statement, 1, key, -1, SQLITE_TRANSIENT)
+        statement.bindText(key, at: 1)
 
-        guard sqlite3_step(statement) == SQLITE_ROW else {
+        guard try statement.step() == .row else {
             return nil
         }
 
-        guard let text = sqlite3_column_text(statement, 0) else {
-            return nil
-        }
-        return String(cString: text)
+        return statement.optionalString(at: 0)
     }
 
-    private func setValue(_ value: String, forKey key: String, in database: OpaquePointer) throws {
-        let statement = try prepare(
-            "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?);",
-            in: database
-        )
-        defer { sqlite3_finalize(statement) }
+    private func setValue(_ value: String, forKey key: String, in database: SQLiteConnection) throws {
+        let statement = try database.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?);")
 
-        sqlite3_bind_text(statement, 1, key, -1, SQLITE_TRANSIENT)
-        sqlite3_bind_text(statement, 2, value, -1, SQLITE_TRANSIENT)
-        try stepDone(statement, database: database)
-    }
-
-    private func execute(_ sql: String, in database: OpaquePointer) throws {
-        guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else {
-            throw AppSettingsStoreError.sqlite(String(cString: sqlite3_errmsg(database)))
-        }
-    }
-
-    private func prepare(_ sql: String, in database: OpaquePointer) throws -> OpaquePointer {
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
-            throw AppSettingsStoreError.sqlite(String(cString: sqlite3_errmsg(database)))
-        }
-        return statement
-    }
-
-    private func stepDone(_ statement: OpaquePointer, database: OpaquePointer) throws {
-        guard sqlite3_step(statement) == SQLITE_DONE else {
-            throw AppSettingsStoreError.sqlite(String(cString: sqlite3_errmsg(database)))
-        }
+        statement.bindText(key, at: 1)
+        statement.bindText(value, at: 2)
+        try statement.stepDone()
     }
 
     private static func normalizeLanguage(_ language: String) -> String {
@@ -418,5 +374,3 @@ private enum AppSettingsStoreError: LocalizedError {
         }
     }
 }
-
-private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)

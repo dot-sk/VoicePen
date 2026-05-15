@@ -771,9 +771,10 @@ private enum MeetingTranscriptSpeakerMerger {
         AppLogger.info(
             "Meeting transcript speaker merge started: segments=\(segments.count), turns=\(speakerTurns.count), speakers=\(MeetingDiarizationDebug.speakerCounts(speakerTurns))"
         )
+        let lookup = SpeakerTurnLookup(speakerTurns: speakerTurns)
         return segments.flatMap { segment in
             guard !segment.words.isEmpty else {
-                let assignment = bestTurn(for: segment.interval, in: speakerTurns)
+                let assignment = lookup.bestTurn(for: segment.interval)
                 logSegmentAssignment(
                     segment: segment,
                     speakerTurn: assignment.turn,
@@ -789,7 +790,7 @@ private enum MeetingTranscriptSpeakerMerger {
             }
 
             let wordAssignments = segment.words.map { word in
-                let assignment = bestTurn(for: word.interval, in: speakerTurns)
+                let assignment = lookup.bestTurn(for: word.interval)
                 return (word: word, speakerTurn: assignment.turn)
             }
             let groups = groupedWords(wordAssignments)
@@ -899,35 +900,7 @@ private enum MeetingTranscriptSpeakerMerger {
         )
     }
 
-    private static func bestTurn(
-        for interval: (start: TimeInterval, end: TimeInterval),
-        in speakerTurns: [SpeakerTurn]
-    ) -> (turn: SpeakerTurn?, source: String) {
-        let intervalDuration = max(0, interval.end - interval.start)
-        let scoredTurns = speakerTurns.map { turn in
-            (
-                turn: turn,
-                overlap: max(0, min(interval.end, turn.endOffset) - max(interval.start, turn.startOffset))
-            )
-        }
-        if let best = scoredTurns.max(by: { $0.overlap < $1.overlap }),
-            isMeaningfulOverlap(best.overlap, intervalDuration: intervalDuration)
-        {
-            return (best.turn, "overlap=\(String(format: "%.2fs", best.overlap))")
-        }
-
-        let midpoint = (interval.start + interval.end) / 2
-        let midpointTurn = speakerTurns.first { turn in
-            midpoint >= turn.startOffset && midpoint <= turn.endOffset
-        }
-        if let midpointTurn {
-            return (midpointTurn, "midpoint")
-        }
-
-        return (nil, "no-overlap-or-midpoint")
-    }
-
-    private static func isMeaningfulOverlap(_ overlap: TimeInterval, intervalDuration: TimeInterval) -> Bool {
+    fileprivate static func isMeaningfulOverlap(_ overlap: TimeInterval, intervalDuration: TimeInterval) -> Bool {
         guard overlap > 0 else { return false }
         return overlap >= 0.35 || (intervalDuration > 0 && overlap / intervalDuration >= 0.2)
     }
@@ -946,6 +919,121 @@ private enum MeetingTranscriptSpeakerMerger {
         var duration: TimeInterval {
             max(0, interval.end - interval.start)
         }
+    }
+}
+
+private struct SpeakerTurnLookup {
+    private struct IndexedTurn {
+        var turn: SpeakerTurn
+        var originalIndex: Int
+    }
+
+    private let turnsByStart: [IndexedTurn]
+    private let prefixMaxEndOffsets: [TimeInterval]
+
+    init(speakerTurns: [SpeakerTurn]) {
+        let sortedTurns =
+            speakerTurns
+            .enumerated()
+            .map { index, turn in IndexedTurn(turn: turn, originalIndex: index) }
+            .sorted { lhs, rhs in
+                if lhs.turn.startOffset == rhs.turn.startOffset {
+                    return lhs.originalIndex < rhs.originalIndex
+                }
+                return lhs.turn.startOffset < rhs.turn.startOffset
+            }
+        turnsByStart = sortedTurns
+
+        var maxEndOffset = -Double.infinity
+        prefixMaxEndOffsets = sortedTurns.map { indexedTurn in
+            maxEndOffset = max(maxEndOffset, indexedTurn.turn.endOffset)
+            return maxEndOffset
+        }
+    }
+
+    func bestTurn(for interval: (start: TimeInterval, end: TimeInterval)) -> (turn: SpeakerTurn?, source: String) {
+        let intervalDuration = max(0, interval.end - interval.start)
+        if let best = bestOverlap(for: interval),
+            MeetingTranscriptSpeakerMerger.isMeaningfulOverlap(best.overlap, intervalDuration: intervalDuration)
+        {
+            return (best.turn.turn, "overlap=\(String(format: "%.2fs", best.overlap))")
+        }
+
+        let midpoint = (interval.start + interval.end) / 2
+        if let midpointTurn = firstTurn(containing: midpoint) {
+            return (midpointTurn, "midpoint")
+        }
+
+        return (nil, "no-overlap-or-midpoint")
+    }
+
+    private func bestOverlap(
+        for interval: (start: TimeInterval, end: TimeInterval)
+    ) -> (turn: IndexedTurn, overlap: TimeInterval)? {
+        guard !turnsByStart.isEmpty else { return nil }
+
+        let endIndex = upperBoundStart(interval.end)
+        guard endIndex > 0 else { return nil }
+
+        var best: (turn: IndexedTurn, overlap: TimeInterval)?
+        var index = endIndex - 1
+
+        while true {
+            guard prefixMaxEndOffsets[index] > interval.start else { break }
+
+            let indexedTurn = turnsByStart[index]
+            let turn = indexedTurn.turn
+            let overlap = max(0, min(interval.end, turn.endOffset) - max(interval.start, turn.startOffset))
+            if overlap > 0 && (best == nil || isBetterOverlap(overlap, indexedTurn: indexedTurn, than: best!)) {
+                best = (indexedTurn, overlap)
+            }
+
+            guard index > 0 else { break }
+            index -= 1
+        }
+
+        return best
+    }
+
+    private func firstTurn(containing time: TimeInterval) -> SpeakerTurn? {
+        let endIndex = upperBoundStart(time)
+        var match: IndexedTurn?
+
+        for indexedTurn in turnsByStart.prefix(endIndex) {
+            let turn = indexedTurn.turn
+            guard time >= turn.startOffset && time <= turn.endOffset else { continue }
+
+            if match == nil || indexedTurn.originalIndex < match!.originalIndex {
+                match = indexedTurn
+            }
+        }
+
+        return match?.turn
+    }
+
+    private func upperBoundStart(_ time: TimeInterval) -> Int {
+        var lowerBound = 0
+        var upperBound = turnsByStart.count
+
+        while lowerBound < upperBound {
+            let midpoint = (lowerBound + upperBound) / 2
+            if turnsByStart[midpoint].turn.startOffset <= time {
+                lowerBound = midpoint + 1
+            } else {
+                upperBound = midpoint
+            }
+        }
+
+        return lowerBound
+    }
+
+    private func isBetterOverlap(
+        _ overlap: TimeInterval,
+        indexedTurn: IndexedTurn,
+        than current: (turn: IndexedTurn, overlap: TimeInterval)
+    ) -> Bool {
+        overlap > current.overlap
+            || (overlap == current.overlap && indexedTurn.originalIndex < current.turn.originalIndex)
     }
 }
 
