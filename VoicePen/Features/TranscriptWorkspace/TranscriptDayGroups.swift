@@ -1,13 +1,13 @@
 import Foundation
 
-nonisolated struct HistoryDayGroup<Entry: Sendable>: Sendable {
+nonisolated struct TranscriptDayGroup<Entry: Sendable>: Sendable {
     var day: Date
     var title: String
     var entries: [Entry]
 }
 
-nonisolated struct HistoryDayGroups<Entry: Sendable>: Sendable {
-    let groups: [HistoryDayGroup<Entry>]
+nonisolated struct TranscriptDayGroups<Entry: Sendable>: Sendable {
+    let groups: [TranscriptDayGroup<Entry>]
 
     init(
         entries: [Entry],
@@ -15,7 +15,7 @@ nonisolated struct HistoryDayGroups<Entry: Sendable>: Sendable {
         calendar: Calendar = .current,
         date: (Entry) -> Date
     ) {
-        var groups: [HistoryDayGroup<Entry>] = []
+        var groups: [TranscriptDayGroup<Entry>] = []
 
         for entry in entries {
             let day = calendar.startOfDay(for: date(entry))
@@ -24,7 +24,7 @@ nonisolated struct HistoryDayGroups<Entry: Sendable>: Sendable {
                 groups[groups.count - 1].entries.append(entry)
             } else {
                 groups.append(
-                    HistoryDayGroup(
+                    TranscriptDayGroup(
                         day: day,
                         title: Self.title(for: day, now: now, calendar: calendar),
                         entries: [entry]

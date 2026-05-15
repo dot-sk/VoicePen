@@ -173,6 +173,11 @@ struct GeneralSettingsView: View {
         Form {
             Section {
                 VStack(alignment: .leading, spacing: 8) {
+                    LabeledContent("Status", value: controller.appState.menuTitle)
+
+                    Divider()
+                        .padding(.bottom, 6)
+
                     Text(stats.readableDurationText)
                         .font(.system(size: 42, weight: .semibold, design: .rounded))
                         .lineLimit(1)

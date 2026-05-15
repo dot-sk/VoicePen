@@ -116,6 +116,9 @@ final class MeetingPipeline {
             _ = try? saveFailedEntry(recording: recording, error: TranscriptionError.transcriptionTimedOut)
             try removeTemporaryAudioFiles(cleanupURLs)
             throw CancellationError()
+        } catch MeetingPipelineNoSpeechError.noSpeechDetected {
+            try removeTemporaryAudioFiles(cleanupURLs)
+            throw MeetingPipelineNoSpeechError.noSpeechDetected
         } catch {
             let entry = try saveFailedEntry(recording: recording, error: error)
             try removeTemporaryAudioFiles(cleanupURLs)
@@ -221,7 +224,7 @@ final class MeetingPipeline {
         }
         var transcriptParts: [String] = []
         var modelMetadata: VoiceTranscriptionModelMetadata?
-        var skippedChunkCount = 0
+        var noSpeechChunkCount = 0
         await reportProcessingProgress(completedChunks: 0, totalChunks: orderedChunks.count)
 
         for (index, chunk) in orderedChunks.enumerated() {
@@ -260,14 +263,12 @@ final class MeetingPipeline {
                     "Meeting chunk processed: chunk=\(MeetingDiarizationDebug.interval(chunk.startOffset, chunk.startOffset + chunk.duration)), preprocessing=\(Self.elapsedTime(processedChunk.preprocessing)), transcription=\(Self.elapsedTime(processedChunk.transcription)), textChars=\(processedChunk.text.count)"
                 )
 
-                if processedChunk.text.isEmpty {
-                    skippedChunkCount += 1
-                } else {
+                if !processedChunk.text.isEmpty {
                     transcriptParts.append(processedChunk.text)
                 }
                 await reportProcessingProgress(completedChunks: index + 1, totalChunks: orderedChunks.count)
             } catch AudioPreprocessingError.noSpeechDetected {
-                skippedChunkCount += 1
+                noSpeechChunkCount += 1
                 await reportProcessingProgress(completedChunks: index + 1, totalChunks: orderedChunks.count)
                 continue
             } catch TranscriptionError.transcriptionTimedOut {
@@ -287,7 +288,10 @@ final class MeetingPipeline {
             }
         }
 
-        guard skippedChunkCount < orderedChunks.count else {
+        guard !transcriptParts.isEmpty else {
+            if noSpeechChunkCount == orderedChunks.count {
+                throw MeetingPipelineNoSpeechError.noSpeechDetected
+            }
             throw AudioPreprocessingError.noSpeechDetected
         }
 

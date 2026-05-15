@@ -10,10 +10,14 @@ nonisolated struct VoiceHistoryFilter: Equatable, Sendable {
     }
 
     func filteredEntries(from entries: [VoiceHistoryEntry]) -> [VoiceHistoryEntry] {
-        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        return entries.filter { entry in
-            matchesStatus(entry) && matchesQuery(entry, query: normalizedQuery)
+        let matchingStatusEntries = entries.filter { entry in
+            matchesStatus(entry)
         }
+
+        return TranscriptSearchFilter(query: query)
+            .filteredEntries(from: matchingStatusEntries) { entry in
+                VoiceHistorySearchDocument.document(for: entry)
+            }
     }
 
     private func matchesStatus(_ entry: VoiceHistoryEntry) -> Bool {
@@ -21,17 +25,32 @@ nonisolated struct VoiceHistoryFilter: Equatable, Sendable {
         return entry.status == status
     }
 
-    private func matchesQuery(_ entry: VoiceHistoryEntry, query: String) -> Bool {
-        guard !query.isEmpty else { return true }
+}
 
-        return [
-            entry.rawText,
+nonisolated enum VoiceHistorySearchDocument {
+    static func document(for entry: VoiceHistoryEntry) -> TranscriptSearchDocument {
+        var fields = [
             entry.finalText,
             entry.errorMessage ?? "",
             entry.status.title
         ]
-        .contains { text in
-            text.localizedStandardContains(query)
+
+        fields.append(contentsOf: TranscriptSearchFieldText.dateText(for: entry.createdAt))
+
+        if let duration = entry.duration {
+            fields.append(durationText(duration))
         }
+        if let modelDisplayName = entry.modelMetadata?.displayName {
+            fields.append(modelDisplayName)
+        }
+        if let appVersion = entry.modelMetadata?.visibleAppVersion {
+            fields.append(appVersion)
+        }
+
+        return TranscriptSearchDocument(fields: fields)
+    }
+
+    private static func durationText(_ duration: TimeInterval) -> String {
+        String(format: "%.1fs", max(0, duration))
     }
 }

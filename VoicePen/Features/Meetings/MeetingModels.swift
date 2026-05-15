@@ -268,3 +268,11 @@ enum MeetingRecordingError: LocalizedError, Equatable {
         }
     }
 }
+
+enum MeetingPipelineNoSpeechError: LocalizedError, Equatable {
+    case noSpeechDetected
+
+    var errorDescription: String? {
+        "VoicePen did not detect speech in the recording."
+    }
+}

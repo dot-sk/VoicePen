@@ -1,13 +1,16 @@
 ---
 id: SPEC-011
 status: active
-updated: 2026-05-14
+updated: 2026-05-15
 tests:
   - VoicePenTests/Meetings/MeetingRecordingStateTests.swift
   - VoicePenTests/Meetings/MeetingPipelineTests.swift
   - VoicePenTests/Meetings/MeetingHistoryEntryTests.swift
   - VoicePenTests/Meetings/MeetingHistoryStoreTests.swift
-  - VoicePenTests/History/HistoryDayGroupsTests.swift
+  - VoicePenTests/Meetings/MeetingHistoryFilterTests.swift
+  - VoicePenTests/TranscriptWorkspace/TranscriptEditorMetricsTests.swift
+  - VoicePenTests/TranscriptWorkspace/TranscriptDayGroupsTests.swift
+  - VoicePenTests/TranscriptWorkspace/TranscriptSearchFilterTests.swift
   - VoicePenTests/Persistence/DatabaseMigratorTests.swift
   - VoicePenTests/App/AppControllerTests.swift
   - VoicePenTests/App/VoicePenAppCommandTests.swift
@@ -53,6 +56,14 @@ Meeting entries are excluded from dictation usage totals and milestones. Meeting
 transcripts can be copied, but Meeting Mode never auto-pastes output or exposes
 an Insert Transcript action.
 
+On desktop, the Meetings screen adopts the shared transcript workspace from
+SPEC-015. Meetings provides meeting-specific rows, metadata, actions, search
+fields, and focused-entry transcript loading to that shared layout. Search
+filters loaded meeting summaries and previews locally by the transcript preview
+or full text already available in an entry, recording date/time, status, error,
+duration, audio source labels, ASR model, and app version. Opening the Meetings
+screen must not read or decompress every saved full transcript.
+
 Meeting Mode v1 captures both microphone input and system output audio where
 available, chunks transcript processing by start time, caps meeting processing
 at 120 minutes, applies best-effort system voice leveling before transcription,
@@ -64,7 +75,9 @@ selected filter at recording start because the selected list is empty or no
 selected-only app is currently running, it switches the setting back to all
 system audio, surfaces a warning, and starts recording with all system audio.
 v1 does not provide summaries,
-action items, ticket drafts, engineering notes, pause, or resume.
+action items, ticket drafts, engineering notes, pause, resume, playback,
+waveforms, an audio player, export, speaker profiles, voice-profile linking or
+creation, or transcript editing.
 
 ## Acceptance Criteria
 
@@ -75,15 +88,15 @@ action items, ticket drafts, engineering notes, pause, or resume.
 - When meeting audio capture does not start within 10 seconds, VoicePen shall leave the recording state and surface a capture timeout error.
 - When meeting audio capture start is canceled or times out after one source has started, VoicePen shall stop any partially started audio sources before leaving the recording state.
 - Meeting Mode v1 shall not request or use screen capture for meeting recording.
-- While recording is active, the Meetings header shall show a compact cancel action before the stop action instead of duplicating recording actions in the persistent status panel, so the primary start/stop action remains trailing-aligned and does not jump when recording starts.
+- While recording is active, the Meetings header shall keep a compact cancel action and switch the primary start recording button in place to Stop instead of showing a separate Stop button.
 - While recording is active, VoicePen shall show a pulsing recording indicator in the Meetings header stop action and in the persistent status panel so users can notice that capture is still running.
 - While recording is active, the persistent status panel shall show the meeting recording limit in minutes.
 - When recording is canceled, VoicePen shall delete temporary audio and not create meeting history.
-- When recording is stopped, VoicePen shall transcribe locally and save a meeting entry.
+- When recording is stopped and audio is not discarded as all-silent preprocessing, VoicePen shall transcribe locally and save a meeting entry.
 - When recording is stopped and decoding returns model metadata, VoicePen shall save the app version used for that decoding alongside the local model metadata.
 - When recording is stopped, the saved meeting duration shall use the active wall-clock recording duration, not the sum of microphone and system audio source chunk durations.
 - When recording exceeds the 120 minute processing limit and supported audio produces transcript text, VoicePen shall process only the supported window, save the meeting as a partial transcript, and show a user-facing error reason that includes the limit in minutes.
-- When processing produces no usable transcript text, VoicePen shall save the meeting as failed even if capture or processing was incomplete.
+- When local transcription runs but produces no usable transcript text, VoicePen shall save the meeting as failed even if capture or processing was incomplete.
 - Meeting history rows shall not let technical incomplete-capture or incomplete-processing flags override the product status shown to the user.
 - When a saved meeting duration is shorter than one minute, meeting history items shall display the duration in seconds instead of fractional minutes.
 - While stopped meeting audio is processing, VoicePen shall show that transcript processing is underway in the persistent status panel without showing microphone or system audio as unavailable.
@@ -99,7 +112,8 @@ action items, ticket drafts, engineering notes, pause, or resume.
 - When one captured source chunk is silent but another source chunk contains speech, VoicePen shall skip the silent chunk and keep processing the meeting.
 - When Meeting voice leveling is enabled, VoicePen shall best-effort render each non-silent chunk through system dynamics and peak limiting before transcription.
 - When Meeting voice leveling fails, VoicePen shall continue transcribing the ordinary preprocessed chunk and keep a diagnostic note.
-- When all captured chunks are silent, VoicePen shall save a failed meeting entry that identifies no detected speech.
+- When all captured chunks are rejected as audio silence before local transcription, VoicePen shall delete temporary audio, show an informational alert, and not save a meeting entry or recovery audio.
+- When local transcription returns empty text or text that is fully removed as known transcript artifacts, VoicePen shall keep the failed meeting entry path.
 - When local transcription returns known short subtitle or outro artifact lines such as "Субтитры сделал ...", "Субтитры создавал ...", "Добавил субтитры ...", or "Продолжение следует...", VoicePen shall remove those lines from meeting transcripts before saving history.
 - When Meeting system audio source is set to all system audio, VoicePen shall build a global system output tap.
 - When Meeting system audio source is set to selected apps only, VoicePen shall build a non-exclusive app-filtered system output tap for the selected bundle identifiers.
@@ -139,10 +153,25 @@ action items, ticket drafts, engineering notes, pause, or resume.
 - When Meeting diarization is unavailable or fails, VoicePen shall keep the transcript rather than failing the meeting solely because speaker labels could not be produced.
 - When Meeting recording starts while the selected transcription model warmup is in progress, VoicePen shall keep that warmup running instead of canceling it, so first meeting processing can reuse the warmed model when possible.
 - When transcript exists, VoicePen shall let the user copy it without calling any LLM provider.
-- Meeting detail shall expose one copy transcript action near the transcript text area, and retry actions shall use compact icon-only controls with accessible labels.
-- Meeting detail copy actions shall show temporary copied feedback after copying a transcript.
-- Copy actions that show temporary copied feedback shall keep stable dimensions while switching between normal and copied states.
-- Meeting detail shall let users resize the saved transcript text area vertically while keeping the transcript selectable and read-only.
+- When Meetings opens on desktop, VoicePen shall use the shared transcript workspace described in SPEC-015.
+- Meeting search shall filter loaded meeting summaries and previews locally by transcript preview or full transcript text already available in an entry, recording date/time, status, error, duration, audio source labels, ASR model, and VoicePen app version.
+- Meeting search shall not read or decompress every saved full transcript when the Meetings screen opens.
+- When Meeting search has no matches, VoicePen shall show an empty state that communicates no meetings were found and suggests trying another query.
+- When the Meetings screen is open, Command-R shall start Meeting recording when no capture is active and stop Meeting recording when capture is active, regardless of the active keyboard layout.
+- Meeting detail shall show the focused transcript in the shared center workspace and copy the full saved transcript through the shared center copy action.
+- When a failed meeting has no transcript, the center workspace shall show the saved error text.
+- Meeting detail shall show Status, Recording, Duration, Audio sources, Processing, Speakers detected, and Actions in the right sidebar.
+- Meeting detail shall keep the full-transcript Copy action in the editor header and avoid duplicating it in the right sidebar.
+- Meeting detail shall keep Delete recording in the right sidebar as the bottom destructive action, after the scrollable metadata content.
+- Meeting detail Speakers detected shall show `—` until meeting history has a structured speaker-count field.
+- Meeting detail shall not infer voice profiles or show speaker identity/profile actions.
+- Meeting detail actions in this stage shall include Copy transcript in the editor and Delete recording in the right sidebar; existing retry may remain available for recoverable audio.
+- Meeting detail shall not expose playback, waveform, audio player, export, speaker profile, voice-profile linking or creation, transcript editing, Insert Transcript, or auto-paste actions.
+- Meeting detail Copy transcript action shall show temporary copied feedback after copying a transcript.
+- When a Meeting detail with saved transcript is open and Command-C is pressed while no focused text input or selected transcript range handles the copy command, VoicePen shall copy the full saved transcript regardless of the active keyboard layout.
+- When transcript text is selected in the editor, Command-C shall preserve the standard selected-text copy behavior instead of copying the full transcript.
+- Meeting detail Command-C full-transcript copy shall show the same temporary copied feedback as the editor Copy action.
+- Copy transcript feedback shall keep stable dimensions while switching between normal and copied states.
 - When the Meetings screen opens, VoicePen shall load meeting history list metadata and transcript previews without reading or decompressing every saved full transcript.
 - When a meeting history entry becomes focused, VoicePen shall load and decompress the full transcript for that focused entry only.
 - When a new meeting history row appears in the Meetings list, its text shall be visible immediately without requiring the user to scroll the list first.
@@ -174,6 +203,7 @@ action items, ticket drafts, engineering notes, pause, or resume.
 | Unknown meeting app version | Older meeting entry has no saved decoding app version | Meeting detail omits the App version metadata row |
 | Recording limit exceeded with text | User records longer than the supported meeting limit and supported audio contains speech | VoicePen saves a partial transcript, caps processed duration at the supported limit, and shows that the limit was reached |
 | Recording limit exceeded without text | User records longer than the supported meeting limit and no supported audio yields text | VoicePen saves a failed meeting with no transcript and shows that the limit was reached |
+| Silent meeting recording | User stops a meeting recording where every captured chunk is audio silence before transcription | VoicePen deletes temporary audio, shows an informational alert, and does not save a meeting row or recovery audio |
 | Hung meeting processing | Local processing does not return | VoicePen exits processing and surfaces a timeout error |
 | Meeting processing progress | A meeting has multiple chunks to process | The recording panel shows determinate processing progress as an approximate percentage |
 | Hung later chunk | First chunk transcribes and second chunk hangs | VoicePen saves the first chunk as a partial meeting and keeps recovery audio retryable for 7 days |
@@ -184,14 +214,24 @@ action items, ticket drafts, engineering notes, pause, or resume.
 | Add selected apps | Meeting system audio source is selected apps only or all except selected apps, then the user uses the add-apps control and chooses several `.app` bundles | The apps are selectable and appear in the selected-app list with bundle identifiers |
 | Retry failed meeting | User uses retry on a failed meeting before recovery audio expires | VoicePen reprocesses local audio and updates the same meeting history entry |
 | Expired recovery audio | Seven days pass after a failed meeting | VoicePen deletes retained audio and keeps the failed meeting row without retry |
+| Meetings desktop layout | User opens Meetings on desktop | Meetings uses the shared transcript workspace with meeting-specific rows, center text, metadata, and recording controls |
+| Meeting search metadata | User searches by transcript preview/full text, status, error, duration, audio source, ASR model, app version, or recording date/time | The loaded meeting list filters locally without decompressing every saved full transcript |
+| Empty meeting search | User searches for a query with no matches | Meetings shows that no meetings were found and suggests trying another query |
+| Meeting recording shortcut | User presses Command-R while Meetings is open | VoicePen starts Meeting recording when idle, or stops the active Meeting recording |
+| Failed meeting detail | User selects a failed meeting with no transcript | The center editor surface shows the saved error text as read-only content |
+| Meeting transcript editor | User selects a saved meeting | The shared center workspace shows the transcript and copies the full saved transcript through the meeting copy action |
+| Switch meeting selection | User selects text in one meeting transcript, then focuses another meeting | The transcript selection is cleared, the footer shows zero selected characters, and Command-C copies the newly focused full transcript unless the user selects text again |
+| Meeting sidebar metadata | User selects a saved meeting | The sidebar shows Status, Recording, Duration, Audio sources, Processing, Speakers detected, and Actions; Speakers detected is `—` until a structured count exists |
+| Meeting stage actions | User selects a saved meeting | The editor offers Copy transcript, the right sidebar offers Delete recording as the bottom destructive action, recoverable entries may keep retry, and the UI does not show playback, waveform, audio player, export, speaker profile, voice-profile linking/creation, or transcript editing actions |
 | New meeting row | A meeting finishes and a new row appears in Meetings history | The row preview text is visible immediately |
 | Timecoded meeting preview | A saved meeting transcript line starts with a meeting timecode | The Meetings list preview hides the timecode and keeps the spoken text |
 | Open Meetings | Saved meetings include large or compressed transcripts | The list opens from metadata and previews without decompressing every full transcript |
-| Focus meeting | User selects a saved meeting | The full transcript for that meeting is loaded for the detail pane |
+| Focus meeting | User selects a saved meeting | The full transcript for that meeting is loaded for the center workspace |
 | Meeting day groups | Saved meetings include entries from multiple local calendar days | Meetings appear under sticky day sections while preserving newest-first order within each day |
-| Resize transcript | User drags the saved meeting transcript text area resize handle | The transcript area changes height without editing the saved transcript |
-| Copy transcript | User clicks the copy action in the saved meeting transcript section | Transcript is copied without a duplicate header copy action or Insert Transcript action |
-| Stable copy feedback | Copy transcript action changes to copied feedback | The button keeps its existing dimensions |
+| Copy transcript | User clicks Copy transcript in the editor | Transcript is copied without calling an LLM provider or showing an Insert Transcript action |
+| Copy transcript shortcut | User presses Command-C with a saved transcript open and no text input or selected transcript range handling copy, including on a non-Latin keyboard layout | Full transcript is copied and the editor Copy action shows copied feedback |
+| Selected transcript shortcut | User selects transcript text and presses Command-C | Selected text is copied instead of the full transcript |
+| Stable copy feedback | Copy transcript action changes to copied feedback | The action keeps its existing dimensions |
 | Present meeting transcript features | Transcript already shows timecodes | Meeting detail does not add duplicate `Present` metadata rows |
 | Missing meeting transcript features | Model supports timestamps but transcript has no timecodes | Meeting detail shows that the feature was not present |
 
@@ -199,7 +239,7 @@ action items, ticket drafts, engineering notes, pause, or resume.
 
 - Automated: `VoicePenTests/Meetings/MeetingRecordingStateTests.swift` covers start, stop, cancel, composite microphone/system-audio source recording, active wall-clock duration, cleanup after canceled start, and partial source failure with fakes.
 - Automated: `VoicePenTests/Meetings/MeetingRecordingStateTests.swift` covers Meeting system audio tap planning, older-macOS process-object app filtering, and preflight fallback.
-- Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers local transcription flow, chunk ordering, overlapping source merging before transcription, optional meeting timecodes, separate diarization speaker labels, app version metadata, active wall-clock duration, limit handling, silent source chunks, known subtitle/outro artifact cleanup, chunk timeout partial salvage, recovery audio retention and retry, temporary audio cleanup, and no automatic insertion.
+- Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers local transcription flow, chunk ordering, overlapping source merging before transcription, optional meeting timecodes, separate diarization speaker labels, app version metadata, active wall-clock duration, limit handling, silent source chunks, all-silent discard, known subtitle/outro artifact cleanup, chunk timeout partial salvage, recovery audio retention and retry, temporary audio cleanup, and no automatic insertion.
 - Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers removing repeated short trailing Meeting transcription hallucinations.
 - Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers diarization chunk planning, full-recording diarization request wiring, very-short Auto diarization skip with exact-count override, speaker turn postprocessing, word overlap speaker merge, segment midpoint fallback, uncovered-gap behavior, tiny-overlap rejection, diarization failure fallback, and separate diarization execution before ASR chunk formatting.
 - Automated: `VoicePenTests/Meetings/MeetingDiarizationModelDownloadTests.swift` covers Meeting diarization Hugging Face artifact selection, URL construction, and proxy-aware download session configuration.
@@ -208,16 +248,20 @@ action items, ticket drafts, engineering notes, pause, or resume.
 - Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers Meeting voice leveling routing and fallback.
 - Automated: `VoicePenTests/Meetings/MeetingHistoryEntryTests.swift` covers Meeting list preview fallback text and omission of leading transcript timecodes.
 - Automated: `VoicePenTests/Meetings/MeetingHistoryStoreTests.swift` covers append, preview-only list load, focused full transcript load, delete, compression, separate storage budget, partial entries, error entries, model/app version metadata, recovery manifests, and expired recovery cleanup.
-- Automated: `VoicePenTests/History/HistoryDayGroupsTests.swift` covers Meeting and History list grouping by local calendar day while preserving entry order.
+- Automated: `VoicePenTests/Meetings/MeetingHistoryFilterTests.swift` covers Meeting-specific search fields across loaded transcript preview/full text, recording date/time, status, error, duration, audio source labels, ASR model, app version, and avoiding full-transcript decompression on screen open.
+- Automated: `VoicePenTests/TranscriptWorkspace/TranscriptSearchFilterTests.swift` covers shared filtering mechanics and empty search behavior.
+- Automated: `VoicePenTests/TranscriptWorkspace/TranscriptEditorMetricsTests.swift` covers transcript editor line, character, and selected-character counting, including empty text, trailing newlines, and Unicode text.
+- Automated: `VoicePenTests/TranscriptWorkspace/TranscriptDayGroupsTests.swift` covers shared list grouping by local calendar day while preserving entry order.
 - Automated: `VoicePenTests/Persistence/DatabaseMigratorTests.swift` covers `meeting_history` creation and migration from old databases.
-- Automated: `VoicePenTests/App/AppControllerTests.swift` covers consent gating, permission gating, meeting state, Meeting system audio source settings updates, selected-app fallback, meeting processing state, meeting timeout recovery, and no conflict with dictation history.
-- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers menu and sidebar meeting commands, header recording controls, meeting processing UI, Settings screen placement for Meeting features, Meeting system audio source settings controls, stable shared copy-button feedback, meeting status icons in navigation surfaces, recording limit display, and recording pulses in the menu bar, Meetings header, and persistent status panel.
+- Automated: `VoicePenTests/App/AppControllerTests.swift` covers consent gating, permission gating, meeting state, Meeting system audio source settings updates, selected-app fallback, meeting processing state, silent recording discard prompt/no-history behavior, meeting timeout recovery, and no conflict with dictation history.
+- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers menu and sidebar meeting commands, header recording controls, shared transcript workspace wiring, Meetings Command-R recording shortcut wiring, right sidebar metadata/actions content, empty search UI, allowed actions, absence of out-of-stage playback/waveform/audio-player/export/speaker-profile/voice-profile/editing actions, meeting processing UI, Settings screen placement for Meeting features, Meeting system audio source settings controls, stable shared copy-button feedback behavior, meeting status icons in navigation surfaces, recording limit display, and recording pulses in the menu bar, Meetings header, and persistent status panel.
+- Manual: Meetings desktop UI review covers the three-pane visual layout, independent pane scrolling, compact search field, right sidebar compactness, bottom Delete recording placement, transcript editor Copy action, line numbers, bounded line-number separator, selected-character count, read-only transcript selection/copying, and clearing transcript selection when switching focused meeting rows.
 - Automated: `VoicePenTests/Settings/AppSettingsStoreTests.swift` covers Meeting system audio source defaults, persistence, invalid mode fallback, and invalid selected-app filtering.
 - Manual: switch the Settings screen Meeting system audio source between all system audio and filtered modes; verify selected-app controls hide and show without SwiftUI publishing warnings, then use the add-apps control, select multiple macOS `.app` bundles, and verify they appear with bundle identifiers.
 - Manual: record real meeting audio with microphone plus Zoom, Meet, or browser audio and verify both sides appear in the transcript.
 - Manual: finish a new meeting while the Meetings screen is open and verify the new history row text appears without scrolling.
-- Manual: open Meetings with entries from several days and verify meetings are grouped by day and the current day header sticks while scrolling.
-- Manual: open a saved meeting, drag the full transcript text area handle, and verify the transcript area resizes while text remains selectable and read-only.
+- Manual: open Meetings on desktop and verify the left searchable date-grouped list, center read-only transcript workspace, and right metadata/actions sidebar scroll independently.
+- Manual: open Meetings with entries from several days and verify meetings are grouped by day and the current day header sticks while the list scrolls.
 - Manual: deny System Audio access and verify the recovery path.
 - Manual: stop, cancel, fail, retry, and expire a recording and verify temporary audio and recovery audio follow the documented cleanup behavior.
 

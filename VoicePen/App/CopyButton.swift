@@ -12,6 +12,7 @@ struct CopyButton: View {
     var systemImage = "doc.on.doc"
     var presentation: Presentation = .iconOnly
     var isDisabled = false
+    var feedbackTrigger = 0
     let action: () -> Void
 
     @State private var isCopied = false
@@ -23,6 +24,12 @@ struct CopyButton: View {
             .foregroundStyle(isCopied ? .green : .primary)
             .help(isCopied ? copiedTitle : title)
             .accessibilityLabel(isCopied ? copiedTitle : title)
+            .onChange(of: feedbackTrigger) { _, _ in
+                guard !isDisabled else {
+                    return
+                }
+                showFeedback()
+            }
             .onDisappear {
                 resetTask?.cancel()
             }
@@ -73,7 +80,11 @@ struct CopyButton: View {
         isCopied = true
         resetTask?.cancel()
         resetTask = Task {
-            try? await Task.sleep(for: VoicePenConfig.historyCopyFeedbackDuration)
+            do {
+                try await Task.sleep(for: VoicePenConfig.historyCopyFeedbackDuration)
+            } catch {
+                return
+            }
             await MainActor.run {
                 isCopied = false
             }

@@ -23,6 +23,7 @@ final class MeetingRecordingStore {
         case startFailed(Error)
         case stopRequested(UUID)
         case stopSucceeded(UUID, MeetingHistoryEntry)
+        case stopDiscardedNoSpeech(UUID)
         case stopFailed(UUID, Error)
         case cancelSucceeded
         case cancelFailed(Error)
@@ -55,6 +56,8 @@ final class MeetingRecordingStore {
 
     private static let microphonePermissionRequiredMessage = "Microphone permission is required to record dictation audio locally."
     private static let systemAudioPermissionRequiredMessage = "System Audio permission is required to capture meeting audio locally."
+    private static let noSpeechDetectedAlertTitle = "No speech detected"
+    private static let noSpeechDetectedAlertMessage = "VoicePen recorded silence, so this meeting was not saved."
 
     private(set) var state: State
     private let environment: Environment
@@ -138,6 +141,8 @@ final class MeetingRecordingStore {
             do {
                 let entry = try await meetingPipeline.stopAndProcess()
                 send(.stopSucceeded(processingID, entry))
+            } catch MeetingPipelineNoSpeechError.noSpeechDetected {
+                send(.stopDiscardedNoSpeech(processingID))
             } catch {
                 send(.stopFailed(processingID, error))
             }
@@ -227,6 +232,15 @@ final class MeetingRecordingStore {
             environment.refreshBaseState()
             environment.setErrorMessage(nil)
 
+        case let .stopDiscardedNoSpeech(processingID):
+            guard state.activeProcessingID == processingID else { return }
+            finishProcessing(id: processingID)
+            stopStatusUpdates()
+            updateElapsedTime(0)
+            environment.refreshBaseState()
+            environment.setErrorMessage(nil)
+            showNoSpeechDetectedAlert()
+
         case let .stopFailed(processingID, error):
             guard state.activeProcessingID == processingID else { return }
             stopStatusUpdates()
@@ -313,6 +327,16 @@ final class MeetingRecordingStore {
         }
 
         environment.presentError(error)
+    }
+
+    private func showNoSpeechDetectedAlert() {
+        _ = environment.userPrompts.showAlert(
+            messageText: Self.noSpeechDetectedAlertTitle,
+            informativeText: Self.noSpeechDetectedAlertMessage,
+            style: .informational,
+            buttons: ["OK"],
+            activateBeforeShowing: true
+        )
     }
 
     private func startStatusUpdates() {

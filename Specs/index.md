@@ -15,6 +15,7 @@
 - [SPEC-011 Meeting Recording Mode](2026-05-05-meeting-recording-mode.md)
 - [SPEC-012 Audio Settings And Voice Processing](2026-05-05-audio-settings-voice-processing.md)
 - [SPEC-014 Main Window Activity Bar Navigation](2026-05-14-main-window-activity-bar-navigation.md)
+- [SPEC-015 Shared Transcript Workspace](2026-05-15-shared-transcript-workspace.md)
 
 ## Templates
 
