@@ -25,7 +25,6 @@ struct VoicePenMainWindow: View {
             sections.append(.ai)
         }
         sections.append(contentsOf: [
-            .permissions,
             .about
         ])
         return sections
@@ -66,6 +65,9 @@ struct VoicePenMainWindow: View {
                 selectedSection = section
             })
             .frame(width: 0, height: 0)
+
+            MeetingRecordingShortcutMonitor(toggleRecording: toggleMeetingRecording)
+                .frame(width: 0, height: 0)
         }
         .frame(minWidth: 920, minHeight: 560)
     }
@@ -84,10 +86,11 @@ struct VoicePenMainWindow: View {
         case .general:
             GeneralSettingsView(
                 controller: controller,
-                historyStore: controller.historyStore
+                historyStore: controller.historyStore,
+                openSection: { section in
+                    selectedSection = section
+                }
             )
-        case .permissions:
-            PermissionsSettingsView(controller: controller)
         case .model:
             ModelSettingsView(controller: controller, settingsStore: controller.settingsStore)
         case .modes:
@@ -113,10 +116,24 @@ struct VoicePenMainWindow: View {
         case .about:
             AboutView(
                 controller: controller,
-                historyStore: controller.historyStore,
-                settingsStore: controller.settingsStore
+                historyStore: controller.historyStore
             )
         }
+    }
+
+    @discardableResult
+    private func toggleMeetingRecording() -> Bool {
+        if controller.appState.isMeetingCaptureActive {
+            controller.stopMeetingRecording()
+            return true
+        }
+
+        guard controller.appState.canStartMeetingRecording else {
+            return false
+        }
+
+        controller.startMeetingRecording()
+        return true
     }
 }
 
@@ -1157,10 +1174,6 @@ private struct MeetingsView: View {
                 deleteAction: { entryPendingDeletion = $0 }
             )
         }
-        .background(
-            MeetingRecordingShortcutMonitor(toggleRecording: toggleMeetingRecording)
-                .frame(width: 0, height: 0)
-        )
         .onAppear {
             selectedID = selectedID ?? filteredEntries.first?.id
         }
@@ -1628,7 +1641,7 @@ private struct MeetingMetadataSection: View {
             }
 
             TranscriptSidebarSection("Speakers detected") {
-                TranscriptMetadataValue("—")
+                TranscriptMetadataValue(speakerCountText(for: entry))
             }
 
             if let recoveryAudio = entry.recoveryAudio {
@@ -1744,6 +1757,10 @@ private struct MeetingMetadataSection: View {
         return String(format: "%.2f s", total)
     }
 
+    private func speakerCountText(for entry: MeetingHistoryEntry) -> String {
+        entry.speakerCount.map(String.init) ?? "—"
+    }
+
     private func isRecoveryAudioAvailable(_ entry: MeetingHistoryEntry) -> Bool {
         guard let recoveryAudio = entry.recoveryAudio else {
             return false
@@ -1774,13 +1791,8 @@ private struct HistoryView: View {
     @ObservedObject var controller: AppController
     @ObservedObject var historyStore: VoiceHistoryStore
     @State private var selectedID: VoiceHistoryEntry.ID?
-    @State private var showingClearConfirmation = false
     @State private var entryPendingDeletion: VoiceHistoryEntry?
     @State private var searchText = ""
-    @State private var copiedEntryID: VoiceHistoryEntry.ID?
-    @State private var copyFeedbackResetTask: Task<Void, Never>?
-
-    private let copyFeedbackDuration = VoicePenConfig.historyCopyFeedbackDuration
 
     private var filteredEntries: [VoiceHistoryEntry] {
         VoiceHistoryFilter(query: searchText)
@@ -1802,11 +1814,10 @@ private struct HistoryView: View {
             noMatchesSystemImage: "magnifyingglass",
             noMatchesDescription: "Try another search."
         ) {
-            clearSessionsButton
+            EmptyView()
         } rowContent: { entry in
             HistoryRowView(
                 entry: entry,
-                isCopyConfirmed: copiedEntryID == entry.id,
                 copyAction: {
                     copyHistoryEntry(entry)
                 },
@@ -1835,17 +1846,6 @@ private struct HistoryView: View {
         .onAppear {
             selectedID = selectedID ?? filteredEntries.first?.id
         }
-        .onDisappear {
-            copyFeedbackResetTask?.cancel()
-        }
-        .alert("Are you sure?", isPresented: $showingClearConfirmation) {
-            Button("Clear", role: .destructive) {
-                controller.clearHistory()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This removes all saved voice sessions from VoicePen.")
-        }
         .alert("Delete voice session?", isPresented: deleteConfirmationBinding) {
             Button("Delete", role: .destructive) {
                 if let entryPendingDeletion {
@@ -1858,19 +1858,6 @@ private struct HistoryView: View {
             }
         } message: {
             Text("This removes only the selected saved transcription.")
-        }
-    }
-
-    private var clearSessionsButton: some View {
-        HStack {
-            Spacer()
-
-            Button(role: .destructive) {
-                showingClearConfirmation = true
-            } label: {
-                Label("Clear", systemImage: "trash")
-            }
-            .disabled(historyStore.entries.isEmpty)
         }
     }
 
@@ -1888,18 +1875,6 @@ private struct HistoryView: View {
     private func copyHistoryEntry(_ entry: VoiceHistoryEntry) {
         guard !entry.finalText.trimmed.isEmpty else { return }
         controller.copyToClipboard(entry.finalText)
-        copiedEntryID = entry.id
-
-        copyFeedbackResetTask?.cancel()
-        copyFeedbackResetTask = Task {
-            try? await Task.sleep(for: copyFeedbackDuration)
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                if copiedEntryID == entry.id {
-                    copiedEntryID = nil
-                }
-            }
-        }
     }
 
     private func insertHistoryEntry(_ entry: VoiceHistoryEntry) {
@@ -1910,73 +1885,29 @@ private struct HistoryView: View {
 
 private struct HistoryRowView: View {
     let entry: VoiceHistoryEntry
-    let isCopyConfirmed: Bool
     let copyAction: () -> Void
     let deleteAction: () -> Void
-    @State private var isHovered = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 8) {
+            HStack {
                 statusIndicator
 
                 Spacer()
 
-                Text(entry.createdAt, style: .time)
+                Text(rowMetadata)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
-
-                Button(action: copyAction) {
-                    Image(systemName: isCopyConfirmed ? "checkmark" : "doc.on.doc")
-                        .font(.system(size: 12, weight: .semibold))
-                        .frame(width: 22, height: 22)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(isCopyConfirmed ? .green : .secondary)
-                .opacity((isHovered || isCopyConfirmed) && hasCopyableText ? 1 : 0)
-                .disabled(!hasCopyableText)
-                .allowsHitTesting(isHovered || isCopyConfirmed)
-                .help(isCopyConfirmed ? "Copied" : "Copy text")
-                .animation(.snappy(duration: 0.15), value: isCopyConfirmed)
-
-                Button(role: .destructive, action: deleteAction) {
-                    Image(systemName: "trash")
-                        .font(.system(size: 12, weight: .semibold))
-                        .frame(width: 22, height: 22)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .opacity(isHovered ? 1 : 0)
-                .allowsHitTesting(isHovered)
-                .help("Delete session")
+                    .lineLimit(1)
             }
 
             Text(entry.previewText)
                 .font(.system(size: 13))
                 .lineLimit(2)
                 .foregroundStyle(.primary)
-
-            HStack(spacing: 8) {
-                Text(entry.createdAt, style: .date)
-
-                if let duration = entry.duration {
-                    Text(formatDuration(duration))
-                }
-            }
-            .font(.system(size: 11))
-            .foregroundStyle(.secondary)
         }
         .padding(.vertical, 5)
         .contentShape(Rectangle())
-        .simultaneousGesture(
-            TapGesture(count: 2)
-                .onEnded {
-                    guard hasCopyableText else { return }
-                    copyAction()
-                }
-        )
         .contextMenu {
             if hasCopyableText {
                 Button {
@@ -1999,11 +1930,20 @@ private struct HistoryRowView: View {
         .accessibilityAction(named: Text("Delete Session")) {
             deleteAction()
         }
-        .onHover { isHovered = $0 }
     }
 
     private var hasCopyableText: Bool {
         !entry.finalText.trimmed.isEmpty
+    }
+
+    private var rowMetadata: String {
+        var parts = [
+            entry.createdAt.formatted(date: .omitted, time: .shortened)
+        ]
+        if let duration = entry.duration {
+            parts.append(MeetingDurationFormatter.historyText(duration))
+        }
+        return parts.joined(separator: " · ")
     }
 
     private var iconName: String {
@@ -2051,10 +1991,6 @@ private struct HistoryRowView: View {
 
         let errorMessage = entry.errorMessage?.trimmed ?? ""
         return errorMessage.isEmpty ? entry.status.title : errorMessage
-    }
-
-    private func formatDuration(_ duration: TimeInterval) -> String {
-        String(format: "%.1fs", duration)
     }
 }
 

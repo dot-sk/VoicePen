@@ -22,7 +22,9 @@ The activity bar keeps the existing section order, feature flag visibility, and
 meeting-aware Meetings icon behavior. Section names remain available through
 accessibility labels and hover help, but they are not rendered as persistent
 text in the left strip. The app readiness/status text shall be readable on Home
-instead of represented by a standalone activity bar icon.
+instead of represented by a standalone activity bar icon. System permission
+controls belong in Settings and shall not appear as a standalone activity bar
+icon.
 
 Selecting an icon changes the detail content to that section. VoicePen opens
 with Home selected by default. The strip shall preserve a visible selected
@@ -34,6 +36,7 @@ state and keep the existing persistent meeting recording panel behavior.
 - When Home is selected, VoicePen shall show the current app status as readable text.
 - When the user selects an activity bar icon, VoicePen shall show the matching section detail.
 - When Modes or AI feature flags are disabled, VoicePen shall omit those icons from the activity bar.
+- When permission controls are available, VoicePen shall show them inside Settings instead of adding a separate Permissions activity bar icon.
 - When Meeting recording or processing shows the persistent meeting panel, the Meetings icon shall use the current menu bar status icon.
 - Activity bar icons shall expose section names to assistive technologies and hover help without rendering section names in the strip.
 - When the main window is focused, Command-1 shall navigate to Home, Command-2 shall navigate to Meetings, and Command-3 shall navigate to Sessions.
@@ -47,11 +50,12 @@ state and keep the existing persistent meeting recording panel behavior.
 | Navigate to Sessions | User selects the Sessions clock icon | Sessions detail appears and the clock icon shows selected state |
 | Navigate with shortcuts | User presses Command-1, Command-2, or Command-3 in the main window | VoicePen switches to Home, Meetings, or Sessions respectively |
 | Hidden AI feature | AI feature flag is disabled | AI icon is not shown in the activity bar |
+| Permissions | User opens the main window | Permission controls are reachable from Settings without a separate Permissions icon |
 | Meeting active | Meeting recording or processing is active | Meetings activity icon follows the app status icon |
 
 ## Test Mapping
 
-- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` checks activity bar grouping, readable Home status placement, primary-section keyboard shortcuts, feature flags, and meeting-aware icon routing.
+- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` checks activity bar grouping, readable Home status placement, primary-section keyboard shortcuts, Settings permission placement, feature flags, and meeting-aware icon routing.
 - Manual: open the main window; verify the left strip is narrow, shows only section icons, exposes section names through hover help/accessibility, Home shows readable app status, switching icons changes detail sections, and the meeting panel remains at the bottom while recording or processing.
 
 ## Notes

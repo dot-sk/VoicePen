@@ -39,7 +39,7 @@ and automatic mode classifies the active app as terminal, developer, or plain.
 - When the Modes feature flag is disabled, VoicePen shall not call the LLM intent parser because developer and terminal contexts are unavailable.
 - When the user has selected Plain, Auto, Writing Code, or Terminal in the UI, VoicePen shall use that mode instead of `[developer].mode`.
 - When the settings window is open, VoicePen shall show Plain, Auto, Writing Code, and Terminal mode selection in a dedicated Modes settings tab rather than Home.
-- When no feature-flag-only sections are enabled, VoicePen shall order sidebar sections as Home, Meetings, History, then a Settings block with Dictionary, Model, Settings, Permissions, and About.
+- When no feature-flag-only sections are enabled, VoicePen shall order sidebar sections as Home, Meetings, History, then a Settings block with Dictionary, Model, Settings, and About.
 - When the settings window is open, VoicePen shall show push-to-talk shortcut controls in the Settings screen.
 - When the UI shows Writing Code, VoicePen shall keep storing and reading the compatible TOML mode value `developer`.
 - When the Modes settings tab is open, VoicePen shall show a short user-facing summary of mode routing plus a note that AI settings are needed for full supported command parsing; detailed behavior for Plain, Auto, Writing Code, and Terminal shall live in separate per-mode sections, including a terminal command example.

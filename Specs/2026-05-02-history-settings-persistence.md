@@ -44,22 +44,34 @@ session-specific persistence and actions here.
 - When older history text is compressed or evicted, VoicePen shall keep each history row's duration, status, timing, model metadata, app version used for decoding, and recognized word count so total dictated time and estimated time saved remain complete.
 - When a voice history entry is saved after decoding, VoicePen shall store the app version used for that decoding alongside the transcription model metadata.
 - When History detail shows processing metadata, VoicePen shall omit the app version row when the saved decoding app version is unknown.
-- When About settings shows the App block, VoicePen shall group app status, privacy, local storage, database path, and Open at login controls there.
+- When About settings shows the App block, VoicePen shall group app status, privacy, local storage, and database path there.
+- When Settings shows app launch controls, VoicePen shall show the Open at login setting near the top of the Settings screen.
+- When Settings shows appearance controls, VoicePen shall let the user choose System, Light, or Dark theme; System shall follow the current macOS appearance.
+- When the user changes the app theme setting, VoicePen shall persist the choice and apply it to the app immediately without restart.
+- When Settings shows system access controls, VoicePen shall show permission statuses and request/refresh actions near the top of the Settings screen rather than as a standalone activity bar section.
 - When About settings shows local storage, VoicePen shall show one approximate database disk usage value without splitting text payload and database sizes.
 - When the Sessions UI is shown, VoicePen shall not expose a file-reveal action for the SQLite history database; users inspect sessions through the in-app list and detail pane.
 - When the Sessions UI is shown, VoicePen shall use the shared transcript workspace described in SPEC-015.
-- When Home shows total transcribed audio time, it shall label the total with recognized word count and countable session count.
-- When Home shows total transcribed audio time, it shall also show an approximate time-saved estimate by comparing recognized word count against a professional typing baseline.
-- When VoicePen shows usage stats, it shall also show lightweight progress signals: active streak, words dictated today, best dictation day, the latest reached milestone, and the next milestone.
+- When Home is selected, VoicePen shall show a compact readiness strip as the only Home readiness status surface.
+- When Home is ready, the readiness strip shall include the current push-to-talk shortcut hint and the Meeting recording Command-R hint.
+- When Home is not ready, busy, or in a problem state, the readiness strip shall show the current app status without also showing `Ready`.
+- When Home shows an actionable readiness problem, permission problems shall route from the readiness strip to Settings and a missing local transcription model shall route to Models; transient busy states shall not show a readiness-strip action.
+- When Home shows usage stats, it shall emphasize estimated time saved for the current Monday-Sunday week by comparing recognized word count against the professional typing baseline.
+- When Home shows weekly usage stats, it shall show weekly recognized word count, countable session count, spoken audio duration, current active streak, active days this week, best saved-time day this week, and best streak.
+- When Home has no countable activity for the current week, the weekly value area and daily activity chart shall present a calm empty weekly state rather than an empty chart or an oversized zero-value headline.
+- When Home shows daily saved-time activity, it shall include one bucket for each Monday-Sunday day, including days with no countable activity.
+- When VoicePen shows usage milestones, the Home progress block shall identify the progress as lifetime or all-time so it does not read as part of the current-week totals.
+- When VoicePen shows usage milestones, it shall continue to use the existing progressive lifetime milestone ladder for the Home progress block.
+- When VoicePen shows usage stats, it shall also compute lightweight progress signals: active streak, words dictated today, best dictation day, best streak, the latest reached milestone, and the next milestone.
 - When VoicePen computes usage milestones, it shall use a progressive ladder that mixes early wins, lifetime word volume, dictation count, active streak, best-day volume, and time saved so a single high-volume day cannot unlock the full ladder.
-- When VoicePen computes active streak, it shall count consecutive local calendar days with at least one countable history entry, allowing the streak to remain active before today's first dictation when yesterday had activity.
+- When VoicePen computes active streak and best streak, it shall count consecutive local calendar days with at least one countable history entry, allowing the current streak to remain active before today's first dictation when yesterday had activity.
 - When VoicePen computes words dictated today and best dictation day, it shall use countable history entries and each entry's recognized word count.
 - When the user clicks a visible history entry, VoicePen shall select that entry, show it as active in the list, and update the detail pane to that entry.
-- When the user copies text from a visible history row, VoicePen shall temporarily replace that row's copy icon with a checkmark so the completed copy action is visible.
 - When the user copies text from a visible history detail copy action, VoicePen shall temporarily replace that copy icon with a checkmark so the completed copy action is visible.
 - Copy actions that show temporary copied feedback shall keep stable dimensions while switching between normal and copied states.
-- When the user chooses to clear Sessions, VoicePen shall ask for explicit confirmation before deleting saved history entries.
-- When a history row has actions such as copy or delete, VoicePen shall keep hover controls available for pointer users and also expose the same actions through a row context menu and accessibility actions.
+- When Sessions is shown, VoicePen shall not expose a bulk Clear action; saved voice sessions shall be removed through per-session delete actions.
+- When a Sessions row is shown, VoicePen shall use the same compact status, timestamp, duration, and preview-text row structure as Meetings.
+- When a Sessions row has actions such as copy or delete, VoicePen shall expose them through a row context menu and accessibility actions.
 - When the history list shows a successful entry, VoicePen shall use a green checkmark without repeating a success label; non-success entries shall show a status or error reason.
 - When the user opens a Sessions entry detail, VoicePen shall show final text in the center workspace.
 - When a Sessions entry has no final text, VoicePen shall show a secondary error or status fallback and disable copy and repeat-insert actions for that entry.
@@ -69,7 +81,7 @@ session-specific persistence and actions here.
 - When the user copies or repeats insertion from Sessions, VoicePen shall use final text only.
 - When the Sessions UI has visible entries from multiple local calendar days, VoicePen shall group the list into sticky day sections while preserving newest-first entry order within each day.
 - When the Open VoicePen at login setting is displayed, VoicePen shall reflect the current macOS login item status instead of only the last saved preference.
-- When no feature-flag-only sections are enabled, the main window activity bar shall show Home, Meetings, and Sessions as primary navigation, followed by Settings icons ordered Dictionary, Model, Settings, Permissions, and About.
+- When no feature-flag-only sections are enabled, the main window activity bar shall show Home, Meetings, and Sessions as primary navigation, followed by Settings icons ordered Dictionary, Model, Settings, and About.
 - When tests touch persistence, they shall use temporary data paths rather than real user data directories.
 
 ## Examples
@@ -89,19 +101,27 @@ session-specific persistence and actions here.
 | History decode metadata | New completed dictation is saved | The entry stores both transcription model metadata and the app version used during decoding |
 | Unknown history app version | Older history entry has no saved decoding app version | History detail omits the App version metadata row |
 | Usage stats after text compression or eviction | Older text payloads are compressed or evicted by the budget | Total dictated duration and estimated time saved still include those retained rows |
-| About app details | Open About settings | The App block shows status, privacy, storage, database path, and Open at login controls |
+| About app details | Open About settings | The App block shows status, privacy, storage, and database path |
+| Launch setting | Open Settings | Open at login appears near the top of the Settings screen |
+| Theme setting | User changes Settings theme from System to Light or Dark | VoicePen persists the choice and updates the app appearance immediately |
+| Permission controls | Open Settings | Permission statuses and request/refresh actions appear near the top of Settings |
 | About storage display | History has saved rows | About settings show approximate database disk usage as one value |
 | History database file | Open Sessions | No history database reveal action is shown |
-| Usage time saved | History contains completed dictations with recognized text | Home shows estimated time saved versus manual typing at the professional typing baseline |
-| Usage total caption | History contains completed dictations with recognized text | Home labels the total with transcribed word count and session count |
-| Lightweight progress stats | History contains entries across multiple days | Home shows current streak, today's words, best day, latest reached milestone, and next milestone |
+| Home ready status | App is ready | Home shows one readiness strip with the current push-to-talk hint and Meeting recording Command-R hint |
+| Home not ready status | Microphone, Accessibility, model, busy, or error state is active | Home readiness strip shows the current non-ready status without also saying `Ready` |
+| Home actionable status | Permission or model setup is missing | Home readiness strip can route the user to Settings for permissions or Models for model setup |
+| Weekly time saved | Current week contains completed dictations with recognized text | Home emphasizes estimated weekly time saved versus manual typing at the professional typing baseline |
+| Weekly usage summary | Current week contains countable dictations | Home shows weekly recognized word count, countable sessions, spoken audio, and daily saved-time activity buckets |
+| Weekly empty state | Current week has no countable dictations | Home presents a weekly empty state and an empty daily activity state without implying lifetime milestone progress is weekly progress |
+| Weekly zero days | Current week has days without countable dictations | Home keeps those days visible in the Monday-Sunday activity buckets with zero saved time |
+| Lightweight progress stats | History contains entries across multiple days | Home shows current streak, all-time best streak, best saved-time day this week, latest reached milestone, and next lifetime milestone |
 | Single high-volume day | One day contains thousands of dictated words | Early volume and daily-record milestones may unlock, but longer streak and elite lifetime milestones remain locked |
 | History selection | Click an older visible history row | Row becomes active and the detail pane shows that row |
-| History row copy feedback | Copy a row with final text | The row copy icon temporarily changes from copy to checkmark |
 | History detail copy feedback | Copy final text from the detail pane | The clicked copy icon temporarily changes from copy to checkmark |
 | Stable copy feedback | Copy action changes to copied feedback | The button keeps its existing dimensions |
-| Clear history confirmation | Press Clear in Sessions | A confirmation alert appears before saved history entries are deleted |
-| History row actions | Secondary-click or use accessibility actions on a history row | Copy text and delete session are available without relying on hover-only controls |
+| Sessions bulk clear | Open Sessions | No bulk Clear action is exposed; individual saved sessions can still be deleted |
+| History row layout | Open Sessions with saved rows | Rows use the compact status, timestamp, duration, and preview-text structure used by Meetings |
+| History row actions | Secondary-click or use accessibility actions on a history row | Copy text and delete session are available |
 | History success status | Entry inserted successfully | Row shows a green checkmark without `Insert attempted` text |
 | History problem status | Entry is empty or failed | Row shows the status or error reason next to the status icon |
 | History detail text | Selected entry has final and raw text | Final text is visible in the shared center workspace; raw transcript is not shown in Sessions |
@@ -110,24 +130,26 @@ session-specific persistence and actions here.
 | Raw transcript search | Search for text that appears only in raw transcript | Sessions does not match that entry |
 | History day groups | History contains entries from multiple local calendar days | Entries appear under sticky day sections while preserving newest-first order within each day |
 | Open at login external change | macOS Login Items status changes outside VoicePen | VoicePen refreshes the toggle to the current system status |
-| Activity bar | Open main VoicePen window without feature-flag-only sections | Activity bar shows Home, Meetings, Sessions, then Settings icons for Dictionary, Model, Settings, Permissions, and About |
+| Activity bar | Open main VoicePen window without feature-flag-only sections | Activity bar shows Home, Meetings, Sessions, then Settings icons for Dictionary, Model, Settings, and About |
 | Test storage | Persistence test run | Temporary directory is used |
 
 ## Test Mapping
 
 - Automated: `VoicePenTests/Persistence/DatabaseMigratorTests.swift` covers schema migration.
-- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers main window activity bar grouping and ordering, Home usage total caption, About App block placement, one-value disk usage display, history processing metadata display, stable shared copy-button feedback, and history row context/accessibility actions.
+- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers main window activity bar grouping and ordering, Home usage data wiring, Home actionable status routing, Settings launch and permission placement, About App block placement, one-value disk usage display, history processing metadata display, stable shared copy-button feedback, and Sessions row layout and context/accessibility actions.
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers that History does not expose a SQLite file-reveal action.
 - Automated: `VoicePenTests/TranscriptWorkspace/TranscriptDayGroupsTests.swift` covers shared list grouping by local calendar day while preserving entry order.
-- Automated: `VoicePenTests/Settings/AppSettingsStoreTests.swift` and `VoicePenTests/Settings/UserConfigStoreTests.swift` cover settings defaults, persistence, and normalization.
-- Automated: `VoicePenTests/App/AppControllerTests.swift` covers launch-at-login updates and synchronization with current macOS login item status.
+- Automated: `VoicePenTests/Settings/AppSettingsStoreTests.swift` and `VoicePenTests/Settings/UserConfigStoreTests.swift` cover settings defaults, persistence, and normalization, including app appearance mode.
+- Automated: `VoicePenTests/App/AppControllerTests.swift` covers launch-at-login updates, synchronization with current macOS login item status, and app appearance application.
 - Automated: `VoicePenTests/History/VoiceHistoryStoreTests.swift` covers unlimited local history rows, batch text compression, text payload eviction, storage stats, ordering, deletion, clearing, and persisted history metadata including app version.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers saving the app version used for decoding with voice history model metadata.
-- Automated: `VoicePenTests/TranscriptWorkspace/TranscriptSearchFilterTests.swift`, `VoicePenTests/History/VoiceHistoryFilterTests.swift`, and `VoicePenTests/History/VoiceTranscriptionUsageStatsTests.swift` cover shared filtering mechanics, Sessions search field indexing, estimated time-saved usage stats, streaks, daily word counts, best day, latest reached milestone, and next milestone.
-- Manual: open Home with several history entries and verify the progress stats appear near the usage summary without success popups.
-- Manual: open About settings and verify the App block contains status, privacy, storage, database path, and Open at login controls.
+- Automated: `VoicePenTests/TranscriptWorkspace/TranscriptSearchFilterTests.swift`, `VoicePenTests/History/VoiceHistoryFilterTests.swift`, and `VoicePenTests/History/VoiceTranscriptionUsageStatsTests.swift` cover shared filtering mechanics, Sessions search field indexing, estimated time-saved usage stats, weekly buckets, streaks, best streak, daily word counts, best day, latest reached milestone, and next milestone.
+- Manual: open Home with empty and populated history in light and dark mode; verify the readiness strip, weekly dashboard, daily activity chart, and milestone progress read as one compact dashboard.
+- Manual: open Settings and verify the Open at login control appears near the top.
+- Manual: open Settings and verify permission statuses and request/refresh actions appear near the top.
+- Manual: open About settings and verify the App block contains status, privacy, storage, and database path.
 - Manual: open Sessions with at least two entries, click a non-selected entry, and verify the row becomes active and the detail pane changes to that entry.
-- Manual: hover a completed Sessions row, copy it with the row copy button or double-click, and verify the row copy icon temporarily changes to a checkmark while the clipboard receives the row text.
+- Manual: copy a completed Sessions row from the row context menu, and verify the clipboard receives the row text.
 - Manual: secondary-click a completed Sessions row and verify Copy Text and Delete Session are available; verify keyboard or VoiceOver accessibility actions expose the same actions.
 - Manual: verify successful Sessions rows show only a green checkmark status, while empty or failed rows show a textual reason.
 - Manual: select a completed Sessions entry and verify final text is visible immediately in the center workspace while raw transcript is not shown.

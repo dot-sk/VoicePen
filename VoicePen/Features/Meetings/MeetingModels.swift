@@ -99,6 +99,7 @@ nonisolated struct MeetingHistoryEntry: Codable, Identifiable, Equatable, Sendab
     var timings: MeetingPipelineTimings?
     var modelMetadata: VoiceTranscriptionModelMetadata?
     var recognizedWordCount: Int?
+    var speakerCount: Int?
     var recoveryAudio: MeetingRecoveryAudioManifest?
     var isTextPayloadEvicted: Bool = false
 
@@ -113,6 +114,7 @@ nonisolated struct MeetingHistoryEntry: Codable, Identifiable, Equatable, Sendab
         timings: MeetingPipelineTimings?,
         modelMetadata: VoiceTranscriptionModelMetadata?,
         recognizedWordCount: Int? = nil,
+        speakerCount: Int? = nil,
         recoveryAudio: MeetingRecoveryAudioManifest? = nil,
         isTextPayloadEvicted: Bool = false
     ) {
@@ -126,6 +128,7 @@ nonisolated struct MeetingHistoryEntry: Codable, Identifiable, Equatable, Sendab
         self.timings = timings
         self.modelMetadata = modelMetadata
         self.recognizedWordCount = recognizedWordCount
+        self.speakerCount = speakerCount
         self.recoveryAudio = recoveryAudio
         self.isTextPayloadEvicted = isTextPayloadEvicted
     }

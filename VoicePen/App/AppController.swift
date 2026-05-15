@@ -553,6 +553,7 @@ final class AppController: ObservableObject {
             try meetingHistoryStore?.load()
             try meetingHistoryStore?.cleanupExpiredRecoveryAudio()
             try settingsStore.load(defaultModelId: recommendedModel.id)
+            applyAppAppearanceMode(settingsStore.appAppearanceMode)
             try syncOpenAtLoginState()
             modelWarmup = scheduleModelWarmupIfInstalled()
             meetingDiarizationModelWarmup = scheduleMeetingDiarizationModelWarmupIfNeeded()
@@ -1632,6 +1633,15 @@ final class AppController: ObservableObject {
         }
     }
 
+    func updateAppAppearanceMode(_ mode: AppAppearanceMode) {
+        do {
+            try settingsStore.updateAppAppearanceMode(mode)
+            applyAppAppearanceMode(mode)
+        } catch {
+            setError(error)
+        }
+    }
+
     func refreshOpenAtLoginState() {
         do {
             try syncOpenAtLoginState()
@@ -1644,6 +1654,17 @@ final class AppController: ObservableObject {
         let systemIsEnabled = launchAtLogin.isEnabled
         guard settingsStore.openAtLogin != systemIsEnabled else { return }
         try settingsStore.updateOpenAtLogin(systemIsEnabled)
+    }
+
+    private func applyAppAppearanceMode(_ mode: AppAppearanceMode) {
+        switch mode {
+        case .system:
+            NSApplication.shared.appearance = nil
+        case .light:
+            NSApplication.shared.appearance = NSAppearance(named: .aqua)
+        case .dark:
+            NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
+        }
     }
 
     private func handleTranscriptionError(_ error: TranscriptionError) {

@@ -135,10 +135,11 @@ final class MeetingHistoryStore: ObservableObject {
                 timings_json,
                 model_metadata_json,
                 recognized_word_count,
+                speaker_count,
                 text_storage_format,
                 transcript_text_compressed,
                 recovery_audio_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
         )
 
@@ -168,12 +169,17 @@ final class MeetingHistoryStore: ObservableObject {
         }
 
         statement.bindInt64(Int64(entry.usageWordCount), at: 10)
-        statement.bindText(VoiceHistoryTextStorageFormat.plain, at: 11)
-        statement.bindNull(at: 12)
-        if let recoveryAudio = entry.recoveryAudio {
-            statement.bindText(try jsonString(recoveryAudio), at: 13)
+        if let speakerCount = entry.speakerCount {
+            statement.bindInt64(Int64(speakerCount), at: 11)
         } else {
-            statement.bindNull(at: 13)
+            statement.bindNull(at: 11)
+        }
+        statement.bindText(VoiceHistoryTextStorageFormat.plain, at: 12)
+        statement.bindNull(at: 13)
+        if let recoveryAudio = entry.recoveryAudio {
+            statement.bindText(try jsonString(recoveryAudio), at: 14)
+        } else {
+            statement.bindNull(at: 14)
         }
         try statement.stepDone()
     }
@@ -296,7 +302,7 @@ final class MeetingHistoryStore: ObservableObject {
     private func fetchEntrySummaries(from database: SQLiteConnection) throws -> [MeetingHistoryEntry] {
         let statement = try database.prepare(
             """
-            SELECT id, created_at, duration, substr(transcript_text, 1, ?), status, source_flags_json, error_message, timings_json, model_metadata_json, recognized_word_count, text_storage_format, recovery_audio_json
+            SELECT id, created_at, duration, substr(transcript_text, 1, ?), status, source_flags_json, error_message, timings_json, model_metadata_json, recognized_word_count, speaker_count, text_storage_format, recovery_audio_json
             FROM meeting_history
             ORDER BY created_at DESC;
             """
@@ -318,7 +324,7 @@ final class MeetingHistoryStore: ObservableObject {
     private func fetchEntry(id: MeetingHistoryEntry.ID, from database: SQLiteConnection) throws -> MeetingHistoryEntry? {
         let statement = try database.prepare(
             """
-            SELECT id, created_at, duration, transcript_text, status, source_flags_json, error_message, timings_json, model_metadata_json, recognized_word_count, text_storage_format, transcript_text_compressed, recovery_audio_json
+            SELECT id, created_at, duration, transcript_text, status, source_flags_json, error_message, timings_json, model_metadata_json, recognized_word_count, speaker_count, text_storage_format, transcript_text_compressed, recovery_audio_json
             FROM meeting_history
             WHERE id = ?;
             """
@@ -385,11 +391,11 @@ final class MeetingHistoryStore: ObservableObject {
             throw MeetingHistoryStoreError.invalidRow("Invalid meeting entry id")
         }
 
-        let format = statement.string(at: 10)
+        let format = statement.string(at: 11)
         let storedText = try transcriptText(
             format: format,
             plainText: statement.string(at: 3),
-            compressedText: statement.optionalData(at: 11)
+            compressedText: statement.optionalData(at: 12)
         )
 
         return MeetingHistoryEntry(
@@ -403,7 +409,8 @@ final class MeetingHistoryStore: ObservableObject {
             timings: try decodeOptional(MeetingPipelineTimings.self, from: statement.optionalString(at: 7)),
             modelMetadata: try decodeOptional(VoiceTranscriptionModelMetadata.self, from: statement.optionalString(at: 8)),
             recognizedWordCount: statement.optionalInt(at: 9),
-            recoveryAudio: try decodeOptional(MeetingRecoveryAudioManifest.self, from: statement.optionalString(at: 12)),
+            speakerCount: statement.optionalInt(at: 10),
+            recoveryAudio: try decodeOptional(MeetingRecoveryAudioManifest.self, from: statement.optionalString(at: 13)),
             isTextPayloadEvicted: storedText.isEvicted
         )
     }
@@ -413,7 +420,7 @@ final class MeetingHistoryStore: ObservableObject {
             throw MeetingHistoryStoreError.invalidRow("Invalid meeting entry id")
         }
 
-        let format = statement.string(at: 10)
+        let format = statement.string(at: 11)
         let transcriptPreview: String
         let isTextPayloadEvicted: Bool
         switch format {
@@ -439,7 +446,8 @@ final class MeetingHistoryStore: ObservableObject {
             timings: try decodeOptional(MeetingPipelineTimings.self, from: statement.optionalString(at: 7)),
             modelMetadata: try decodeOptional(VoiceTranscriptionModelMetadata.self, from: statement.optionalString(at: 8)),
             recognizedWordCount: statement.optionalInt(at: 9),
-            recoveryAudio: try decodeOptional(MeetingRecoveryAudioManifest.self, from: statement.optionalString(at: 11)),
+            speakerCount: statement.optionalInt(at: 10),
+            recoveryAudio: try decodeOptional(MeetingRecoveryAudioManifest.self, from: statement.optionalString(at: 12)),
             isTextPayloadEvicted: isTextPayloadEvicted
         )
     }

@@ -158,7 +158,8 @@ final class MeetingPipeline {
                 expectedDiarizationSpeakerCount: nil,
                 entryID: entry.id,
                 existingTranscript: entry.transcriptText,
-                existingRecoveryAudio: recoveryAudio
+                existingRecoveryAudio: recoveryAudio,
+                existingSpeakerCount: entry.speakerCount
             )
             try removeTemporaryAudioFiles(cleanupURLs)
             if retryEntry.status == .completed {
@@ -171,7 +172,8 @@ final class MeetingPipeline {
                 error: TranscriptionError.transcriptionTimedOut,
                 entryID: entry.id,
                 existingTranscript: entry.transcriptText,
-                recoveryAudio: recoveryAudio
+                recoveryAudio: recoveryAudio,
+                speakerCount: entry.speakerCount
             )
             try removeTemporaryAudioFiles(cleanupURLs)
             throw CancellationError()
@@ -181,7 +183,8 @@ final class MeetingPipeline {
                 error: error,
                 entryID: entry.id,
                 existingTranscript: entry.transcriptText,
-                recoveryAudio: recoveryAudio
+                recoveryAudio: recoveryAudio,
+                speakerCount: entry.speakerCount
             )
             try removeTemporaryAudioFiles(cleanupURLs)
             return failedEntry
@@ -196,7 +199,8 @@ final class MeetingPipeline {
         expectedDiarizationSpeakerCount: Int?,
         entryID: UUID = UUID(),
         existingTranscript: String = "",
-        existingRecoveryAudio: MeetingRecoveryAudioManifest? = nil
+        existingRecoveryAudio: MeetingRecoveryAudioManifest? = nil,
+        existingSpeakerCount: Int? = nil
     ) async throws -> MeetingHistoryEntry {
         guard !chunks.isEmpty else {
             throw MeetingRecordingError.noCapturedAudio
@@ -210,13 +214,15 @@ final class MeetingPipeline {
         let orderedChunks = chunks.sorted(by: chunkOrder)
         let sourceSpansByChunkURL = Dictionary(grouping: sourceSpans, by: \.chunkURL)
         let diarization = await measure {
-            await meetingSpeakerTurns(
+            await meetingSpeakerAnalysis(
                 chunks: orderedChunks,
                 enabled: meetingDiarizationEnabled,
                 expectedSpeakerCount: expectedDiarizationSpeakerCount
             )
         }
-        let speakerTurns = diarization.value
+        let speakerAnalysis = diarization.value
+        let speakerTurns = speakerAnalysis.turns
+        let detectedSpeakerCount = speakerAnalysis.speakerCount ?? existingSpeakerCount
         if meetingDiarizationEnabled {
             AppLogger.info(
                 "Meeting diarization timing: elapsed=\(Self.elapsedTime(diarization.elapsed)), turns=\(speakerTurns.count)"
@@ -281,6 +287,7 @@ final class MeetingPipeline {
                     error: TranscriptionError.transcriptionTimedOut,
                     timings: timings,
                     modelMetadata: modelMetadata,
+                    speakerCount: detectedSpeakerCount,
                     entryID: entryID,
                     existingTranscript: existingTranscript,
                     existingRecoveryAudio: existingRecoveryAudio
@@ -320,6 +327,7 @@ final class MeetingPipeline {
             errorMessage: errorMessage(recording: recording, processingError: nil),
             timings: timings,
             modelMetadata: metadataWithAppVersion(modelMetadata),
+            speakerCount: detectedSpeakerCount,
             recoveryAudio: recoveryAudio
         )
         try historyStore.append(entry)
@@ -333,25 +341,25 @@ final class MeetingPipeline {
         }
     }
 
-    private func meetingSpeakerTurns(
+    private func meetingSpeakerAnalysis(
         chunks: [MeetingAudioChunk],
         enabled: Bool,
         expectedSpeakerCount: Int?
-    ) async -> [SpeakerTurn] {
+    ) async -> MeetingSpeakerAnalysis {
         guard enabled else {
             AppLogger.debug("Meeting diarization disabled for this meeting")
-            return []
+            return .empty
         }
         guard let diarizer else {
             AppLogger.info("Meeting diarization unavailable: no diarizer configured")
-            return []
+            return .empty
         }
         let recordingDuration = Self.recordingDuration(for: chunks)
         if expectedSpeakerCount == nil, recordingDuration < Self.minimumAutoDiarizationDuration {
             AppLogger.info(
                 "Meeting diarization skipped: recording=\(MeetingDiarizationDebug.interval(0, recordingDuration)) is shorter than auto diarization minimum \(Self.elapsedTime(Self.minimumAutoDiarizationDuration)); choose an exact speaker count to force diarization for very short recordings"
             )
-            return []
+            return .empty
         }
         AppLogger.info(
             "Meeting diarization requested: chunks=\(chunks.count), expectedSpeakers=\(expectedSpeakerCount.map(String.init) ?? "auto")"
@@ -367,10 +375,10 @@ final class MeetingPipeline {
             AppLogger.info(
                 "Meeting diarization returned: backend=\(result.backend), turns=\(turns.count), coverage=\(MeetingDiarizationDebug.coverage(turns)), speakers=\(MeetingDiarizationDebug.speakerCounts(turns))"
             )
-            return turns
+            return MeetingSpeakerAnalysis(result: result)
         } catch {
             AppLogger.info("Meeting diarization skipped: \(error.localizedDescription)")
-            return []
+            return .empty
         }
     }
 
@@ -438,6 +446,7 @@ final class MeetingPipeline {
         error: Error,
         timings: MeetingPipelineTimings,
         modelMetadata: VoiceTranscriptionModelMetadata?,
+        speakerCount: Int?,
         entryID: UUID = UUID(),
         existingTranscript: String = "",
         existingRecoveryAudio: MeetingRecoveryAudioManifest? = nil
@@ -461,6 +470,7 @@ final class MeetingPipeline {
             errorMessage: errorMessage(recording: recording, processingError: error),
             timings: timings,
             modelMetadata: metadataWithAppVersion(modelMetadata),
+            speakerCount: speakerCount,
             recoveryAudio: recoveryAudio
         )
         try historyStore.append(entry)
@@ -472,7 +482,8 @@ final class MeetingPipeline {
         error: Error,
         entryID: UUID = UUID(),
         existingTranscript: String = "",
-        recoveryAudio: MeetingRecoveryAudioManifest? = nil
+        recoveryAudio: MeetingRecoveryAudioManifest? = nil,
+        speakerCount: Int? = nil
     ) throws -> MeetingHistoryEntry {
         let duration = recording.duration
         let retainedAudio =
@@ -493,6 +504,7 @@ final class MeetingPipeline {
             errorMessage: errorMessage(recording: recording, processingError: error),
             timings: MeetingPipelineTimings(recording: duration),
             modelMetadata: nil,
+            speakerCount: speakerCount,
             recoveryAudio: retainedAudio
         )
         try historyStore.append(entry)
@@ -573,6 +585,32 @@ private struct MeetingProcessedChunk: Sendable {
     var preprocessing: TimeInterval
     var transcription: TimeInterval
     var modelMetadata: VoiceTranscriptionModelMetadata?
+}
+
+private struct MeetingSpeakerAnalysis: Sendable {
+    var turns: [SpeakerTurn]
+    var speakerCount: Int?
+
+    static let empty = MeetingSpeakerAnalysis(turns: [], speakerCount: nil)
+
+    init(turns: [SpeakerTurn], speakerCount: Int?) {
+        self.turns = turns
+        self.speakerCount = speakerCount
+    }
+
+    init(result: MeetingDiarizationResult) {
+        self.turns = result.turns
+        self.speakerCount = Self.detectedSpeakerCount(in: result)
+    }
+
+    private static func detectedSpeakerCount(in result: MeetingDiarizationResult) -> Int? {
+        if !result.speakers.isEmpty {
+            return result.speakers.count
+        }
+
+        let count = Set(result.turns.map(\.speakerId)).count
+        return count > 0 ? count : nil
+    }
 }
 
 private enum MeetingTranscriptFormatter {

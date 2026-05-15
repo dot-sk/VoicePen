@@ -9,6 +9,7 @@ struct TranscriptTextEditor: View {
     var isCopyDisabled = false
     @State private var selectedCharacterCount = 0
     @State private var copyFeedbackTrigger = 0
+    @State private var isCopyButtonHovered = false
 
     private var metrics: TranscriptEditorMetrics {
         TranscriptEditorMetrics(text: text)
@@ -73,6 +74,14 @@ struct TranscriptTextEditor: View {
             )
             .buttonStyle(.borderless)
             .controlSize(.small)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(copyButtonHoverColor)
+            }
+            .onHover { isCopyButtonHovered = $0 }
+            .animation(.easeOut(duration: 0.12), value: isCopyButtonHovered)
 
             Spacer()
         }
@@ -82,6 +91,10 @@ struct TranscriptTextEditor: View {
 
     private var selectionStatusText: String {
         "Selected: \(selectedCharacterCount) \(selectedCharacterCount == 1 ? "char" : "chars")"
+    }
+
+    private var copyButtonHoverColor: Color {
+        isCopyButtonHovered && !isCopyDisabled ? Color.primary.opacity(0.055) : Color.clear
     }
 
     private func copyTranscriptWithFeedback() {
@@ -185,6 +198,17 @@ private struct ReadOnlyTranscriptTextView: NSViewRepresentable {
             .font: Self.editorFont,
             .foregroundColor: foregroundColor
         ]
+        invalidateRenderedText(in: textView)
+    }
+
+    private func invalidateRenderedText(in textView: NSTextView) {
+        if let layoutManager = textView.layoutManager, let textContainer = textView.textContainer {
+            layoutManager.ensureLayout(for: textContainer)
+        }
+
+        textView.needsDisplay = true
+        textView.enclosingScrollView?.contentView.needsDisplay = true
+        textView.enclosingScrollView?.needsDisplay = true
     }
 
     private static var editorFont: NSFont {

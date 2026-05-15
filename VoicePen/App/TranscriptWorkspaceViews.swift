@@ -238,6 +238,14 @@ struct TranscriptDaySectionHeader: View {
 
 struct TranscriptListRowStyle: ViewModifier {
     let isSelected: Bool
+    @State private var isHovered = false
+
+    private var backgroundColor: Color {
+        if isSelected {
+            return Color.accentColor.opacity(0.16)
+        }
+        return isHovered ? Color.primary.opacity(0.055) : Color.clear
+    }
 
     func body(content: Content) -> some View {
         content
@@ -246,9 +254,12 @@ struct TranscriptListRowStyle: ViewModifier {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.16) : Color.clear)
+                    .fill(backgroundColor)
             }
             .padding(.horizontal, 6)
+            .onHover { isHovered = $0 }
+            .animation(.easeOut(duration: 0.12), value: isHovered)
+            .animation(.easeOut(duration: 0.12), value: isSelected)
     }
 }
 

@@ -8,7 +8,9 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
     let totalWordCount: Int
     let todayWordCount: Int
     let currentStreakDayCount: Int
+    let bestStreakDayCount: Int
     let bestDay: VoiceDailyUsageStats?
+    let week: VoiceWeeklyUsageStats
     let milestones: [VoiceUsageMilestone]
 
     init(
@@ -17,14 +19,18 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
         totalWordCount: Int = 0,
         todayWordCount: Int = 0,
         currentStreakDayCount: Int = 0,
-        bestDay: VoiceDailyUsageStats? = nil
+        bestStreakDayCount: Int? = nil,
+        bestDay: VoiceDailyUsageStats? = nil,
+        week: VoiceWeeklyUsageStats = .empty
     ) {
         self.totalDuration = max(0, totalDuration)
         self.transcribedSessionCount = max(0, transcribedSessionCount)
         self.totalWordCount = max(0, totalWordCount)
         self.todayWordCount = max(0, todayWordCount)
         self.currentStreakDayCount = max(0, currentStreakDayCount)
+        self.bestStreakDayCount = max(0, bestStreakDayCount ?? currentStreakDayCount)
         self.bestDay = bestDay
+        self.week = week
         self.milestones = Self.milestones(
             transcribedSessionCount: self.transcribedSessionCount,
             totalWordCount: self.totalWordCount,
@@ -46,15 +52,26 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
         totalWordCount = countedEntries.reduce(0) { total, entry in
             total + entry.usageWordCount
         }
-        let dailyWordCounts = Self.dailyWordCounts(from: countedEntries, calendar: calendar)
+        let dailyUsageTotals = Self.dailyUsageTotals(from: countedEntries, calendar: calendar)
+        let dailyWordCounts = dailyUsageTotals.mapValues(\.wordCount)
         let today = calendar.startOfDay(for: now)
         todayWordCount = dailyWordCounts[today] ?? 0
+        let activeDays = Set(dailyUsageTotals.keys)
         currentStreakDayCount = Self.currentStreakDayCount(
-            activeDays: Set(dailyWordCounts.keys),
+            activeDays: activeDays,
             today: today,
             calendar: calendar
         )
+        bestStreakDayCount = Self.bestStreakDayCount(
+            activeDays: activeDays,
+            calendar: calendar
+        )
         bestDay = Self.bestDay(from: dailyWordCounts)
+        week = Self.weeklyUsageStats(
+            dailyUsageTotals: dailyUsageTotals,
+            now: now,
+            calendar: calendar
+        )
         milestones = Self.milestones(
             transcribedSessionCount: transcribedSessionCount,
             totalWordCount: totalWordCount,
@@ -194,14 +211,62 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
         return max(0, estimatedManualTypingDuration - totalDuration)
     }
 
-    private static func dailyWordCounts(
+    private static func dailyUsageTotals(
         from entries: [VoiceHistoryEntry],
         calendar: Calendar
-    ) -> [Date: Int] {
+    ) -> [Date: DailyUsageTotals] {
         entries.reduce(into: [:]) { result, entry in
             let day = calendar.startOfDay(for: entry.createdAt)
-            result[day, default: 0] += entry.usageWordCount
+            result[day, default: DailyUsageTotals()].add(entry)
         }
+    }
+
+    private static func weeklyUsageStats(
+        dailyUsageTotals: [Date: DailyUsageTotals],
+        now: Date,
+        calendar: Calendar
+    ) -> VoiceWeeklyUsageStats {
+        let startDate = weekStart(containing: now, calendar: calendar)
+        let days: [VoiceDailySavedTimeStats] = (0..<7).map { offset in
+            let date = calendar.date(byAdding: .day, value: offset, to: startDate) ?? startDate
+            let day = calendar.startOfDay(for: date)
+            let totals = dailyUsageTotals[day] ?? DailyUsageTotals()
+            return VoiceDailySavedTimeStats(
+                date: day,
+                weekdayIndex: offset,
+                wordCount: totals.wordCount,
+                sessionCount: totals.sessionCount,
+                audioDuration: totals.duration,
+                estimatedTimeSavedDuration: estimatedTimeSavedDuration(
+                    totalWordCount: totals.wordCount,
+                    totalDuration: totals.duration
+                )
+            )
+        }
+        let weekTotals = days.reduce(into: DailyUsageTotals()) { result, day in
+            result.wordCount += day.wordCount
+            result.sessionCount += day.sessionCount
+            result.duration += day.audioDuration
+        }
+
+        return VoiceWeeklyUsageStats(
+            startDate: startDate,
+            days: days,
+            wordCount: weekTotals.wordCount,
+            sessionCount: weekTotals.sessionCount,
+            audioDuration: weekTotals.duration,
+            estimatedTimeSavedDuration: estimatedTimeSavedDuration(
+                totalWordCount: weekTotals.wordCount,
+                totalDuration: weekTotals.duration
+            )
+        )
+    }
+
+    private static func weekStart(containing date: Date, calendar: Calendar) -> Date {
+        let day = calendar.startOfDay(for: date)
+        let weekday = calendar.component(.weekday, from: day)
+        let daysSinceMonday = (weekday + 5) % 7
+        return calendar.date(byAdding: .day, value: -daysSinceMonday, to: day) ?? day
     }
 
     private static func currentStreakDayCount(
@@ -237,6 +302,43 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
                 }
                 return $0.wordCount < $1.wordCount
             }
+    }
+
+    private static func bestStreakDayCount(
+        activeDays: Set<Date>,
+        calendar: Calendar
+    ) -> Int {
+        var previousDay: Date?
+        var currentCount = 0
+        var bestCount = 0
+
+        for day in activeDays.sorted() {
+            if let previousDay,
+                let nextDay = calendar.date(byAdding: .day, value: 1, to: previousDay),
+                calendar.isDate(nextDay, inSameDayAs: day)
+            {
+                currentCount += 1
+            } else {
+                currentCount = 1
+            }
+
+            bestCount = max(bestCount, currentCount)
+            previousDay = day
+        }
+
+        return bestCount
+    }
+
+    private struct DailyUsageTotals {
+        var wordCount = 0
+        var sessionCount = 0
+        var duration: TimeInterval = 0
+
+        mutating func add(_ entry: VoiceHistoryEntry) {
+            wordCount += entry.usageWordCount
+            sessionCount += 1
+            duration += entry.duration ?? 0
+        }
     }
 
     private static func milestones(
@@ -374,6 +476,63 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
                 unit: "words"
             )
         ]
+    }
+}
+
+nonisolated struct VoiceWeeklyUsageStats: Equatable, Sendable {
+    static let empty = VoiceWeeklyUsageStats(
+        startDate: Date(timeIntervalSince1970: 0),
+        days: (0..<7).map { offset in
+            VoiceDailySavedTimeStats(
+                date: Date(timeIntervalSince1970: Double(offset) * 86_400),
+                weekdayIndex: offset,
+                wordCount: 0,
+                sessionCount: 0,
+                audioDuration: 0,
+                estimatedTimeSavedDuration: 0
+            )
+        },
+        wordCount: 0,
+        sessionCount: 0,
+        audioDuration: 0,
+        estimatedTimeSavedDuration: 0
+    )
+
+    let startDate: Date
+    let days: [VoiceDailySavedTimeStats]
+    let wordCount: Int
+    let sessionCount: Int
+    let audioDuration: TimeInterval
+    let estimatedTimeSavedDuration: TimeInterval
+
+    var activeDayCount: Int {
+        days.filter(\.isActive).count
+    }
+
+    var bestSavedTimeDay: VoiceDailySavedTimeStats? {
+        days
+            .filter { $0.estimatedTimeSavedDuration > 0 }
+            .max {
+                if $0.estimatedTimeSavedDuration == $1.estimatedTimeSavedDuration {
+                    return $0.date < $1.date
+                }
+                return $0.estimatedTimeSavedDuration < $1.estimatedTimeSavedDuration
+            }
+    }
+}
+
+nonisolated struct VoiceDailySavedTimeStats: Equatable, Identifiable, Sendable {
+    var date: Date
+    var weekdayIndex: Int
+    var wordCount: Int
+    var sessionCount: Int
+    var audioDuration: TimeInterval
+    var estimatedTimeSavedDuration: TimeInterval
+
+    var id: Date { date }
+
+    var isActive: Bool {
+        sessionCount > 0
     }
 }
 
