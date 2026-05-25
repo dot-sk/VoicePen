@@ -42,9 +42,12 @@ final class DictationPipeline {
     private let overlay: OverlayPresenter
     private let userConfigStore: UserConfigStore
     private let inputGainController: DefaultInputGainControlling
+    private let savedAudioArchiver: SavedAudioArchiving
     private let languageProvider: () -> String
     private let speechPreprocessingModeProvider: () -> SpeechPreprocessingMode
     private let boostDictationInputGainProvider: () -> Bool
+    private let saveDictationAudioEnabledProvider: () -> Bool
+    private let savedAudioStorageLimitGBProvider: () -> Int
     private let developerModesEnabledProvider: () -> Bool
     private let llmIntentParserEnabledProvider: () -> Bool
     private let developerModeOverrideProvider: () -> DeveloperMode?
@@ -63,9 +66,12 @@ final class DictationPipeline {
         overlay: OverlayPresenter,
         userConfigStore: UserConfigStore = UserConfigStore(),
         inputGainController: DefaultInputGainControlling = NoOpDefaultInputGainController(),
+        savedAudioArchiver: SavedAudioArchiving = NoOpSavedAudioArchive(),
         languageProvider: @escaping () -> String = { VoicePenConfig.defaultLanguage },
         speechPreprocessingModeProvider: @escaping () -> SpeechPreprocessingMode = { .off },
         boostDictationInputGainProvider: @escaping () -> Bool = { false },
+        saveDictationAudioEnabledProvider: @escaping () -> Bool = { false },
+        savedAudioStorageLimitGBProvider: @escaping () -> Int = { VoicePenConfig.defaultSavedAudioStorageLimitGB },
         developerModesEnabledProvider: @escaping () -> Bool = { true },
         llmIntentParserEnabledProvider: @escaping () -> Bool = { true },
         developerModeOverrideProvider: @escaping () -> DeveloperMode? = { nil },
@@ -81,9 +87,12 @@ final class DictationPipeline {
         self.overlay = overlay
         self.userConfigStore = userConfigStore
         self.inputGainController = inputGainController
+        self.savedAudioArchiver = savedAudioArchiver
         self.languageProvider = languageProvider
         self.speechPreprocessingModeProvider = speechPreprocessingModeProvider
         self.boostDictationInputGainProvider = boostDictationInputGainProvider
+        self.saveDictationAudioEnabledProvider = saveDictationAudioEnabledProvider
+        self.savedAudioStorageLimitGBProvider = savedAudioStorageLimitGBProvider
         self.developerModesEnabledProvider = developerModesEnabledProvider
         self.llmIntentParserEnabledProvider = llmIntentParserEnabledProvider
         self.developerModeOverrideProvider = developerModeOverrideProvider
@@ -126,6 +135,13 @@ final class DictationPipeline {
             overlay.hide(after: 0.1)
             return DictationPipelineResult(rawText: "", finalText: "")
         }
+        archiveSavedAudio(
+            SavedAudioArchiveRequest(
+                sourceURL: recording.url,
+                kind: .dictationRaw,
+                capturedAt: recording.startedAt
+            )
+        )
 
         await overlay.update(.transcribing(stage: .preparingAudio, progress: nil))
         let transcriptionAudioURL: URL
@@ -142,6 +158,13 @@ final class DictationPipeline {
             overlay.hide(after: 0.1)
             return DictationPipelineResult(rawText: "", finalText: "", recording: nil)
         }
+        archiveSavedAudio(
+            SavedAudioArchiveRequest(
+                sourceURL: transcriptionAudioURL,
+                kind: .dictationProcessed,
+                capturedAt: recording.startedAt
+            )
+        )
 
         try Task.checkCancellation()
         let language = TranscriptionLanguageResolver.resolve(languageProvider())
@@ -260,6 +283,15 @@ final class DictationPipeline {
         let value = try operation()
         let end = DispatchTime.now().uptimeNanoseconds
         return (value, TimeInterval(end - start) / 1_000_000_000)
+    }
+
+    private func archiveSavedAudio(_ request: SavedAudioArchiveRequest) {
+        guard saveDictationAudioEnabledProvider() else { return }
+        do {
+            try savedAudioArchiver.archive(request, storageLimitGB: savedAudioStorageLimitGBProvider())
+        } catch {
+            AppLogger.info("Saved dictation audio skipped: \(error.localizedDescription)")
+        }
     }
 
     private func measure<T>(_ operation: () async throws -> T) async rethrows -> (value: T, elapsed: TimeInterval) {

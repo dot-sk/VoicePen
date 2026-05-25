@@ -1,7 +1,7 @@
 ---
 id: SPEC-002
 status: implemented
-updated: 2026-05-07
+updated: 2026-05-25
 tests:
   - VoicePenTests/App/VoicePenAppCommandTests.swift
   - VoicePenTests/App/AppControllerTests.swift
@@ -40,6 +40,8 @@ confirmation, or public model marketplace behavior.
 - When a transcription request runs, VoicePen shall route it to the backend that matches the selected model.
 - When a model download starts, VoicePen shall route it to the backend-specific downloader.
 - When model download progress is known, VoicePen shall show the same progress visually in the Model settings progress bar instead of an indeterminate progress animation.
+- When startup permissions are granted but the selected local ASR model is not installed, VoicePen shall remain in the missing-model state instead of reporting Ready.
+- When the selected local ASR model is not installed, VoicePen shall not start push-to-talk dictation recording.
 - When a model download fails or is canceled before validation completes, VoicePen shall keep the model missing, allow retry without manual deletion, and may reuse artifacts that were individually completed.
 - When a model download does not complete within the download timeout, VoicePen shall cancel the download, leave the downloading state, keep the model retryable, and surface a timeout error.
 - When model warmup does not complete within 30 seconds, VoicePen shall leave the warming state, mark warmup failed, and allow recording to retry the model later.
@@ -60,6 +62,8 @@ confirmation, or public model marketplace behavior.
 | Whisper.cpp artifact missing | Model exists without Core ML companion | Acceleration is unavailable |
 | Blocked download | Network/proxy failure leaves a model file without a completed-download marker | Model remains Missing and Download Model remains available |
 | Known download progress | Downloader reports 42% progress | Model settings shows determinate progress at the same fraction |
+| Startup without model | Microphone and Accessibility permissions are granted, selected model is missing | App state is Model missing, not Ready |
+| Dictation without model | User presses the dictation hotkey while selected model is missing | Dictation recording does not start |
 | Hung model download | Downloader never completes | VoicePen exits downloading state and shows a timeout error |
 | Hung model warmup | Warmup never completes | VoicePen exits warming state and reports warmup failure |
 | Retry after partial success | Main GGML artifact completed but companion download failed | Retry may reuse the completed GGML artifact and continue remaining artifacts |
@@ -68,7 +72,7 @@ confirmation, or public model marketplace behavior.
 
 ## Test Mapping
 
-- Automated: `VoicePenTests/App/AppControllerTests.swift` covers failed, canceled, and timed-out model downloads leaving the model missing and retryable, plus warmup timeout recovery.
+- Automated: `VoicePenTests/App/AppControllerTests.swift` covers failed, canceled, and timed-out model downloads leaving the model missing and retryable, startup state when the model is missing, dictation start gating while the model is missing, plus warmup timeout recovery.
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers that Model settings renders known download progress as determinate linear progress, shows user-facing model language, timestamp and Meeting feature support, exposes Recognition explanations through help icons, and avoids redundant bottom explanatory text.
 - Automated: `VoicePenTests/Transcription/WhisperCppTranscriptionClientTests.swift` covers artifact, acceleration, empty artifact, and completed-download marker checks.
 - Automated: `VoicePenTests/Transcription/ModelDownloadProxyConfigurationTests.swift` covers proxy configuration.

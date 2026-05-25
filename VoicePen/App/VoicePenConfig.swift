@@ -22,9 +22,13 @@ nonisolated enum VoicePenConfig {
     static let modelWarmupTimeout: Duration = .seconds(30)
     static let meetingCaptureStartTimeout: Duration = .seconds(10)
     static let meetingMaximumRecordingDuration: TimeInterval = 120 * 60
+    static let meetingRecordingReminderLeadTime: TimeInterval = 5 * 60
     static let meetingProcessingTimeout: Duration = .seconds(1_800)
     static let meetingChunkProcessingTimeout: Duration = .seconds(180)
     static let meetingRecoveryAudioTTL: TimeInterval = 7 * 24 * 60 * 60
+    static let defaultSavedAudioStorageLimitGB = 5
+    static let minimumSavedAudioStorageLimitGB = 1
+    static let maximumSavedAudioStorageLimitGB = 50
     static var modesFeatureEnabled: Bool {
         featureFlag(
             environmentKey: "VOICEPEN_ENABLE_MODES",

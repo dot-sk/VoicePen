@@ -56,7 +56,7 @@ nonisolated private func trimSilence(
 
     let samples = try monoSamples(from: buffer, frameLength: frameLength)
     guard
-        AudioSilenceTrimmer.containsSpeech(
+        let analysis = AudioSilenceTrimmer.analyze(
             samples: samples,
             sampleRate: inputFormat.sampleRate,
             minimumSpeechDuration: VoicePenConfig.minimumSpeechSignalDuration
@@ -65,13 +65,7 @@ nonisolated private func trimSilence(
         throw AudioPreprocessingError.noSpeechDetected
     }
 
-    guard
-        let trimRange = AudioSilenceTrimmer.trimRange(
-            samples: samples,
-            sampleRate: inputFormat.sampleRate,
-            minimumSpeechDuration: VoicePenConfig.minimumSpeechSignalDuration
-        )
-    else {
+    guard let trimRange = analysis.trimRange(sampleCount: samples.count, sampleRate: inputFormat.sampleRate) else {
         return nil
     }
 

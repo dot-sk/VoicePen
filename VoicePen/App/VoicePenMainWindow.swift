@@ -69,7 +69,18 @@ struct VoicePenMainWindow: View {
             MeetingRecordingShortcutMonitor(toggleRecording: toggleMeetingRecording)
                 .frame(width: 0, height: 0)
         }
+        .onAppear {
+            applyNavigationRequest(controller.mainWindowNavigationRequest)
+        }
+        .onChange(of: controller.mainWindowNavigationRequest) { _, request in
+            applyNavigationRequest(request)
+        }
         .frame(minWidth: 920, minHeight: 560)
+    }
+
+    private func applyNavigationRequest(_ request: MainWindowNavigationRequest?) {
+        guard request?.destination == .meetings else { return }
+        selectedSection = .meetings
     }
 
     private func systemImage(for section: VoicePenSettingsSection) -> String {

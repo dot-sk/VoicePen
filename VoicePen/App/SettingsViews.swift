@@ -281,9 +281,9 @@ private struct HomeThisWeekCard: View {
 
     private var bestSavedTimeText: String {
         guard let day = week.bestSavedTimeDay, day.estimatedTimeSavedDuration > 0 else {
-            return "No saved time"
+            return "No typing avoided"
         }
-        return "\(HomeFormatting.savedMinutes(day.estimatedTimeSavedDuration)) saved"
+        return "\(HomeFormatting.savedMinutes(day.estimatedTimeSavedDuration)) avoided"
     }
 
     private var hasWeekActivity: Bool {
@@ -326,13 +326,13 @@ private struct HomeThisWeekCard: View {
         VStack(alignment: .leading, spacing: 22) {
             VStack(alignment: .leading, spacing: 8) {
                 if hasWeekActivity {
-                    Text("≈ \(HomeFormatting.savedTimeMetric(week.estimatedTimeSavedDuration)) saved")
+                    Text("≈ \(HomeFormatting.savedTimeMetric(week.estimatedTimeSavedDuration)) typing avoided")
                         .font(.system(size: 58, weight: .bold, design: .rounded))
                         .foregroundStyle(Color.accentColor)
                         .lineLimit(1)
                         .minimumScaleFactor(0.62)
 
-                    Text("Typing avoided at ~\(Int(VoiceTranscriptionUsageStats.manualTypingWordsPerMinute)) WPM")
+                    Text("Based on recognized words at ~\(Int(VoiceTranscriptionUsageStats.manualTypingWordsPerMinute)) WPM")
                         .font(.system(size: 17))
                         .foregroundStyle(.secondary)
                 } else {
@@ -467,12 +467,12 @@ private struct DailySavedTimeChart: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack {
-                Text("Daily saved time")
+                Text("Daily typing avoided")
                     .font(.system(size: 16, weight: .semibold))
                 Spacer()
                 HelpTipButton(
-                    title: "Daily saved time",
-                    text: "Estimated minutes saved each day, based on transcribed words at ~\(Int(VoiceTranscriptionUsageStats.manualTypingWordsPerMinute)) WPM.",
+                    title: "Daily typing avoided",
+                    text: "Estimated typing time avoided each day, based on transcribed words at ~\(Int(VoiceTranscriptionUsageStats.manualTypingWordsPerMinute)) WPM.",
                     systemImage: "info.circle"
                 )
             }
@@ -1129,6 +1129,27 @@ struct ConfigSettingsView: View {
         )
     }
 
+    private var saveDictationAudioEnabled: Binding<Bool> {
+        Binding(
+            get: { settingsStore.saveDictationAudioEnabled },
+            set: { controller.updateSaveDictationAudioEnabled($0) }
+        )
+    }
+
+    private var saveMeetingAudioEnabled: Binding<Bool> {
+        Binding(
+            get: { settingsStore.saveMeetingAudioEnabled },
+            set: { controller.updateSaveMeetingAudioEnabled($0) }
+        )
+    }
+
+    private var savedAudioStorageLimitGB: Binding<Double> {
+        Binding(
+            get: { Double(settingsStore.savedAudioStorageLimitGB) },
+            set: { controller.updateSavedAudioStorageLimitGB(Int($0.rounded())) }
+        )
+    }
+
     private var meetingTranscriptTimecodesEnabled: Binding<Bool> {
         Binding(
             get: { settingsStore.meetingTranscriptTimecodesEnabled },
@@ -1294,6 +1315,39 @@ struct ConfigSettingsView: View {
             } footer: {
                 Text(
                     "VoicePen uses the macOS default microphone. Dictation can temporarily raise supported input levels while recording. Meeting audio can use system dynamics and peak limiting before local transcription; if processing is unavailable, VoicePen continues with ordinary audio. Meeting system audio can capture all apps, only selected apps, or all apps except selected apps."
+                )
+            }
+
+            Section {
+                Toggle("Save dictation recordings", isOn: saveDictationAudioEnabled)
+                Toggle("Save meeting recordings", isOn: saveMeetingAudioEnabled)
+
+                LabeledContent {
+                    HStack(spacing: 10) {
+                        Slider(
+                            value: savedAudioStorageLimitGB,
+                            in: Double(VoicePenConfig.minimumSavedAudioStorageLimitGB)...Double(VoicePenConfig.maximumSavedAudioStorageLimitGB),
+                            step: 1
+                        )
+                        .frame(width: 220)
+                        Text("\(settingsStore.savedAudioStorageLimitGB) GB")
+                            .monospacedDigit()
+                            .frame(width: 54, alignment: .trailing)
+                    }
+                } label: {
+                    Text("Storage limit")
+                }
+
+                Button {
+                    controller.openSavedRecordingsFolder()
+                } label: {
+                    Label("Open Recordings Folder", systemImage: "folder")
+                }
+            } header: {
+                Text("Saved recordings")
+            } footer: {
+                Text(
+                    "When enabled, VoicePen copies local audio files into Application Support so you can open or copy them later. Saving audio never changes transcription or history behavior."
                 )
             }
 

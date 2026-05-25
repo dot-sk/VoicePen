@@ -87,6 +87,18 @@ nonisolated struct AppPaths: @unchecked Sendable {
         applicationSupportDirectory.appendingPathComponent("MeetingRecovery", isDirectory: true)
     }
 
+    var savedAudioDirectory: URL {
+        applicationSupportDirectory.appendingPathComponent("Saved Recordings", isDirectory: true)
+    }
+
+    var savedDictationAudioDirectory: URL {
+        savedAudioDirectory.appendingPathComponent("Dictation", isDirectory: true)
+    }
+
+    var savedMeetingAudioDirectory: URL {
+        savedAudioDirectory.appendingPathComponent("Meetings", isDirectory: true)
+    }
+
     var diarizationModelsDirectory: URL {
         applicationSupportDirectory.appendingPathComponent("DiarizationModels", isDirectory: true)
     }
@@ -112,6 +124,8 @@ nonisolated struct AppPaths: @unchecked Sendable {
         try fileManager.createDirectory(at: userModelsDirectory, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: tempAudioDirectory, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: meetingRecoveryDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: savedDictationAudioDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: savedMeetingAudioDirectory, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: diarizationModelsDirectory, withIntermediateDirectories: true)
     }
 
@@ -161,11 +175,18 @@ nonisolated struct AppPaths: @unchecked Sendable {
             options: [.skipsHiddenFiles]
         )
 
-        for url in urls where url.pathExtension.lowercased() == "wav" {
+        for url in urls where isVoicePenTemporaryAudioFile(url) {
             let values = try url.resourceValues(forKeys: [.contentModificationDateKey])
             let modifiedAt = values.contentModificationDate ?? .distantPast
             guard now.timeIntervalSince(modifiedAt) > maxAge else { continue }
             try fileManager.removeItem(at: url)
         }
     }
+
+    private func isVoicePenTemporaryAudioFile(_ url: URL) -> Bool {
+        guard url.lastPathComponent.hasPrefix("voicepen-") else { return false }
+        return Self.temporaryAudioFileExtensions.contains(url.pathExtension.lowercased())
+    }
+
+    private static let temporaryAudioFileExtensions: Set<String> = ["wav", "caf"]
 }

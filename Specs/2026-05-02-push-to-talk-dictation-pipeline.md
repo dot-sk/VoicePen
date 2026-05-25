@@ -1,9 +1,11 @@
 ---
 id: SPEC-001
 status: implemented
-updated: 2026-05-06
+updated: 2026-05-26
 tests:
   - VoicePenTests/Hotkey/HotkeyPreferenceTests.swift
+  - VoicePenTests/Insertion/TextInsertionClientTests.swift
+  - VoicePenTests/AudioProcessing/SavedAudioArchiveTests.swift
   - VoicePenTests/Pipeline/DictationPipelineTests.swift
   - VoicePenTests/Transcription/TranscriptionPostFilterTests.swift
   - VoicePenTests/TextOutput/TextOutputNormalizerTests.swift
@@ -27,10 +29,15 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 - When dictation starts and audio settings enable microphone boost, VoicePen shall best-effort raise the current default input device level for the recording and restore it afterward.
 - When the recording overlay shows the microphone level indicator, the white level bar shall animate vertically without horizontal jitter.
 - When recording duration is below the minimum, VoicePen shall stop without transcription or insertion.
+- When recording duration is below the minimum, VoicePen shall not save a local audio recording even if saved dictation recordings are enabled.
+- When saved dictation recordings are enabled and recording duration meets the minimum, VoicePen shall best-effort copy the raw recording to the user's saved recordings folder after the minimum-duration check and before audio preprocessing.
+- When saved dictation recordings are enabled and audio preprocessing produces a transcription input file, VoicePen shall best-effort copy that processed attempt to the user's saved recordings folder before local transcription, including attempts that later produce no speech, empty ASR text, or transcription errors.
+- When saving dictation audio fails, VoicePen shall log the failure and continue the dictation workflow without changing transcription, insertion, retry, or history behavior.
 - When audio is silent or transcription returns an empty result, VoicePen shall not insert text or create a history recording.
 - When local transcription returns known short subtitle or outro artifact lines such as "Субтитры сделал ...", "Субтитры создавал ...", "Добавил субтитры ...", or "Продолжение следует...", VoicePen shall remove those lines before normalization, insertion, or history storage.
 - When recording is valid, VoicePen shall preprocess audio before transcription, pass the resolved language and glossary prompt, normalize raw text, insert non-empty final text, and record timing data.
 - When final text is prepared for output, VoicePen shall always replace `ё` with `е`, `Ё` with `Е`, long dashes with `–`, and typographic quotes with plain quotes before insertion or history storage.
+- When VoicePen inserts final text through the pasteboard, it shall capture the current pasteboard immediately before writing VoicePen text and restore all previous pasteboard items and data types after the configured restore delay; if the pasteboard was empty, it shall become empty again.
 - When insertion succeeds, VoicePen shall hide the processing overlay without showing a success notification.
 - When transcription fails, VoicePen shall propagate the error and never insert partial text.
 - When dictation processing does not complete within 30 seconds, VoicePen shall cancel processing, leave the transcribing state, surface a timeout error, and allow a later recording attempt.
@@ -45,12 +52,16 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 | Case | Input | Expected |
 | --- | --- | --- |
 | Short recording | 0.2s recording | No transcription and no insertion |
+| Saved dictation audio disabled | Default settings | No raw or processed audio is copied to saved recordings |
+| Saved dictation audio enabled | Valid push-to-talk recording | Raw and transcription-attempt audio are copied locally with readable audio filenames |
+| Saved dictation audio failure | Saved recordings folder cannot be written | Dictation still transcribes and inserts normally |
 | Recording overlay | Active recording with changing input level | The microphone level bar changes height while staying horizontally anchored |
 | Silent recording | Valid duration with no speech | No insertion and no history recording |
 | Artifact-only transcription | Whisper returns only `Субтитры создавал DimaTorzok` | No insertion and no history recording |
 | Artifact line with useful text | Whisper returns subtitle credit, useful dictated text, and `Продолжение следует...` | Inserts and stores only the useful dictated text |
 | Normal recording | "создай типы на тайп скрипт" | Inserts "создай типы на TypeScript" |
 | Global output normalization | `Ёжик сказал: «пойдём» — готово` | `Ежик сказал: "пойдем" – готово` |
+| Clipboard restoration | Pasteboard contains text, files, or rich data before insertion | VoicePen temporarily pastes dictation text and then restores the previous pasteboard contents |
 | Transcription error | Transcriber throws | Error propagates and nothing is inserted |
 | Hung transcription | Transcriber or processing backend does not return | VoicePen exits transcribing and surfaces a timeout error |
 | Custom shortcut recorded | User selects custom shortcut and records Ctrl-E | Holding Ctrl-E starts push-to-talk without restarting VoicePen |
@@ -61,7 +72,9 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 
 ## Test Mapping
 
-- Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers recording start, short recording skip, preprocessing, glossary/language routing, normalization, global output cleanup, insertion, silent audio, empty transcription, and error propagation.
+- Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers recording start, short recording skip, preprocessing, glossary/language routing, normalization, global output cleanup, insertion, silent audio, empty transcription, error propagation, saved dictation audio routing, and non-fatal archive failures.
+- Automated: `VoicePenTests/AudioProcessing/SavedAudioArchiveTests.swift` covers byte-for-byte saved audio copies, readable filenames, extension preservation, and storage pruning.
+- Automated: `VoicePenTests/Insertion/TextInsertionClientTests.swift` covers temporary pasteboard replacement and restoration of previous plain text, empty pasteboards, and multi-item or multi-type pasteboard contents.
 - Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers best-effort microphone boost start and restore around dictation recordings.
 - Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` and `VoicePenTests/Transcription/TranscriptionPostFilterTests.swift` cover known subtitle/outro artifact cleanup before insertion.
 - Automated: `VoicePenTests/TextOutput/TextOutputNormalizerTests.swift` covers global output character replacements.

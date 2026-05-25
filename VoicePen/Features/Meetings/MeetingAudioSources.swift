@@ -135,6 +135,7 @@ final class AVFoundationMicrophoneMeetingAudioSource: MeetingAudioSourceClient {
 
     private let tempDirectory: URL
     private let fileManager: FileManager
+    private let audioFileIO: MeetingAudioFileIO
     private var engine: AVAudioEngine?
     private var converter: AVAudioConverter?
     private var captureFormat: AVAudioFormat?
@@ -145,9 +146,14 @@ final class AVFoundationMicrophoneMeetingAudioSource: MeetingAudioSourceClient {
     private var recordingError: Error?
     private var sourceStatus = MeetingSourceHealth.unavailable
 
-    init(tempDirectory: URL, fileManager: FileManager = .default) {
+    init(
+        tempDirectory: URL,
+        fileManager: FileManager = .default,
+        audioFileIO: MeetingAudioFileIO = AVFoundationMeetingAudioFileIO()
+    ) {
         self.tempDirectory = tempDirectory
         self.fileManager = fileManager
+        self.audioFileIO = audioFileIO
     }
 
     var status: MeetingSourceHealth {
@@ -192,15 +198,10 @@ final class AVFoundationMicrophoneMeetingAudioSource: MeetingAudioSourceClient {
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)
+        let outputFormat = try audioFileIO.processingFormat()
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0,
-            let outputFormat = AVAudioFormat(
-                commonFormat: .pcmFormatFloat32,
-                sampleRate: 16_000,
-                channels: 1,
-                interleaved: false
-            ),
             let captureFormat = ActiveChannelMonoMixer.makeFloatFormat(
-                sampleRate: 16_000,
+                sampleRate: audioFileIO.sampleRate,
                 channelCount: inputFormat.channelCount
             ),
             let converter = AVAudioConverter(from: inputFormat, to: captureFormat)
@@ -209,7 +210,12 @@ final class AVFoundationMicrophoneMeetingAudioSource: MeetingAudioSourceClient {
         }
 
         let outputURL = tempDirectory.appendingPathComponent("voicepen-meeting-mic-\(UUID().uuidString).wav")
-        let sink = try MeetingAudioBufferFileSink(source: source, outputURL: outputURL, format: outputFormat)
+        let sink = try MeetingAudioBufferFileSink(
+            source: source,
+            outputURL: outputURL,
+            format: outputFormat,
+            audioFileIO: audioFileIO
+        )
 
         self.engine = engine
         self.converter = converter
@@ -268,7 +274,7 @@ final class AVFoundationMicrophoneMeetingAudioSource: MeetingAudioSourceClient {
             let outputFormat,
             let captureBuffer = AVAudioPCMBuffer(
                 pcmFormat: captureFormat,
-                frameCapacity: convertedFrameCapacity(
+                frameCapacity: MeetingAudioFrameCapacity.converted(
                     inputFrames: buffer.frameLength,
                     inputSampleRate: buffer.format.sampleRate,
                     outputSampleRate: captureFormat.sampleRate
@@ -280,7 +286,7 @@ final class AVFoundationMicrophoneMeetingAudioSource: MeetingAudioSourceClient {
             return
         }
 
-        let inputProvider = MeetingAudioConverterInputProvider(buffer: buffer)
+        let inputProvider = MeetingAudioSingleBufferInputProvider(buffer: buffer)
         var conversionError: NSError?
         let status = converter.convert(to: captureBuffer, error: &conversionError) { _, inputStatus in
             inputProvider.next(inputStatus: inputStatus)
@@ -308,17 +314,6 @@ final class AVFoundationMicrophoneMeetingAudioSource: MeetingAudioSourceClient {
             sourceStatus = .failed
         }
     }
-
-    private func convertedFrameCapacity(
-        inputFrames: AVAudioFrameCount,
-        inputSampleRate: Double,
-        outputSampleRate: Double
-    ) -> AVAudioFrameCount {
-        guard inputSampleRate > 0, outputSampleRate > 0 else {
-            return inputFrames
-        }
-        return AVAudioFrameCount((Double(inputFrames) * outputSampleRate / inputSampleRate).rounded(.up)) + 32
-    }
 }
 
 final class CoreAudioSystemOutputSource: MeetingAudioSourceClient {
@@ -328,6 +323,7 @@ final class CoreAudioSystemOutputSource: MeetingAudioSourceClient {
     private let fileManager: FileManager
     private let settingsProvider: () -> MeetingSystemAudioSourceSettings
     private let processResolver: MeetingSystemAudioProcessResolving
+    private let audioFileIO: MeetingAudioFileIO
     private let queue = DispatchQueue(label: "voicepen.meeting.system-audio")
     private var tap: AudioHardwareTap?
     private var aggregateDevice: AudioHardwareAggregateDevice?
@@ -342,12 +338,14 @@ final class CoreAudioSystemOutputSource: MeetingAudioSourceClient {
         tempDirectory: URL,
         fileManager: FileManager = .default,
         settingsProvider: @escaping () -> MeetingSystemAudioSourceSettings = { .all },
-        processResolver: MeetingSystemAudioProcessResolving = LiveMeetingSystemAudioProcessResolver()
+        processResolver: MeetingSystemAudioProcessResolving = LiveMeetingSystemAudioProcessResolver(),
+        audioFileIO: MeetingAudioFileIO = AVFoundationMeetingAudioFileIO()
     ) {
         self.tempDirectory = tempDirectory
         self.fileManager = fileManager
         self.settingsProvider = settingsProvider
         self.processResolver = processResolver
+        self.audioFileIO = audioFileIO
     }
 
     var status: MeetingSourceHealth {
@@ -413,7 +411,12 @@ final class CoreAudioSystemOutputSource: MeetingAudioSourceClient {
         }
 
         let outputURL = tempDirectory.appendingPathComponent("voicepen-meeting-system-\(UUID().uuidString).caf")
-        let sink = try MeetingAudioBufferFileSink(source: source, outputURL: outputURL, format: format)
+        let sink = try MeetingAudioBufferFileSink(
+            source: source,
+            outputURL: outputURL,
+            format: format,
+            audioFileIO: audioFileIO
+        )
         let inputHandler = CoreAudioTapInputHandler(sink: sink, format: format)
         var ioProcID: AudioDeviceIOProcID?
         let createStatus = AudioDeviceCreateIOProcIDWithBlock(&ioProcID, aggregateDevice.id, queue) { _, inputData, _, _, _ in
@@ -656,180 +659,5 @@ nonisolated private final class CoreAudioTapInputHandler: @unchecked Sendable {
             failed = true
             lock.unlock()
         }
-    }
-}
-
-nonisolated final class MeetingAudioBufferFileSink: @unchecked Sendable {
-    let source: MeetingSourceKind
-    let outputURL: URL
-
-    private let lock = NSLock()
-    private let audioFile: AVAudioFile
-    private let outputFormat: AVAudioFormat
-    private let converter: AVAudioConverter?
-    private var didWriteSamples = false
-    private var didFinish = false
-    private var latestLevel: Double?
-
-    init(source: MeetingSourceKind, outputURL: URL, format inputFormat: AVAudioFormat) throws {
-        guard
-            let outputFormat = AVAudioFormat(
-                commonFormat: .pcmFormatFloat32,
-                sampleRate: 16_000,
-                channels: 1,
-                interleaved: false
-            )
-        else {
-            throw MeetingRecordingError.captureFailed("Meeting audio output format is unavailable.")
-        }
-
-        self.source = source
-        self.outputURL = outputURL
-        self.outputFormat = outputFormat
-        if inputFormat.isEquivalent(to: outputFormat) {
-            converter = nil
-        } else {
-            guard let converter = AVAudioConverter(from: inputFormat, to: outputFormat) else {
-                throw MeetingRecordingError.captureFailed("Meeting audio converter is unavailable.")
-            }
-            self.converter = converter
-        }
-        audioFile = try AVAudioFile(forWriting: outputURL, settings: outputFormat.settings)
-    }
-
-    var level: Double? {
-        lock.lock()
-        defer { lock.unlock() }
-        return latestLevel
-    }
-
-    func append(_ buffer: AVAudioPCMBuffer) throws {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !didFinish else { return }
-        let outputBuffer = try writableBuffer(from: buffer)
-        guard outputBuffer.frameLength > 0 else { return }
-        try audioFile.write(from: outputBuffer)
-        didWriteSamples = true
-        latestLevel = normalizedLevel(from: outputBuffer)
-    }
-
-    func finish(startOffset: TimeInterval, endOffset: TimeInterval) throws -> MeetingAudioChunk? {
-        lock.lock()
-        didFinish = true
-        let didWriteSamples = didWriteSamples
-        lock.unlock()
-
-        guard didWriteSamples,
-            FileManager.default.fileExists(atPath: outputURL.path)
-        else {
-            try? FileManager.default.removeItem(at: outputURL)
-            return nil
-        }
-
-        return MeetingAudioChunk(
-            url: outputURL,
-            source: source,
-            startOffset: startOffset,
-            duration: max(0, endOffset - startOffset)
-        )
-    }
-
-    func cancel() {
-        lock.lock()
-        didFinish = true
-        lock.unlock()
-        try? FileManager.default.removeItem(at: outputURL)
-    }
-
-    private func normalizedLevel(from buffer: AVAudioPCMBuffer) -> Double? {
-        guard let channelData = buffer.floatChannelData else { return nil }
-        let frameLength = Int(buffer.frameLength)
-        let channelCount = Int(buffer.format.channelCount)
-        guard frameLength > 0, channelCount > 0 else { return nil }
-
-        var sum: Float = 0
-        for channel in 0..<channelCount {
-            let samples = channelData[channel]
-            for frame in 0..<frameLength {
-                sum += abs(samples[frame])
-            }
-        }
-
-        return min(1, Double(sum / Float(frameLength * channelCount)) * 8)
-    }
-
-    private func writableBuffer(from buffer: AVAudioPCMBuffer) throws -> AVAudioPCMBuffer {
-        guard let converter else { return buffer }
-        guard
-            let outputBuffer = AVAudioPCMBuffer(
-                pcmFormat: outputFormat,
-                frameCapacity: convertedFrameCapacity(
-                    inputFrames: buffer.frameLength,
-                    inputSampleRate: buffer.format.sampleRate,
-                    outputSampleRate: outputFormat.sampleRate
-                )
-            )
-        else {
-            throw MeetingRecordingError.captureFailed("Meeting audio output buffer is unavailable.")
-        }
-
-        let inputProvider = MeetingAudioConverterInputProvider(buffer: buffer)
-        var conversionError: NSError?
-        let status = converter.convert(to: outputBuffer, error: &conversionError) { _, inputStatus in
-            inputProvider.next(inputStatus: inputStatus)
-        }
-
-        guard conversionError == nil, status == .haveData || status == .inputRanDry else {
-            throw MeetingRecordingError.captureFailed("Meeting audio conversion failed.")
-        }
-
-        return outputBuffer
-    }
-
-    private func convertedFrameCapacity(
-        inputFrames: AVAudioFrameCount,
-        inputSampleRate: Double,
-        outputSampleRate: Double
-    ) -> AVAudioFrameCount {
-        guard inputSampleRate > 0, outputSampleRate > 0 else {
-            return inputFrames
-        }
-
-        let ratio = outputSampleRate / inputSampleRate
-        return AVAudioFrameCount((Double(inputFrames) * ratio).rounded(.up)) + 32
-    }
-}
-
-private extension AVAudioFormat {
-    nonisolated func isEquivalent(to other: AVAudioFormat) -> Bool {
-        commonFormat == other.commonFormat
-            && sampleRate == other.sampleRate
-            && channelCount == other.channelCount
-            && isInterleaved == other.isInterleaved
-    }
-}
-
-nonisolated private final class MeetingAudioConverterInputProvider: @unchecked Sendable {
-    private let buffer: AVAudioPCMBuffer
-    private let lock = NSLock()
-    private var didProvideInput = false
-
-    init(buffer: AVAudioPCMBuffer) {
-        self.buffer = buffer
-    }
-
-    func next(inputStatus: UnsafeMutablePointer<AVAudioConverterInputStatus>) -> AVAudioBuffer? {
-        lock.lock()
-        defer { lock.unlock() }
-
-        guard !didProvideInput else {
-            inputStatus.pointee = .noDataNow
-            return nil
-        }
-
-        didProvideInput = true
-        inputStatus.pointee = .haveData
-        return buffer
     }
 }

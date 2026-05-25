@@ -8,6 +8,7 @@ final class DictionaryStore: ObservableObject {
     private let databaseURL: URL
     private let fileManager: FileManager
     private let glossaryBuilder: PromptGlossaryBuilder
+    private var cachedNormalizer: TermNormalizer?
 
     init(
         dictionaryURL: URL,
@@ -24,11 +25,12 @@ final class DictionaryStore: ObservableObject {
     }
 
     func load() throws {
-        dictionary = try withDatabase { database in
+        let loadedDictionary = try withDatabase { database in
             try DatabaseMigrator.migrate(database)
             try seedSampleDictionaryIfNeeded(in: database)
             return try fetchDictionary(from: database)
         }
+        setDictionary(loadedDictionary)
     }
 
     func save() throws {
@@ -44,9 +46,10 @@ final class DictionaryStore: ObservableObject {
                 for entry in normalizedDictionary.entries {
                     try insert(entry, into: database)
                 }
+                try FirstLaunchBootstrapState.markCompleted(in: database)
             }
         }
-        dictionary = normalizedDictionary
+        setDictionary(normalizedDictionary)
     }
 
     func upsertEntry(_ entry: TermEntry) throws {
@@ -71,7 +74,19 @@ final class DictionaryStore: ObservableObject {
     }
 
     func makeNormalizer() -> TermNormalizer {
-        TermNormalizer(entries: entries)
+        if let cachedNormalizer {
+            return cachedNormalizer
+        }
+
+        let normalizer = TermNormalizer(entries: entries)
+        cachedNormalizer = normalizer
+        return normalizer
+    }
+
+    private func setDictionary(_ newDictionary: DictionaryFile) {
+        cachedNormalizer = nil
+        dictionary = newDictionary
+        cachedNormalizer = nil
     }
 
     private func withDatabase<T>(_ body: (SQLiteConnection) throws -> T) throws -> T {
@@ -85,10 +100,21 @@ final class DictionaryStore: ObservableObject {
 
     private func seedSampleDictionaryIfNeeded(in database: SQLiteConnection) throws {
         let count = try dictionaryEntryCount(in: database)
-        guard count == 0 else { return }
+        guard count == 0 else {
+            try FirstLaunchBootstrapState.markCompleted(in: database)
+            return
+        }
 
-        for entry in Self.sampleDictionary.entries {
-            try insert(entry, into: database)
+        guard try FirstLaunchBootstrapState.canSeedFreshDefaults(in: database) else {
+            try FirstLaunchBootstrapState.markCompleted(in: database)
+            return
+        }
+
+        try database.transaction {
+            for entry in Self.sampleDictionary.entries {
+                try insert(entry, into: database)
+            }
+            try FirstLaunchBootstrapState.markCompleted(in: database)
         }
     }
 

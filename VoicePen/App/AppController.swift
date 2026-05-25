@@ -77,6 +77,20 @@ struct AppControllerStartTasks {
     )
 }
 
+struct MainWindowNavigationRequest: Equatable {
+    let id: UUID
+    let destination: MainWindowDestination
+
+    init(id: UUID = UUID(), destination: MainWindowDestination) {
+        self.id = id
+        self.destination = destination
+    }
+}
+
+enum MainWindowDestination: Equatable {
+    case meetings
+}
+
 @MainActor
 final class AppController: ObservableObject {
     private static let meetingDiarizationModelId = "meeting-diarization"
@@ -92,6 +106,7 @@ final class AppController: ObservableObject {
     @Published var meetingElapsedTime: TimeInterval = 0
     @Published var meetingSourceStatus: MeetingSourceStatus = .idle
     @Published var meetingProcessingProgress: MeetingProcessingProgress?
+    @Published private(set) var mainWindowNavigationRequest: MainWindowNavigationRequest?
     @Published private(set) var userConfigLoadResult = UserConfigLoadResult(config: UserConfig())
     @Published private(set) var modelManifest: ModelManifest
 
@@ -110,6 +125,7 @@ final class AppController: ObservableObject {
     private let meetingDiarizationModelManager: MeetingDiarizationModelManaging?
     private let launchAtLogin: LaunchAtLoginClient
     private let userPrompts: UserPromptPresenter
+    private let meetingRecordingReminderPresenter: MeetingRecordingReminderPresenter
     private let environmentSettingsStore: AppEnvironmentSettingsStore
     private let meetingRunningApplicationBundleIdentifiersProvider: () -> Set<String>
     private let dictationProcessingTimeout: Duration
@@ -148,8 +164,10 @@ final class AppController: ObservableObject {
             permissions: permissions,
             settingsStore: settingsStore,
             userPrompts: userPrompts,
+            recordingReminderPresenter: meetingRecordingReminderPresenter,
             captureStartTimeout: meetingCaptureStartTimeout,
             maximumRecordingDuration: meetingMaximumRecordingDuration,
+            recordingReminderLeadTime: VoicePenConfig.meetingRecordingReminderLeadTime,
             processingTimeout: meetingProcessingTimeout,
             runningApplicationBundleIdentifiersProvider: meetingRunningApplicationBundleIdentifiersProvider,
             getAppState: { [weak self] in
@@ -194,6 +212,10 @@ final class AppController: ObservableObject {
 
     var historyURL: URL {
         paths.historyURL
+    }
+
+    var savedAudioDirectory: URL {
+        paths.savedAudioDirectory
     }
 
     var userConfigURL: URL {
@@ -332,6 +354,7 @@ final class AppController: ObservableObject {
         meetingDiarizationModelManager: MeetingDiarizationModelManaging? = nil,
         launchAtLogin: LaunchAtLoginClient? = nil,
         userPrompts: UserPromptPresenter,
+        meetingRecordingReminderPresenter: MeetingRecordingReminderPresenter = NoOpMeetingRecordingReminderPresenter(),
         environmentSettingsStore: AppEnvironmentSettingsStore? = nil,
         meetingRunningApplicationBundleIdentifiersProvider: @escaping () -> Set<String> = {
             Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
@@ -363,6 +386,7 @@ final class AppController: ObservableObject {
         self.meetingDiarizationModelManager = meetingDiarizationModelManager
         self.launchAtLogin = launchAtLogin ?? NoOpLaunchAtLoginClient()
         self.userPrompts = userPrompts
+        self.meetingRecordingReminderPresenter = meetingRecordingReminderPresenter
         self.environmentSettingsStore = environmentSettingsStore ?? AppEnvironmentSettingsStore()
         self.meetingRunningApplicationBundleIdentifiersProvider = meetingRunningApplicationBundleIdentifiersProvider
         self.dictationProcessingTimeout = dictationProcessingTimeout
@@ -392,6 +416,7 @@ final class AppController: ObservableObject {
         let overlay = BottomOverlayWindowController()
         let recorder = LiveAudioRecordingClient(tempDirectory: paths.tempAudioDirectory)
         let audioPreprocessor = LiveAudioPreprocessingClient(outputDirectory: paths.tempAudioDirectory)
+        let savedAudioArchive = SavedAudioArchive(paths: paths)
         let whisperCppTranscriber = WhisperCppTranscriptionClient(paths: paths)
         let inserter = PasteboardTextInsertionClient(restoreDelay: VoicePenConfig.clipboardRestoreDelay)
         let userConfigStore = UserConfigStore()
@@ -412,9 +437,12 @@ final class AppController: ObservableObject {
             overlay: overlay,
             userConfigStore: userConfigStore,
             inputGainController: CoreAudioDefaultInputGainController(),
+            savedAudioArchiver: savedAudioArchive,
             languageProvider: { settingsStore.transcriptionLanguage },
             speechPreprocessingModeProvider: { settingsStore.speechPreprocessingMode },
             boostDictationInputGainProvider: { settingsStore.boostDictationInputGain },
+            saveDictationAudioEnabledProvider: { settingsStore.saveDictationAudioEnabled },
+            savedAudioStorageLimitGBProvider: { settingsStore.savedAudioStorageLimitGB },
             developerModesEnabledProvider: { VoicePenConfig.modesFeatureEnabled },
             llmIntentParserEnabledProvider: { VoicePenConfig.aiFeatureEnabled },
             developerModeOverrideProvider: { settingsStore.developerModeOverride },
@@ -427,10 +455,17 @@ final class AppController: ObservableObject {
             },
             minimumRecordingDuration: VoicePenConfig.minimumRecordingDuration
         )
-        let meetingDiarizationClient = SpeechSwiftMeetingDiarizationClient(cacheDirectory: paths.diarizationModelsDirectory)
+        let meetingAudioFileIO = AVFoundationMeetingAudioFileIO()
+        let meetingDiarizationClient = SpeechSwiftMeetingDiarizationClient(
+            cacheDirectory: paths.diarizationModelsDirectory,
+            audioFileIO: meetingAudioFileIO
+        )
         let meetingPipeline = MeetingPipeline(
             recorder: CompositeMeetingRecordingClient(
-                microphoneSource: AVFoundationMicrophoneMeetingAudioSource(tempDirectory: paths.tempAudioDirectory),
+                microphoneSource: AVFoundationMicrophoneMeetingAudioSource(
+                    tempDirectory: paths.tempAudioDirectory,
+                    audioFileIO: meetingAudioFileIO
+                ),
                 systemAudioSource: CoreAudioSystemOutputSource(
                     tempDirectory: paths.tempAudioDirectory,
                     settingsProvider: {
@@ -438,19 +473,27 @@ final class AppController: ObservableObject {
                             mode: settingsStore.meetingSystemAudioSourceMode,
                             selectedApps: settingsStore.meetingAudioAppSelections
                         )
-                    }
+                    },
+                    audioFileIO: meetingAudioFileIO
                 )
             ),
             audioPreprocessor: audioPreprocessor,
             voiceLevelingProcessor: SystemVoiceLevelingProcessor(outputDirectory: paths.tempAudioDirectory),
-            chunker: AVFoundationMeetingAudioChunker(outputDirectory: paths.tempAudioDirectory),
+            chunker: AVFoundationMeetingAudioChunker(
+                outputDirectory: paths.tempAudioDirectory,
+                audioFileIO: meetingAudioFileIO
+            ),
+            audioFileIO: meetingAudioFileIO,
             transcriber: transcriber,
             diarizer: meetingDiarizationClient,
             historyStore: meetingHistoryStore,
             recoveryAudioStore: MeetingRecoveryAudioStore(directory: paths.meetingRecoveryDirectory),
+            savedAudioArchiver: savedAudioArchive,
             languageProvider: { settingsStore.transcriptionLanguage },
             speechPreprocessingModeProvider: { settingsStore.speechPreprocessingMode },
             meetingVoiceLevelingEnabledProvider: { settingsStore.meetingVoiceLevelingEnabled },
+            saveMeetingAudioEnabledProvider: { settingsStore.saveMeetingAudioEnabled },
+            savedAudioStorageLimitGBProvider: { settingsStore.savedAudioStorageLimitGB },
             meetingTranscriptTimecodesEnabledProvider: {
                 settingsStore.meetingTranscriptTimecodesEnabled
             },
@@ -484,6 +527,7 @@ final class AppController: ObservableObject {
             meetingDiarizationModelManager: meetingDiarizationClient,
             launchAtLogin: LiveLaunchAtLoginClient(),
             userPrompts: userPrompts,
+            meetingRecordingReminderPresenter: UserNotificationMeetingRecordingReminderPresenter.shared,
             environmentSettingsStore: userConfigStore,
             historyStore: historyStore,
             meetingHistoryStore: meetingHistoryStore,
@@ -614,7 +658,7 @@ final class AppController: ObservableObject {
         }
 
         installHotkey()
-        appState = .ready
+        appState = isModelInstalled ? .ready : .missingModel
     }
 
     private func showMicrophoneDeniedNoticeIfNeeded(granted: Bool) {
@@ -635,12 +679,7 @@ final class AppController: ObservableObject {
 
     @discardableResult
     func startRecording() -> Task<Void, Never>? {
-        guard appState != .recording,
-            appState != .transcribing,
-            appState != .meetingRecording,
-            appState != .meetingProcessing,
-            !isDownloadingModel
-        else { return nil }
+        guard appState == .ready, !isDownloadingModel else { return nil }
 
         cancelModelWarmup()
         let task = Task {
@@ -680,7 +719,7 @@ final class AppController: ObservableObject {
                 lastRawText = result.rawText
                 lastFinalText = result.finalText
                 recordHistory(for: result)
-                appState = .ready
+                updateStateAfterModelChange()
             } catch is CancellationError {
                 handleTranscriptionCancellation()
             } catch let error as TranscriptionError {
@@ -733,6 +772,14 @@ final class AppController: ObservableObject {
         } catch {
             setError(error)
         }
+    }
+
+    func setMeetingRecordingReminderClickAction(_ action: @escaping @MainActor () -> Void) {
+        meetingRecordingReminderPresenter.setReminderClickAction(action)
+    }
+
+    func requestMainWindowNavigation(_ destination: MainWindowDestination) {
+        mainWindowNavigationRequest = MainWindowNavigationRequest(destination: destination)
     }
 
     @discardableResult
@@ -949,6 +996,15 @@ final class AppController: ObservableObject {
         do {
             try paths.createRequiredDirectories()
             NSWorkspace.shared.open(paths.userModelsDirectory)
+        } catch {
+            setError(error)
+        }
+    }
+
+    func openSavedRecordingsFolder() {
+        do {
+            try paths.createRequiredDirectories()
+            NSWorkspace.shared.open(paths.savedAudioDirectory)
         } catch {
             setError(error)
         }
@@ -1499,6 +1555,30 @@ final class AppController: ObservableObject {
         }
     }
 
+    func updateSaveDictationAudioEnabled(_ isEnabled: Bool) {
+        do {
+            try settingsStore.updateSaveDictationAudioEnabled(isEnabled)
+        } catch {
+            setError(error)
+        }
+    }
+
+    func updateSaveMeetingAudioEnabled(_ isEnabled: Bool) {
+        do {
+            try settingsStore.updateSaveMeetingAudioEnabled(isEnabled)
+        } catch {
+            setError(error)
+        }
+    }
+
+    func updateSavedAudioStorageLimitGB(_ limit: Int) {
+        do {
+            try settingsStore.updateSavedAudioStorageLimitGB(limit)
+        } catch {
+            setError(error)
+        }
+    }
+
     func updateMeetingTranscriptTimecodesEnabled(_ isEnabled: Bool) {
         do {
             try settingsStore.updateMeetingTranscriptTimecodesEnabled(isEnabled)
@@ -1805,7 +1885,7 @@ final class AppController: ObservableObject {
         accessibilityPermissionPollingTask = nil
         errorMessage = nil
         installHotkey()
-        appState = .ready
+        appState = isModelInstalled ? .ready : .missingModel
     }
 
     private func artifactDiagnostics(_ artifact: ModelArtifactStatus) -> String {
