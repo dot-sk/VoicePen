@@ -21,6 +21,9 @@ struct VoicePenApp: App {
     var body: some Scene {
         MenuBarExtra {
             VoicePenMenuView(controller: controller, softwareUpdateController: softwareUpdateController)
+                .onAppear {
+                    configureMeetingRecordingReminderClickAction()
+                }
         } label: {
             VoicePenMenuBarLabel(controller: controller)
         }
@@ -28,6 +31,9 @@ struct VoicePenApp: App {
 
         Window("VoicePen", id: "voicepen-main") {
             VoicePenMainWindow(controller: controller)
+                .onAppear {
+                    configureMeetingRecordingReminderClickAction()
+                }
         }
         .windowResizability(.contentMinSize)
         .defaultLaunchBehavior(.presented)
@@ -41,8 +47,7 @@ struct VoicePenApp: App {
 
             CommandGroup(after: .appInfo) {
                 Button("Open VoicePen Window") {
-                    NSApplication.shared.activate(ignoringOtherApps: true)
-                    openWindow(id: "voicepen-main")
+                    openVoicePenWindow()
                 }
 
                 Button("Check for Updates...") {
@@ -54,6 +59,18 @@ struct VoicePenApp: App {
 
     private static var isRunningTests: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
+    private func configureMeetingRecordingReminderClickAction() {
+        controller.setMeetingRecordingReminderClickAction { [weak controller] in
+            controller?.requestMainWindowNavigation(.meetings)
+            openVoicePenWindow()
+        }
+    }
+
+    private func openVoicePenWindow() {
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        openWindow(id: "voicepen-main")
     }
 }
 

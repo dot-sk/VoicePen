@@ -6,16 +6,38 @@ nonisolated enum AudioSilenceTrimmer {
     static let minimumTrimmedDuration: TimeInterval = 0.1
     static let defaultAnalysisWindowDuration: TimeInterval = 0.03
 
-    static func trimRange(
+    struct Analysis: Equatable {
+        let audibleRange: Range<Int>
+
+        func trimRange(
+            sampleCount: Int,
+            sampleRate: Double,
+            paddingDuration: TimeInterval = AudioSilenceTrimmer.defaultPaddingDuration,
+            minimumTrimmedDuration: TimeInterval = AudioSilenceTrimmer.minimumTrimmedDuration
+        ) -> Range<Int>? {
+            guard sampleCount > 0, sampleRate > 0 else { return nil }
+
+            let paddingFrames = max(0, Int(sampleRate * paddingDuration))
+            let lowerBound = max(0, audibleRange.lowerBound - paddingFrames)
+            let upperBound = min(sampleCount, audibleRange.upperBound + paddingFrames)
+            guard lowerBound < upperBound else { return nil }
+
+            let trimmedFrames = sampleCount - (upperBound - lowerBound)
+            let minimumTrimmedFrames = Int(sampleRate * minimumTrimmedDuration)
+            guard trimmedFrames >= minimumTrimmedFrames else {
+                return nil
+            }
+
+            return lowerBound..<upperBound
+        }
+    }
+
+    static func analyze(
         samples: [Float],
         sampleRate: Double,
         threshold: Float = defaultThreshold,
-        paddingDuration: TimeInterval = defaultPaddingDuration,
-        minimumTrimmedDuration: TimeInterval = minimumTrimmedDuration,
         minimumSpeechDuration: TimeInterval = 0
-    ) -> Range<Int>? {
-        guard !samples.isEmpty, sampleRate > 0 else { return nil }
-
+    ) -> Analysis? {
         guard
             let audibleRange = audibleRange(
                 samples: samples,
@@ -27,18 +49,36 @@ nonisolated enum AudioSilenceTrimmer {
             return nil
         }
 
-        let paddingFrames = max(0, Int(sampleRate * paddingDuration))
-        let lowerBound = max(0, audibleRange.lowerBound - paddingFrames)
-        let upperBound = min(samples.count, audibleRange.upperBound + paddingFrames)
-        guard lowerBound < upperBound else { return nil }
+        return Analysis(audibleRange: audibleRange)
+    }
 
-        let trimmedFrames = samples.count - (upperBound - lowerBound)
-        let minimumTrimmedFrames = Int(sampleRate * minimumTrimmedDuration)
-        guard trimmedFrames >= minimumTrimmedFrames else {
+    static func trimRange(
+        samples: [Float],
+        sampleRate: Double,
+        threshold: Float = defaultThreshold,
+        paddingDuration: TimeInterval = defaultPaddingDuration,
+        minimumTrimmedDuration: TimeInterval = minimumTrimmedDuration,
+        minimumSpeechDuration: TimeInterval = 0
+    ) -> Range<Int>? {
+        guard !samples.isEmpty, sampleRate > 0 else { return nil }
+
+        guard
+            let analysis = analyze(
+                samples: samples,
+                sampleRate: sampleRate,
+                threshold: threshold,
+                minimumSpeechDuration: minimumSpeechDuration
+            )
+        else {
             return nil
         }
 
-        return lowerBound..<upperBound
+        return analysis.trimRange(
+            sampleCount: samples.count,
+            sampleRate: sampleRate,
+            paddingDuration: paddingDuration,
+            minimumTrimmedDuration: minimumTrimmedDuration
+        )
     }
 
     static func containsSpeech(
@@ -47,7 +87,7 @@ nonisolated enum AudioSilenceTrimmer {
         threshold: Float = defaultThreshold,
         minimumSpeechDuration: TimeInterval = 0
     ) -> Bool {
-        audibleRange(
+        analyze(
             samples: samples,
             sampleRate: sampleRate,
             threshold: threshold,

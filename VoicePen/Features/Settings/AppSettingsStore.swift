@@ -10,6 +10,9 @@ final class AppSettingsStore: ObservableObject {
     @Published private(set) var hotkeyHoldDuration: TimeInterval
     @Published private(set) var boostDictationInputGain: Bool
     @Published private(set) var meetingVoiceLevelingEnabled: Bool
+    @Published private(set) var saveDictationAudioEnabled: Bool
+    @Published private(set) var saveMeetingAudioEnabled: Bool
+    @Published private(set) var savedAudioStorageLimitGB: Int
     @Published private(set) var meetingTranscriptTimecodesEnabled: Bool
     @Published private(set) var meetingDiarizationEnabled: Bool
     @Published private(set) var meetingSystemAudioSourceMode: MeetingSystemAudioSourceMode
@@ -32,6 +35,9 @@ final class AppSettingsStore: ObservableObject {
         self.hotkeyHoldDuration = VoicePenConfig.defaultHotkeyHoldDuration
         self.boostDictationInputGain = true
         self.meetingVoiceLevelingEnabled = true
+        self.saveDictationAudioEnabled = false
+        self.saveMeetingAudioEnabled = false
+        self.savedAudioStorageLimitGB = VoicePenConfig.defaultSavedAudioStorageLimitGB
         self.meetingTranscriptTimecodesEnabled = true
         self.meetingDiarizationEnabled = false
         self.meetingSystemAudioSourceMode = .all
@@ -58,6 +64,15 @@ final class AppSettingsStore: ObservableObject {
             let meetingVoiceLeveling =
                 try fetchValue(forKey: Self.meetingVoiceLevelingEnabledKey, from: database)
                 ?? "true"
+            let saveDictationAudio =
+                try fetchValue(forKey: Self.saveDictationAudioEnabledKey, from: database)
+                ?? "false"
+            let saveMeetingAudio =
+                try fetchValue(forKey: Self.saveMeetingAudioEnabledKey, from: database)
+                ?? "false"
+            let savedAudioStorageLimitGB =
+                try fetchValue(forKey: Self.savedAudioStorageLimitGBKey, from: database)
+                ?? String(VoicePenConfig.defaultSavedAudioStorageLimitGB)
             let meetingTranscriptTimecodes =
                 try fetchValue(forKey: Self.meetingTranscriptTimecodesEnabledKey, from: database)
                 ?? "true"
@@ -82,6 +97,9 @@ final class AppSettingsStore: ObservableObject {
                 holdDuration: holdDuration,
                 boostDictationInputGain: boostDictationInputGain,
                 meetingVoiceLeveling: meetingVoiceLeveling,
+                saveDictationAudio: saveDictationAudio,
+                saveMeetingAudio: saveMeetingAudio,
+                savedAudioStorageLimitGB: savedAudioStorageLimitGB,
                 meetingTranscriptTimecodes: meetingTranscriptTimecodes,
                 meetingDiarization: meetingDiarization,
                 meetingSystemAudioSourceMode: meetingSystemAudioSourceMode,
@@ -99,6 +117,9 @@ final class AppSettingsStore: ObservableObject {
         hotkeyHoldDuration = Self.normalizeHotkeyHoldDuration(values.holdDuration)
         boostDictationInputGain = Self.normalizeBoolean(values.boostDictationInputGain)
         meetingVoiceLevelingEnabled = Self.normalizeBoolean(values.meetingVoiceLeveling)
+        saveDictationAudioEnabled = Self.normalizeBoolean(values.saveDictationAudio)
+        saveMeetingAudioEnabled = Self.normalizeBoolean(values.saveMeetingAudio)
+        savedAudioStorageLimitGB = Self.normalizeSavedAudioStorageLimitGB(values.savedAudioStorageLimitGB)
         meetingTranscriptTimecodesEnabled = Self.normalizeBoolean(values.meetingTranscriptTimecodes)
         meetingDiarizationEnabled = Self.normalizeBoolean(values.meetingDiarization)
         meetingSystemAudioSourceMode = Self.normalizeMeetingSystemAudioSourceMode(values.meetingSystemAudioSourceMode)
@@ -166,6 +187,31 @@ final class AppSettingsStore: ObservableObject {
             try setValue(String(isEnabled), forKey: Self.meetingVoiceLevelingEnabledKey, in: database)
         }
         meetingVoiceLevelingEnabled = isEnabled
+    }
+
+    func updateSaveDictationAudioEnabled(_ isEnabled: Bool) throws {
+        try withDatabase { database in
+            try DatabaseMigrator.migrate(database)
+            try setValue(String(isEnabled), forKey: Self.saveDictationAudioEnabledKey, in: database)
+        }
+        saveDictationAudioEnabled = isEnabled
+    }
+
+    func updateSaveMeetingAudioEnabled(_ isEnabled: Bool) throws {
+        try withDatabase { database in
+            try DatabaseMigrator.migrate(database)
+            try setValue(String(isEnabled), forKey: Self.saveMeetingAudioEnabledKey, in: database)
+        }
+        saveMeetingAudioEnabled = isEnabled
+    }
+
+    func updateSavedAudioStorageLimitGB(_ limit: Int) throws {
+        let normalizedLimit = Self.normalizeSavedAudioStorageLimitGB(String(limit))
+        try withDatabase { database in
+            try DatabaseMigrator.migrate(database)
+            try setValue(String(normalizedLimit), forKey: Self.savedAudioStorageLimitGBKey, in: database)
+        }
+        savedAudioStorageLimitGB = normalizedLimit
     }
 
     func updateMeetingTranscriptTimecodesEnabled(_ isEnabled: Bool) throws {
@@ -303,6 +349,17 @@ final class AppSettingsStore: ObservableObject {
         }
     }
 
+    private static func normalizeSavedAudioStorageLimitGB(_ value: String) -> Int {
+        guard let limit = Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return VoicePenConfig.defaultSavedAudioStorageLimitGB
+        }
+
+        return min(
+            max(limit, VoicePenConfig.minimumSavedAudioStorageLimitGB),
+            VoicePenConfig.maximumSavedAudioStorageLimitGB
+        )
+    }
+
     private static func normalizeDeveloperModeOverride(_ value: String?) -> DeveloperMode? {
         guard let value else { return nil }
         return DeveloperMode(rawValue: value.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -362,6 +419,9 @@ final class AppSettingsStore: ObservableObject {
     private static let speechPreprocessingKey = "audio.speechPreprocessingMode"
     private static let boostDictationInputGainKey = "audio.boostDictationInputGain"
     private static let meetingVoiceLevelingEnabledKey = "audio.meetingVoiceLevelingEnabled"
+    private static let saveDictationAudioEnabledKey = "audio.saveDictationAudioEnabled"
+    private static let saveMeetingAudioEnabledKey = "audio.saveMeetingAudioEnabled"
+    private static let savedAudioStorageLimitGBKey = "audio.savedAudioStorageLimitGB"
     private static let meetingTranscriptTimecodesEnabledKey = "meeting.transcriptTimecodesEnabled"
     private static let meetingDiarizationEnabledKey = "meeting.diarizationEnabled"
     private static let meetingSystemAudioSourceModeKey = "meeting.systemAudioSourceMode"
@@ -392,6 +452,9 @@ private struct LoadedSettings {
     let holdDuration: String
     let boostDictationInputGain: String
     let meetingVoiceLeveling: String
+    let saveDictationAudio: String
+    let saveMeetingAudio: String
+    let savedAudioStorageLimitGB: String
     let meetingTranscriptTimecodes: String
     let meetingDiarization: String
     let meetingSystemAudioSourceMode: String

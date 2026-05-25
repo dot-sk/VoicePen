@@ -1,4 +1,3 @@
-import AVFoundation
 import AudioCommon
 import Foundation
 import SpeechVAD
@@ -704,14 +703,17 @@ final class SpeechSwiftMeetingDiarizationClient: MeetingDiarizationClient {
 
     private let cacheDirectory: URL
     private let cache: SpeechSwiftDiarizationModelCache
+    private let audioFileIO: MeetingAudioFileIO
     private let sampleRate = 16_000
 
     init(
         cacheDirectory: URL,
-        cache: SpeechSwiftDiarizationModelCache = SpeechSwiftDiarizationModelCache()
+        cache: SpeechSwiftDiarizationModelCache = SpeechSwiftDiarizationModelCache(),
+        audioFileIO: MeetingAudioFileIO = AVFoundationMeetingAudioFileIO()
     ) {
         self.cacheDirectory = cacheDirectory
         self.cache = cache
+        self.audioFileIO = audioFileIO
     }
 
     var isModelInstalled: Bool {
@@ -831,7 +833,7 @@ final class SpeechSwiftMeetingDiarizationClient: MeetingDiarizationClient {
             if overlapStart > cursor {
                 samples.append(contentsOf: silence(duration: overlapStart - cursor))
             }
-            let chunkSamples = try Self.readMonoSamples(from: chunk.url, targetSampleRate: sampleRate)
+            let chunkSamples = try audioFileIO.readMonoSamples(from: chunk.url, targetSampleRate: sampleRate)
             samples.append(
                 contentsOf: slice(
                     chunkSamples,
@@ -855,42 +857,6 @@ final class SpeechSwiftMeetingDiarizationClient: MeetingDiarizationClient {
         let startFrame = max(0, min(samples.count, Int((start * Double(sampleRate)).rounded(.down))))
         let endFrame = max(startFrame, min(samples.count, Int((end * Double(sampleRate)).rounded(.up))))
         return Array(samples[startFrame..<endFrame])
-    }
-
-    private static func readMonoSamples(from url: URL, targetSampleRate: Int) throws -> [Float] {
-        let audioFile = try AVAudioFile(forReading: url)
-        let format = audioFile.processingFormat
-        guard
-            let buffer = AVAudioPCMBuffer(
-                pcmFormat: format,
-                frameCapacity: AVAudioFrameCount(audioFile.length)
-            )
-        else {
-            throw TranscriptionError.transcriptionFailed("Could not create diarization audio buffer.")
-        }
-
-        try audioFile.read(into: buffer)
-        guard let channelData = buffer.floatChannelData else {
-            throw TranscriptionError.transcriptionFailed("Could not read diarization audio samples.")
-        }
-
-        let frameLength = Int(buffer.frameLength)
-        let channelCount = Int(format.channelCount)
-        guard frameLength > 0, channelCount > 0 else { return [] }
-
-        var samples = [Float]()
-        samples.reserveCapacity(frameLength)
-        for frame in 0..<frameLength {
-            var value: Float = 0
-            for channel in 0..<channelCount {
-                value += channelData[channel][frame]
-            }
-            samples.append(value / Float(channelCount))
-        }
-
-        let inputSampleRate = Int(format.sampleRate)
-        guard inputSampleRate != targetSampleRate else { return samples }
-        return AudioFileLoader.resample(samples, from: inputSampleRate, to: targetSampleRate)
     }
 
     private var completionMarkerURL: URL {

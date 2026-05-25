@@ -37,8 +37,7 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
             currentStreakDayCount: self.currentStreakDayCount,
             bestDayWordCount: self.bestDay?.wordCount ?? 0,
             estimatedTimeSavedDuration: Self.estimatedTimeSavedDuration(
-                totalWordCount: self.totalWordCount,
-                totalDuration: self.totalDuration
+                totalWordCount: self.totalWordCount
             )
         )
     }
@@ -78,8 +77,7 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
             currentStreakDayCount: currentStreakDayCount,
             bestDayWordCount: bestDay?.wordCount ?? 0,
             estimatedTimeSavedDuration: Self.estimatedTimeSavedDuration(
-                totalWordCount: totalWordCount,
-                totalDuration: totalDuration
+                totalWordCount: totalWordCount
             )
         )
     }
@@ -129,8 +127,7 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
 
     var estimatedTimeSavedDuration: TimeInterval {
         Self.estimatedTimeSavedDuration(
-            totalWordCount: totalWordCount,
-            totalDuration: totalDuration
+            totalWordCount: totalWordCount
         )
     }
 
@@ -203,12 +200,9 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
     }
 
     nonisolated private static func estimatedTimeSavedDuration(
-        totalWordCount: Int,
-        totalDuration: TimeInterval
+        totalWordCount: Int
     ) -> TimeInterval {
-        let estimatedManualTypingDuration =
-            (Double(totalWordCount) / Self.manualTypingWordsPerMinute) * 60
-        return max(0, estimatedManualTypingDuration - totalDuration)
+        max(0, (Double(totalWordCount) / Self.manualTypingWordsPerMinute) * 60)
     }
 
     private static func dailyUsageTotals(
@@ -238,8 +232,7 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
                 sessionCount: totals.sessionCount,
                 audioDuration: totals.duration,
                 estimatedTimeSavedDuration: estimatedTimeSavedDuration(
-                    totalWordCount: totals.wordCount,
-                    totalDuration: totals.duration
+                    totalWordCount: totals.wordCount
                 )
             )
         }
@@ -256,8 +249,7 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
             sessionCount: weekTotals.sessionCount,
             audioDuration: weekTotals.duration,
             estimatedTimeSavedDuration: estimatedTimeSavedDuration(
-                totalWordCount: weekTotals.wordCount,
-                totalDuration: weekTotals.duration
+                totalWordCount: weekTotals.wordCount
             )
         )
     }
@@ -398,7 +390,7 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
                 unit: "days"
             ),
             VoiceUsageMilestone(
-                title: "1 hour saved",
+                title: "1 hour avoided",
                 currentValue: Int(estimatedTimeSavedDuration.rounded(.down)),
                 targetValue: 3_600,
                 unit: "seconds"
@@ -422,7 +414,7 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
                 unit: "days"
             ),
             VoiceUsageMilestone(
-                title: "10 hours saved",
+                title: "10 hours avoided",
                 currentValue: Int(estimatedTimeSavedDuration.rounded(.down)),
                 targetValue: 36_000,
                 unit: "seconds"
@@ -452,7 +444,7 @@ nonisolated struct VoiceTranscriptionUsageStats: Equatable, Sendable {
                 unit: "words"
             ),
             VoiceUsageMilestone(
-                title: "50 hours saved",
+                title: "50 hours avoided",
                 currentValue: Int(estimatedTimeSavedDuration.rounded(.down)),
                 targetValue: 180_000,
                 unit: "seconds"

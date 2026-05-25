@@ -1,4 +1,3 @@
-import AVFoundation
 import Foundation
 
 final class MeetingPipeline {
@@ -10,13 +9,17 @@ final class MeetingPipeline {
     private let audioPreprocessor: AudioPreprocessingClient
     private let voiceLevelingProcessor: VoiceLevelingProcessor
     private let chunker: MeetingAudioChunker
+    private let audioFileIO: MeetingAudioFileIO
     private let transcriber: TranscriptionClient
     private let diarizer: MeetingDiarizationClient?
     private let historyStore: MeetingHistoryStore
     private let recoveryAudioStore: MeetingRecoveryAudioStore?
+    private let savedAudioArchiver: SavedAudioArchiving
     private let languageProvider: () -> String
     private let speechPreprocessingModeProvider: () -> SpeechPreprocessingMode
     private let meetingVoiceLevelingEnabledProvider: () -> Bool
+    private let saveMeetingAudioEnabledProvider: () -> Bool
+    private let savedAudioStorageLimitGBProvider: () -> Int
     private let meetingTranscriptTimecodesEnabledProvider: () -> Bool
     private let meetingDiarizationEnabledProvider: () -> Bool
     private let meetingDiarizationExpectedSpeakerCountProvider: @MainActor () -> Int?
@@ -30,13 +33,17 @@ final class MeetingPipeline {
         audioPreprocessor: AudioPreprocessingClient = PassthroughAudioPreprocessingClient(),
         voiceLevelingProcessor: VoiceLevelingProcessor = PassthroughVoiceLevelingProcessor(),
         chunker: MeetingAudioChunker = PassthroughMeetingAudioChunker(),
+        audioFileIO: MeetingAudioFileIO = AVFoundationMeetingAudioFileIO(),
         transcriber: TranscriptionClient,
         diarizer: MeetingDiarizationClient? = nil,
         historyStore: MeetingHistoryStore,
         recoveryAudioStore: MeetingRecoveryAudioStore? = nil,
+        savedAudioArchiver: SavedAudioArchiving = NoOpSavedAudioArchive(),
         languageProvider: @escaping () -> String = { VoicePenConfig.defaultLanguage },
         speechPreprocessingModeProvider: @escaping () -> SpeechPreprocessingMode = { .off },
         meetingVoiceLevelingEnabledProvider: @escaping () -> Bool = { false },
+        saveMeetingAudioEnabledProvider: @escaping () -> Bool = { false },
+        savedAudioStorageLimitGBProvider: @escaping () -> Int = { VoicePenConfig.defaultSavedAudioStorageLimitGB },
         meetingTranscriptTimecodesEnabledProvider: @escaping () -> Bool = { true },
         meetingDiarizationEnabledProvider: @escaping () -> Bool = { false },
         meetingDiarizationExpectedSpeakerCountProvider: @escaping @MainActor () -> Int? = { nil },
@@ -48,13 +55,17 @@ final class MeetingPipeline {
         self.audioPreprocessor = audioPreprocessor
         self.voiceLevelingProcessor = voiceLevelingProcessor
         self.chunker = chunker
+        self.audioFileIO = audioFileIO
         self.transcriber = transcriber
         self.diarizer = diarizer
         self.historyStore = historyStore
         self.recoveryAudioStore = recoveryAudioStore
+        self.savedAudioArchiver = savedAudioArchiver
         self.languageProvider = languageProvider
         self.speechPreprocessingModeProvider = speechPreprocessingModeProvider
         self.meetingVoiceLevelingEnabledProvider = meetingVoiceLevelingEnabledProvider
+        self.saveMeetingAudioEnabledProvider = saveMeetingAudioEnabledProvider
+        self.savedAudioStorageLimitGBProvider = savedAudioStorageLimitGBProvider
         self.meetingTranscriptTimecodesEnabledProvider = meetingTranscriptTimecodesEnabledProvider
         self.meetingDiarizationEnabledProvider = meetingDiarizationEnabledProvider
         self.meetingDiarizationExpectedSpeakerCountProvider = meetingDiarizationExpectedSpeakerCountProvider
@@ -102,6 +113,11 @@ final class MeetingPipeline {
                 chunkDuration: Self.chunkDuration
             )
             cleanupURLs.append(contentsOf: chunkingResult.temporaryURLs)
+            archiveSavedMeetingAudio(
+                chunks: chunkingResult.chunks,
+                sourceSpans: chunkingResult.sourceSpans,
+                capturedAt: recording.startedAt
+            )
             let meetingDiarizationEnabled = meetingDiarizationEnabledProvider()
             let entry = try await processRecording(
                 recording,
@@ -341,6 +357,46 @@ final class MeetingPipeline {
         }
     }
 
+    private func archiveSavedMeetingAudio(
+        chunks: [MeetingAudioChunk],
+        sourceSpans: [MeetingAudioSourceSpan],
+        capturedAt: Date
+    ) {
+        guard saveMeetingAudioEnabledProvider() else { return }
+        let spansByChunkURL = Dictionary(grouping: sourceSpans, by: \.chunkURL)
+        for (index, chunk) in chunks.sorted(by: chunkOrder).enumerated() {
+            let request = SavedAudioArchiveRequest(
+                sourceURL: chunk.url,
+                kind: .meeting,
+                capturedAt: capturedAt,
+                sourceLabel: savedAudioSourceLabel(
+                    for: chunk,
+                    sourceSpans: spansByChunkURL[chunk.url] ?? []
+                ),
+                sequenceIndex: index
+            )
+            do {
+                try savedAudioArchiver.archive(request, storageLimitGB: savedAudioStorageLimitGBProvider())
+            } catch {
+                AppLogger.info("Saved Meeting audio skipped: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func savedAudioSourceLabel(
+        for chunk: MeetingAudioChunk,
+        sourceSpans: [MeetingAudioSourceSpan]
+    ) -> String {
+        let sourceKinds = Set(sourceSpans.map(\.source))
+        guard sourceKinds.count <= 1 else { return "merged" }
+        switch chunk.source {
+        case .microphone:
+            return "microphone"
+        case .systemAudio:
+            return "system-audio"
+        }
+    }
+
     private func meetingSpeakerAnalysis(
         chunks: [MeetingAudioChunk],
         enabled: Bool,
@@ -430,7 +486,8 @@ final class MeetingPipeline {
             sourceSpans: sourceSpans,
             timecodesEnabled: timecodesEnabled,
             diarizationEnabled: diarizationEnabled,
-            speakerTurns: speakerTurns
+            speakerTurns: speakerTurns,
+            audioFileIO: audioFileIO
         )
         return MeetingProcessedChunk(
             text: transcriptText,
@@ -621,7 +678,8 @@ private enum MeetingTranscriptFormatter {
         sourceSpans: [MeetingAudioSourceSpan],
         timecodesEnabled: Bool,
         diarizationEnabled: Bool,
-        speakerTurns: [SpeakerTurn]
+        speakerTurns: [SpeakerTurn],
+        audioFileIO: MeetingAudioFileIO
     ) -> String {
         guard !text.isEmpty else { return "" }
         guard timecodesEnabled || diarizationEnabled else { return text }
@@ -639,7 +697,7 @@ private enum MeetingTranscriptFormatter {
         guard !cleanedSegments.isEmpty else { return text }
         let sourceEnergyIndex =
             timecodesEnabled || diarizationEnabled
-            ? MeetingSourceEnergyIndex(sourceSpans: sourceSpans)
+            ? MeetingSourceEnergyIndex(sourceSpans: sourceSpans, audioFileIO: audioFileIO)
             : nil
         let preparedSegments = removeRepeatedTrailingArtifacts(
             cleanedSegments.map { segment in
@@ -1072,10 +1130,20 @@ private struct SpeakerTurnLookup {
 private struct MeetingSourceEnergyIndex {
     private let profilesBySource: [MeetingSourceKind: [MeetingSourceEnergyProfile]]
 
-    init(sourceSpans: [MeetingAudioSourceSpan], binDuration: TimeInterval = 0.1) {
+    init(
+        sourceSpans: [MeetingAudioSourceSpan],
+        binDuration: TimeInterval = 0.1,
+        audioFileIO: MeetingAudioFileIO
+    ) {
         var profilesBySource: [MeetingSourceKind: [MeetingSourceEnergyProfile]] = [:]
         for span in sourceSpans {
-            guard let profile = MeetingSourceEnergyProfile(span: span, binDuration: binDuration) else {
+            guard
+                let profile = MeetingSourceEnergyProfile(
+                    span: span,
+                    binDuration: binDuration,
+                    audioFileIO: audioFileIO
+                )
+            else {
                 continue
             }
             profilesBySource[span.source, default: []].append(profile)
@@ -1117,49 +1185,22 @@ private struct MeetingSourceEnergyProfile {
     var binDuration: TimeInterval
     var bins: [Double]
 
-    init?(span: MeetingAudioSourceSpan, binDuration: TimeInterval) {
+    init?(
+        span: MeetingAudioSourceSpan,
+        binDuration: TimeInterval,
+        audioFileIO: MeetingAudioFileIO
+    ) {
         guard span.duration > 0, binDuration > 0 else { return nil }
-        guard let audioFile = try? AVAudioFile(forReading: span.sourceURL) else { return nil }
-        let format = audioFile.processingFormat
-        let sampleRate = format.sampleRate
-        let sourceOffset = max(0, span.startOffset - span.sourceStartOffset)
-        let startFrame = min(
-            audioFile.length,
-            AVAudioFramePosition((sourceOffset * sampleRate).rounded(.down))
-        )
-        let requestedFrames = AVAudioFrameCount(max(1, (span.duration * sampleRate).rounded(.up)))
-        let availableFrames = AVAudioFrameCount(max(0, audioFile.length - startFrame))
-        let frameCount = min(requestedFrames, availableFrames)
-        guard frameCount > 0,
-            let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)
-        else {
-            return nil
-        }
-
-        audioFile.framePosition = startFrame
-        do {
-            try audioFile.read(into: buffer, frameCount: frameCount)
-        } catch {
-            return nil
-        }
-        guard let channelData = buffer.floatChannelData else { return nil }
-
-        let frameLength = Int(buffer.frameLength)
-        let channelCount = Int(format.channelCount)
-        guard frameLength > 0, channelCount > 0 else { return nil }
+        guard let frameLevelWindow = try? audioFileIO.averageAbsoluteFrameLevels(for: span) else { return nil }
 
         let binCount = max(1, Int((span.duration / binDuration).rounded(.up)))
         var totals = Array(repeating: 0.0, count: binCount)
         var counts = Array(repeating: 0, count: binCount)
-        let framesPerBin = max(1, Int((binDuration * sampleRate).rounded(.up)))
+        let framesPerBin = max(1, Int((binDuration * frameLevelWindow.sampleRate).rounded(.up)))
 
-        for frame in 0..<frameLength {
+        for frame in frameLevelWindow.levels.indices {
             let binIndex = min(binCount - 1, frame / framesPerBin)
-            var frameTotal = 0.0
-            for channel in 0..<channelCount {
-                frameTotal += Double(abs(channelData[channel][frame]))
-            }
-            totals[binIndex] += frameTotal / Double(channelCount)
+            totals[binIndex] += frameLevelWindow.levels[frame]
             counts[binIndex] += 1
         }
 

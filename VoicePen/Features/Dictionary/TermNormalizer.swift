@@ -1,15 +1,10 @@
 import Foundation
 
 nonisolated struct TermNormalizer {
-    private let entries: [TermEntry]
+    private let replacementRules: [ReplacementRule]
 
     init(entries: [TermEntry]) {
-        self.entries = entries
-    }
-
-    func normalize(_ rawText: String) throws -> String {
-        var normalized = rawText
-        let activeEntries =
+        self.replacementRules =
             entries
             .sorted { lhs, rhs in
                 if lhs.canonical.count == rhs.canonical.count {
@@ -17,31 +12,49 @@ nonisolated struct TermNormalizer {
                 }
                 return lhs.canonical.count > rhs.canonical.count
             }
-
-        for entry in activeEntries {
-            let variants = entry.variants
-                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                .sorted {
-                    if $0.count == $1.count {
-                        return $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+            .flatMap { entry in
+                entry.variants
+                    .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                    .sorted {
+                        if $0.count == $1.count {
+                            return $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+                        }
+                        return $0.count > $1.count
                     }
-                    return $0.count > $1.count
-                }
-
-            for variant in variants {
-                let escaped = NSRegularExpression.escapedPattern(for: variant)
-                let pattern = #"(?<![\p{L}\p{N}_])"# + escaped + #"(?![\p{L}\p{N}_])"#
-                let regex = try NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
-                let range = NSRange(normalized.startIndex..<normalized.endIndex, in: normalized)
-                normalized = regex.stringByReplacingMatches(
-                    in: normalized,
-                    options: [],
-                    range: range,
-                    withTemplate: entry.canonical
-                )
+                    .map { variant in
+                        ReplacementRule(canonical: entry.canonical, variant: variant)
+                    }
             }
+    }
+
+    func normalize(_ rawText: String) throws -> String {
+        var normalized = rawText
+
+        for rule in replacementRules {
+            let regex = try rule.regex.get()
+            let range = NSRange(normalized.startIndex..<normalized.endIndex, in: normalized)
+            normalized = regex.stringByReplacingMatches(
+                in: normalized,
+                options: [],
+                range: range,
+                withTemplate: rule.canonical
+            )
         }
 
         return normalized
+    }
+
+    private struct ReplacementRule {
+        let canonical: String
+        let regex: Result<NSRegularExpression, Error>
+
+        init(canonical: String, variant: String) {
+            self.canonical = canonical
+            let escaped = NSRegularExpression.escapedPattern(for: variant)
+            let pattern = #"(?<![\p{L}\p{N}_])"# + escaped + #"(?![\p{L}\p{N}_])"#
+            self.regex = Result {
+                try NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+            }
+        }
     }
 }

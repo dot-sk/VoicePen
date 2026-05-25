@@ -10,6 +10,7 @@ final class MeetingRecordingStore {
         var activeProcessingID: UUID?
         var statusTask: Task<Void, Never>?
         var recordingLimitTask: Task<Void, Never>?
+        var recordingReminderTask: Task<Void, Never>?
         var processingTask: Task<Void, Never>?
         var processingTimeoutTask: Task<Void, Never>?
 
@@ -42,8 +43,10 @@ final class MeetingRecordingStore {
         let permissions: PermissionsClient
         let settingsStore: AppSettingsStore
         let userPrompts: UserPromptPresenter
+        let recordingReminderPresenter: MeetingRecordingReminderPresenter
         let captureStartTimeout: Duration
         let maximumRecordingDuration: TimeInterval
+        let recordingReminderLeadTime: TimeInterval
         let processingTimeout: Duration
         let runningApplicationBundleIdentifiersProvider: () -> Set<String>
         let getAppState: () -> AppState
@@ -218,6 +221,7 @@ final class MeetingRecordingStore {
         case .startSucceeded:
             startStatusUpdates()
             startRecordingLimitMonitor()
+            startRecordingReminderMonitor()
 
         case let .startFailed(error):
             handleStartError(error)
@@ -364,10 +368,7 @@ final class MeetingRecordingStore {
 
     private func startRecordingLimitMonitor() {
         stopRecordingLimitMonitor()
-        let startedAt = state.startedAt ?? Date()
-        let elapsedTime = Date().timeIntervalSince(startedAt)
-        let remainingTime = max(0, environment.maximumRecordingDuration - elapsedTime)
-        let sleepDuration = Self.duration(seconds: remainingTime)
+        let sleepDuration = recordingTimerDuration(until: environment.maximumRecordingDuration)
 
         state.recordingLimitTask = Task { @MainActor [weak self] in
             do {
@@ -384,10 +385,40 @@ final class MeetingRecordingStore {
         }
     }
 
+    private func startRecordingReminderMonitor() {
+        stopRecordingReminderMonitor()
+        let reminderOffset = environment.maximumRecordingDuration - environment.recordingReminderLeadTime
+        guard environment.recordingReminderLeadTime > 0, reminderOffset > 0 else { return }
+
+        let sleepDuration = recordingTimerDuration(until: reminderOffset)
+
+        state.recordingReminderTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: sleepDuration)
+            } catch {
+                return
+            }
+
+            guard let self,
+                environment.getAppState() == .meetingRecording
+            else { return }
+
+            environment.recordingReminderPresenter.showMeetingRecordingStillRunningReminder()
+        }
+    }
+
+    private func recordingTimerDuration(until recordingElapsedTime: TimeInterval) -> Duration {
+        let startedAt = state.startedAt ?? Date()
+        let elapsedTime = Date().timeIntervalSince(startedAt)
+        let remainingTime = max(0, recordingElapsedTime - elapsedTime)
+        return Self.duration(seconds: remainingTime)
+    }
+
     private func stopStatusUpdates() {
         state.statusTask?.cancel()
         state.statusTask = nil
         stopRecordingLimitMonitor()
+        stopRecordingReminderMonitor()
         state.startedAt = nil
         updateSourceStatus(.idle)
     }
@@ -395,6 +426,11 @@ final class MeetingRecordingStore {
     private func stopRecordingLimitMonitor() {
         state.recordingLimitTask?.cancel()
         state.recordingLimitTask = nil
+    }
+
+    private func stopRecordingReminderMonitor() {
+        state.recordingReminderTask?.cancel()
+        state.recordingReminderTask = nil
     }
 
     private func startProcessingTimeoutMonitor(id: UUID) {
