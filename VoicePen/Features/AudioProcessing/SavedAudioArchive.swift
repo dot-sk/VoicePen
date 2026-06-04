@@ -28,13 +28,12 @@ nonisolated struct SavedAudioArchiveRequest: Equatable, Sendable {
 }
 
 nonisolated enum SavedAudioRecordingKind: String, Sendable {
-    case dictationRaw
-    case dictationProcessed
+    case dictation
     case meeting
 
     var directoryKind: SavedAudioDirectoryKind {
         switch self {
-        case .dictationRaw, .dictationProcessed:
+        case .dictation:
             return .dictation
         case .meeting:
             return .meeting
@@ -43,10 +42,8 @@ nonisolated enum SavedAudioRecordingKind: String, Sendable {
 
     var fileComponent: String {
         switch self {
-        case .dictationRaw:
-            return "dictation-raw"
-        case .dictationProcessed:
-            return "dictation-processed"
+        case .dictation:
+            return "dictation"
         case .meeting:
             return "meeting"
         }

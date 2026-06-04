@@ -135,13 +135,6 @@ final class DictationPipeline {
             overlay.hide(after: 0.1)
             return DictationPipelineResult(rawText: "", finalText: "")
         }
-        archiveSavedAudio(
-            SavedAudioArchiveRequest(
-                sourceURL: recording.url,
-                kind: .dictationRaw,
-                capturedAt: recording.startedAt
-            )
-        )
 
         await overlay.update(.transcribing(stage: .preparingAudio, progress: nil))
         let transcriptionAudioURL: URL
@@ -155,16 +148,14 @@ final class DictationPipeline {
             transcriptionAudioURL = measured.value
             timings.preprocessing = measured.elapsed
         } catch AudioPreprocessingError.noSpeechDetected {
+            archiveSavedDictationAudio(sourceURL: recording.url, capturedAt: recording.startedAt)
             overlay.hide(after: 0.1)
             return DictationPipelineResult(rawText: "", finalText: "", recording: nil)
+        } catch {
+            archiveSavedDictationAudio(sourceURL: recording.url, capturedAt: recording.startedAt)
+            throw error
         }
-        archiveSavedAudio(
-            SavedAudioArchiveRequest(
-                sourceURL: transcriptionAudioURL,
-                kind: .dictationProcessed,
-                capturedAt: recording.startedAt
-            )
-        )
+        archiveSavedDictationAudio(sourceURL: transcriptionAudioURL, capturedAt: recording.startedAt)
 
         try Task.checkCancellation()
         let language = TranscriptionLanguageResolver.resolve(languageProvider())
@@ -285,8 +276,13 @@ final class DictationPipeline {
         return (value, TimeInterval(end - start) / 1_000_000_000)
     }
 
-    private func archiveSavedAudio(_ request: SavedAudioArchiveRequest) {
+    private func archiveSavedDictationAudio(sourceURL: URL, capturedAt: Date) {
         guard saveDictationAudioEnabledProvider() else { return }
+        let request = SavedAudioArchiveRequest(
+            sourceURL: sourceURL,
+            kind: .dictation,
+            capturedAt: capturedAt
+        )
         do {
             try savedAudioArchiver.archive(request, storageLimitGB: savedAudioStorageLimitGBProvider())
         } catch {

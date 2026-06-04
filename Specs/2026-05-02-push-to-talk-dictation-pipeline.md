@@ -30,8 +30,8 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 - When the recording overlay shows the microphone level indicator, the white level bar shall animate vertically without horizontal jitter.
 - When recording duration is below the minimum, VoicePen shall stop without transcription or insertion.
 - When recording duration is below the minimum, VoicePen shall not save a local audio recording even if saved dictation recordings are enabled.
-- When saved dictation recordings are enabled and recording duration meets the minimum, VoicePen shall best-effort copy the raw recording to the user's saved recordings folder after the minimum-duration check and before audio preprocessing.
-- When saved dictation recordings are enabled and audio preprocessing produces a transcription input file, VoicePen shall best-effort copy that processed attempt to the user's saved recordings folder before local transcription, including attempts that later produce no speech, empty ASR text, or transcription errors.
+- When saved dictation recordings are enabled and recording duration meets the minimum, VoicePen shall best-effort copy one audio file for the dictation attempt to the user's saved recordings folder.
+- When audio preprocessing produces a transcription input file, VoicePen shall save that transcription input; when preprocessing reports no speech or fails before producing an input file, VoicePen shall save the original recording once.
 - When saving dictation audio fails, VoicePen shall log the failure and continue the dictation workflow without changing transcription, insertion, retry, or history behavior.
 - When audio is silent or transcription returns an empty result, VoicePen shall not insert text or create a history recording.
 - When local transcription returns known short subtitle or outro artifact lines such as "Субтитры сделал ...", "Субтитры создавал ...", "Добавил субтитры ...", or "Продолжение следует...", VoicePen shall remove those lines before normalization, insertion, or history storage.
@@ -53,7 +53,7 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 | --- | --- | --- |
 | Short recording | 0.2s recording | No transcription and no insertion |
 | Saved dictation audio disabled | Default settings | No raw or processed audio is copied to saved recordings |
-| Saved dictation audio enabled | Valid push-to-talk recording | Raw and transcription-attempt audio are copied locally with readable audio filenames |
+| Saved dictation audio enabled | Valid push-to-talk recording | One dictation audio file is copied locally with a readable audio filename |
 | Saved dictation audio failure | Saved recordings folder cannot be written | Dictation still transcribes and inserts normally |
 | Recording overlay | Active recording with changing input level | The microphone level bar changes height while staying horizontally anchored |
 | Silent recording | Valid duration with no speech | No insertion and no history recording |
