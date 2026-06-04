@@ -106,6 +106,7 @@ final class AppController: ObservableObject {
     @Published var meetingElapsedTime: TimeInterval = 0
     @Published var meetingSourceStatus: MeetingSourceStatus = .idle
     @Published var meetingProcessingProgress: MeetingProcessingProgress?
+    @Published private(set) var currentMicrophone: DefaultAudioInputDevice = .systemDefaultFallback
     @Published private(set) var mainWindowNavigationRequest: MainWindowNavigationRequest?
     @Published private(set) var userConfigLoadResult = UserConfigLoadResult(config: UserConfig())
     @Published private(set) var modelManifest: ModelManifest
@@ -134,6 +135,7 @@ final class AppController: ObservableObject {
     private let meetingCaptureStartTimeout: Duration
     private let meetingMaximumRecordingDuration: TimeInterval
     private let meetingProcessingTimeout: Duration
+    private let defaultInputDeviceProvider: DefaultAudioInputDeviceProviding
     private let appVersionProvider: () -> String
     let historyStore: VoiceHistoryStore
     let meetingHistoryStore: MeetingHistoryStore?
@@ -153,6 +155,7 @@ final class AppController: ObservableObject {
     private var isWaitingForCustomShortcut = false
     private var accessibilityPermissionPollingTask: Task<Void, Never>?
     private var appActivationObserver: NSObjectProtocol?
+    private var defaultInputDeviceObservation: DefaultAudioInputDeviceObservation?
 
     private static let microphonePermissionRequiredMessage = "Microphone permission is required to record dictation audio locally."
     private static let accessibilityPermissionRequiredMessage = "Text insertion permission is required so VoicePen can paste text into the active app."
@@ -323,6 +326,10 @@ final class AppController: ObservableObject {
         Bundle.main.bundleURL.path
     }
 
+    var currentMicrophoneStatusText: String {
+        "Current microphone: \(currentMicrophone.systemDefaultDisplayText)"
+    }
+
     var menuBarSystemImage: String {
         switch appState {
         case .recording:
@@ -365,6 +372,7 @@ final class AppController: ObservableObject {
         meetingCaptureStartTimeout: Duration = VoicePenConfig.meetingCaptureStartTimeout,
         meetingMaximumRecordingDuration: TimeInterval = VoicePenConfig.meetingMaximumRecordingDuration,
         meetingProcessingTimeout: Duration = VoicePenConfig.meetingProcessingTimeout,
+        defaultInputDeviceProvider: DefaultAudioInputDeviceProviding = CoreAudioDefaultInputDeviceProvider(),
         appVersionProvider: @escaping () -> String = { VoicePenConfig.appVersion },
         historyStore: VoiceHistoryStore,
         meetingHistoryStore: MeetingHistoryStore? = nil,
@@ -395,14 +403,20 @@ final class AppController: ObservableObject {
         self.meetingCaptureStartTimeout = meetingCaptureStartTimeout
         self.meetingMaximumRecordingDuration = meetingMaximumRecordingDuration
         self.meetingProcessingTimeout = meetingProcessingTimeout
+        self.defaultInputDeviceProvider = defaultInputDeviceProvider
         self.appVersionProvider = appVersionProvider
         self.historyStore = historyStore
         self.meetingHistoryStore = meetingHistoryStore
         self.settingsStore = settingsStore
         self.modelManifest = modelManifest
+        currentMicrophone = defaultInputDeviceProvider.currentDefaultInputDevice()
         self.meetingPipeline?.setProcessingProgressHandler { [weak self] progress in
             self?.meetingProcessingProgress = progress
         }
+    }
+
+    deinit {
+        defaultInputDeviceObservation?.cancel()
     }
 
     static func live() -> AppController {
@@ -414,7 +428,10 @@ final class AppController: ObservableObject {
         let meetingHistoryStore = MeetingHistoryStore(databaseURL: paths.databaseURL)
         let settingsStore = AppSettingsStore(databaseURL: paths.databaseURL)
         let overlay = BottomOverlayWindowController()
-        let recorder = LiveAudioRecordingClient(tempDirectory: paths.tempAudioDirectory)
+        let recorder = LiveAudioRecordingClient(
+            tempDirectory: paths.tempAudioDirectory,
+            microphoneVoiceProcessingEnabledProvider: { settingsStore.microphoneVoiceProcessingEnabled }
+        )
         let audioPreprocessor = LiveAudioPreprocessingClient(outputDirectory: paths.tempAudioDirectory)
         let savedAudioArchive = SavedAudioArchive(paths: paths)
         let whisperCppTranscriber = WhisperCppTranscriptionClient(paths: paths)
@@ -464,6 +481,9 @@ final class AppController: ObservableObject {
             recorder: CompositeMeetingRecordingClient(
                 microphoneSource: AVFoundationMicrophoneMeetingAudioSource(
                     tempDirectory: paths.tempAudioDirectory,
+                    microphoneVoiceProcessingEnabledProvider: {
+                        settingsStore.microphoneVoiceProcessingEnabled
+                    },
                     audioFileIO: meetingAudioFileIO
                 ),
                 systemAudioSource: CoreAudioSystemOutputSource(
@@ -599,6 +619,8 @@ final class AppController: ObservableObject {
             try settingsStore.load(defaultModelId: recommendedModel.id)
             applyAppAppearanceMode(settingsStore.appAppearanceMode)
             try syncOpenAtLoginState()
+            refreshCurrentMicrophone()
+            startDefaultInputDeviceObservation()
             modelWarmup = scheduleModelWarmupIfInstalled()
             meetingDiarizationModelWarmup = scheduleMeetingDiarizationModelWarmupIfNeeded()
         } catch {
@@ -627,6 +649,17 @@ final class AppController: ObservableObject {
             modelWarmup: modelWarmup,
             meetingDiarizationModelWarmup: meetingDiarizationModelWarmup
         )
+    }
+
+    private func refreshCurrentMicrophone() {
+        currentMicrophone = defaultInputDeviceProvider.currentDefaultInputDevice()
+    }
+
+    private func startDefaultInputDeviceObservation() {
+        defaultInputDeviceObservation?.cancel()
+        defaultInputDeviceObservation = defaultInputDeviceProvider.observeDefaultInputDeviceChanges { [weak self] device in
+            self?.currentMicrophone = device
+        }
     }
 
     private func requestStartupPermissions() async {
@@ -1542,6 +1575,14 @@ final class AppController: ObservableObject {
     func updateBoostDictationInputGain(_ isEnabled: Bool) {
         do {
             try settingsStore.updateBoostDictationInputGain(isEnabled)
+        } catch {
+            setError(error)
+        }
+    }
+
+    func updateMicrophoneVoiceProcessingEnabled(_ isEnabled: Bool) {
+        do {
+            try settingsStore.updateMicrophoneVoiceProcessingEnabled(isEnabled)
         } catch {
             setError(error)
         }

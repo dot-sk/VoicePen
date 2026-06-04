@@ -1122,6 +1122,13 @@ struct ConfigSettingsView: View {
         )
     }
 
+    private var microphoneVoiceProcessingEnabled: Binding<Bool> {
+        Binding(
+            get: { settingsStore.microphoneVoiceProcessingEnabled },
+            set: { controller.updateMicrophoneVoiceProcessingEnabled($0) }
+        )
+    }
+
     private var meetingVoiceLevelingEnabled: Binding<Bool> {
         Binding(
             get: { settingsStore.meetingVoiceLevelingEnabled },
@@ -1261,6 +1268,8 @@ struct ConfigSettingsView: View {
             }
 
             Section {
+                CurrentMicrophoneStatusView(text: controller.currentMicrophoneStatusText)
+                Toggle("System voice processing", isOn: microphoneVoiceProcessingEnabled)
                 Toggle("Boost microphone level during dictation", isOn: boostDictationInputGain)
                 Toggle("Meeting voice leveling", isOn: meetingVoiceLevelingEnabled)
                 Picker("System Audio Source", selection: meetingSystemAudioSourceMode) {
@@ -1314,7 +1323,7 @@ struct ConfigSettingsView: View {
                 Text("Audio")
             } footer: {
                 Text(
-                    "VoicePen uses the macOS default microphone. Dictation can temporarily raise supported input levels while recording. Meeting audio can use system dynamics and peak limiting before local transcription; if processing is unavailable, VoicePen continues with ordinary audio. Meeting system audio can capture all apps, only selected apps, or all apps except selected apps."
+                    "VoicePen uses the macOS default microphone. System voice processing can ask macOS to enhance microphone capture for dictation and Meeting recordings. Dictation can temporarily raise supported input levels while recording. Meeting audio can use system dynamics and peak limiting before local transcription; if processing is unavailable, VoicePen continues with ordinary audio. Meeting system audio can capture all apps, only selected apps, or all apps except selected apps."
                 )
             }
 
@@ -1453,6 +1462,35 @@ struct ConfigSettingsView: View {
             Text(title)
             HelpTipButton(title: title, text: help)
         }
+    }
+}
+
+private struct CurrentMicrophoneStatusView: View {
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "mic")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+
+            Text(text)
+                .font(.callout)
+                .lineLimit(2)
+                .minimumScaleFactor(0.9)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.35), lineWidth: 1)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 

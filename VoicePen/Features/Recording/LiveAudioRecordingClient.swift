@@ -4,6 +4,7 @@ import Foundation
 final class LiveAudioRecordingClient: NSObject, AudioRecordingClient {
     private let tempDirectory: URL
     private let fileManager: FileManager
+    private let microphoneVoiceProcessingEnabledProvider: () -> Bool
     private var engine: AVAudioEngine?
     private var audioFile: AVAudioFile?
     private var converter: AVAudioConverter?
@@ -15,9 +16,14 @@ final class LiveAudioRecordingClient: NSObject, AudioRecordingClient {
     private var latestVoiceBandLevel: Double?
     private let levelLock = NSLock()
 
-    init(tempDirectory: URL, fileManager: FileManager = .default) {
+    init(
+        tempDirectory: URL,
+        fileManager: FileManager = .default,
+        microphoneVoiceProcessingEnabledProvider: @escaping () -> Bool = { true }
+    ) {
         self.tempDirectory = tempDirectory
         self.fileManager = fileManager
+        self.microphoneVoiceProcessingEnabledProvider = microphoneVoiceProcessingEnabledProvider
     }
 
     func startRecording() throws {
@@ -28,6 +34,12 @@ final class LiveAudioRecordingClient: NSObject, AudioRecordingClient {
 
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
+        MicrophoneVoiceProcessingActivation.apply(
+            isEnabled: microphoneVoiceProcessingEnabledProvider(),
+            context: "dictation microphone capture"
+        ) {
+            try inputNode.setVoiceProcessingEnabled(true)
+        }
         let inputFormat = inputNode.outputFormat(forBus: 0)
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
             throw RecordingError.couldNotStart

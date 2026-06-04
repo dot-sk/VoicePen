@@ -136,6 +136,7 @@ final class AVFoundationMicrophoneMeetingAudioSource: MeetingAudioSourceClient {
     private let tempDirectory: URL
     private let fileManager: FileManager
     private let audioFileIO: MeetingAudioFileIO
+    private let microphoneVoiceProcessingEnabledProvider: () -> Bool
     private var engine: AVAudioEngine?
     private var converter: AVAudioConverter?
     private var captureFormat: AVAudioFormat?
@@ -149,10 +150,12 @@ final class AVFoundationMicrophoneMeetingAudioSource: MeetingAudioSourceClient {
     init(
         tempDirectory: URL,
         fileManager: FileManager = .default,
+        microphoneVoiceProcessingEnabledProvider: @escaping () -> Bool = { true },
         audioFileIO: MeetingAudioFileIO = AVFoundationMeetingAudioFileIO()
     ) {
         self.tempDirectory = tempDirectory
         self.fileManager = fileManager
+        self.microphoneVoiceProcessingEnabledProvider = microphoneVoiceProcessingEnabledProvider
         self.audioFileIO = audioFileIO
     }
 
@@ -197,6 +200,12 @@ final class AVFoundationMicrophoneMeetingAudioSource: MeetingAudioSourceClient {
         try fileManager.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
+        MicrophoneVoiceProcessingActivation.apply(
+            isEnabled: microphoneVoiceProcessingEnabledProvider(),
+            context: "Meeting microphone capture"
+        ) {
+            try inputNode.setVoiceProcessingEnabled(true)
+        }
         let inputFormat = inputNode.outputFormat(forBus: 0)
         let outputFormat = try audioFileIO.processingFormat()
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0,

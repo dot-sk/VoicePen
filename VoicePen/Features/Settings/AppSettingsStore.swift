@@ -8,6 +8,7 @@ final class AppSettingsStore: ObservableObject {
     @Published private(set) var speechPreprocessingMode: SpeechPreprocessingMode
     @Published private(set) var hotkeyPreference: HotkeyPreference
     @Published private(set) var hotkeyHoldDuration: TimeInterval
+    @Published private(set) var microphoneVoiceProcessingEnabled: Bool
     @Published private(set) var boostDictationInputGain: Bool
     @Published private(set) var meetingVoiceLevelingEnabled: Bool
     @Published private(set) var saveDictationAudioEnabled: Bool
@@ -33,6 +34,7 @@ final class AppSettingsStore: ObservableObject {
         self.speechPreprocessingMode = .off
         self.hotkeyPreference = .option
         self.hotkeyHoldDuration = VoicePenConfig.defaultHotkeyHoldDuration
+        self.microphoneVoiceProcessingEnabled = true
         self.boostDictationInputGain = true
         self.meetingVoiceLevelingEnabled = true
         self.saveDictationAudioEnabled = false
@@ -60,6 +62,9 @@ final class AppSettingsStore: ObservableObject {
                 ?? String(VoicePenConfig.defaultHotkeyHoldDuration)
             let boostDictationInputGain =
                 try fetchValue(forKey: Self.boostDictationInputGainKey, from: database)
+                ?? "true"
+            let microphoneVoiceProcessing =
+                try fetchValue(forKey: Self.microphoneVoiceProcessingEnabledKey, from: database)
                 ?? "true"
             let meetingVoiceLeveling =
                 try fetchValue(forKey: Self.meetingVoiceLevelingEnabledKey, from: database)
@@ -95,6 +100,7 @@ final class AppSettingsStore: ObservableObject {
                 preprocessing: preprocessing,
                 hotkey: hotkey,
                 holdDuration: holdDuration,
+                microphoneVoiceProcessing: microphoneVoiceProcessing,
                 boostDictationInputGain: boostDictationInputGain,
                 meetingVoiceLeveling: meetingVoiceLeveling,
                 saveDictationAudio: saveDictationAudio,
@@ -115,6 +121,7 @@ final class AppSettingsStore: ObservableObject {
         speechPreprocessingMode = Self.normalizeSpeechPreprocessingMode(values.preprocessing)
         hotkeyPreference = Self.normalizeHotkeyPreference(values.hotkey)
         hotkeyHoldDuration = Self.normalizeHotkeyHoldDuration(values.holdDuration)
+        microphoneVoiceProcessingEnabled = Self.normalizeBoolean(values.microphoneVoiceProcessing)
         boostDictationInputGain = Self.normalizeBoolean(values.boostDictationInputGain)
         meetingVoiceLevelingEnabled = Self.normalizeBoolean(values.meetingVoiceLeveling)
         saveDictationAudioEnabled = Self.normalizeBoolean(values.saveDictationAudio)
@@ -179,6 +186,14 @@ final class AppSettingsStore: ObservableObject {
             try setValue(String(isEnabled), forKey: Self.boostDictationInputGainKey, in: database)
         }
         boostDictationInputGain = isEnabled
+    }
+
+    func updateMicrophoneVoiceProcessingEnabled(_ isEnabled: Bool) throws {
+        try withDatabase { database in
+            try DatabaseMigrator.migrate(database)
+            try setValue(String(isEnabled), forKey: Self.microphoneVoiceProcessingEnabledKey, in: database)
+        }
+        microphoneVoiceProcessingEnabled = isEnabled
     }
 
     func updateMeetingVoiceLevelingEnabled(_ isEnabled: Bool) throws {
@@ -417,6 +432,7 @@ final class AppSettingsStore: ObservableObject {
     private static let languageKey = "transcription.language"
     private static let selectedModelKey = "transcription.selectedModelId"
     private static let speechPreprocessingKey = "audio.speechPreprocessingMode"
+    private static let microphoneVoiceProcessingEnabledKey = "audio.microphoneVoiceProcessingEnabled"
     private static let boostDictationInputGainKey = "audio.boostDictationInputGain"
     private static let meetingVoiceLevelingEnabledKey = "audio.meetingVoiceLevelingEnabled"
     private static let saveDictationAudioEnabledKey = "audio.saveDictationAudioEnabled"
@@ -450,6 +466,7 @@ private struct LoadedSettings {
     let preprocessing: String
     let hotkey: String
     let holdDuration: String
+    let microphoneVoiceProcessing: String
     let boostDictationInputGain: String
     let meetingVoiceLeveling: String
     let saveDictationAudio: String
