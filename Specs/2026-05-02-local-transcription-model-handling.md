@@ -1,7 +1,7 @@
 ---
 id: SPEC-002
 status: implemented
-updated: 2026-05-25
+updated: 2026-06-09
 tests:
   - VoicePenTests/App/VoicePenAppCommandTests.swift
   - VoicePenTests/App/AppControllerTests.swift
@@ -38,6 +38,7 @@ confirmation, or public model marketplace behavior.
 - When a Whisper.cpp model is selected, VoicePen shall require the expected model and Core ML companion artifacts before accelerated transcription.
 - When a Whisper.cpp model is installed by download, VoicePen shall treat it as installed only after the full download set validates and a completed-download marker is written.
 - When a transcription request runs, VoicePen shall route it to the backend that matches the selected model.
+- When Whisper.cpp decodes audio, VoicePen shall use the default audio context and a conservative thread count of `min(4, processorCount - 2)`, floored at `1`.
 - When a model download starts, VoicePen shall route it to the backend-specific downloader.
 - When model download progress is known, VoicePen shall show the same progress visually in the Model settings progress bar instead of an indeterminate progress animation.
 - When startup permissions are granted but the selected local ASR model is not installed, VoicePen shall remain in the missing-model state instead of reporting Ready.
@@ -75,6 +76,7 @@ confirmation, or public model marketplace behavior.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers failed, canceled, and timed-out model downloads leaving the model missing and retryable, startup state when the model is missing, dictation start gating while the model is missing, plus warmup timeout recovery.
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers that Model settings renders known download progress as determinate linear progress, shows user-facing model language, timestamp and Meeting feature support, exposes Recognition explanations through help icons, and avoids redundant bottom explanatory text.
 - Automated: `VoicePenTests/Transcription/WhisperCppTranscriptionClientTests.swift` covers artifact, acceleration, empty artifact, and completed-download marker checks.
+- Automated: `VoicePenTests/Transcription/WhisperCppTranscriptionClientTests.swift` covers Whisper.cpp decoding defaults, the conservative thread cap, short-utterance single-segment behavior, timestamped segmentation behavior, benchmark configurations, and prompt-token caching.
 - Automated: `VoicePenTests/Transcription/ModelDownloadProxyConfigurationTests.swift` covers proxy configuration.
 - Automated: routing behavior belongs in `VoicePenTests/Transcription/RoutingTranscriptionClientTests.swift` and `VoicePenTests/Transcription/RoutingModelDownloadClientTests.swift` when those files are present.
 - Manual: verify a fresh install prompts before downloading model files and can transcribe after required artifacts are installed.

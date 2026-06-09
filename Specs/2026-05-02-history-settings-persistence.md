@@ -34,8 +34,7 @@ session-specific persistence and actions here.
 
 - When the database opens, VoicePen shall create or update required tables without losing existing compatible data.
 - When saved settings are missing or invalid, VoicePen shall load safe defaults.
-- When no hotkey hold duration has been saved, VoicePen shall use 0.15 seconds by default.
-- When a hotkey hold duration is loaded or saved, VoicePen shall normalize it to the supported 0.1-0.5 second range.
+- When settings migrate to the immediate push-to-talk model, VoicePen shall remove any stored hotkey hold-duration setting.
 - When no audio settings have been saved, VoicePen shall enable system microphone voice processing, dictation microphone boost, and Meeting voice leveling by default.
 - When no saved-recordings settings have been saved, VoicePen shall disable saved dictation recordings and saved Meeting recordings by default, and use a 5 GB saved-audio storage limit.
 - When saved-recordings settings are updated, VoicePen shall persist the dictation toggle, Meeting toggle, and storage limit to SQLite using the same immediate settings path as other Settings controls.
@@ -96,8 +95,7 @@ session-specific persistence and actions here.
 | --- | --- | --- |
 | New database | Missing SQLite file | Current schema is created |
 | Invalid language | Unsupported saved value | Default language is loaded |
-| Missing hold duration | No saved hotkey hold duration | Hold duration defaults to 0.15 seconds |
-| Long hold duration | Saved or entered hotkey hold duration is above 0.5 seconds | Hold duration is capped at 0.5 seconds |
+| Removed hold duration | Existing database contains `hotkey.holdDuration` | Migration deletes the key and VoicePen starts push-to-talk immediately |
 | Missing audio settings | No saved audio setting values | System microphone voice processing, dictation microphone boost, and Meeting voice leveling default to enabled |
 | Missing saved-recordings settings | No saved recording values | Saved dictation and Meeting recordings are off, with a 5 GB storage limit |
 | Saved-recordings settings | User toggles dictation or Meeting saving and changes the limit | Values persist and reload from SQLite |
@@ -150,6 +148,7 @@ session-specific persistence and actions here.
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers that History does not expose a SQLite file-reveal action.
 - Automated: `VoicePenTests/TranscriptWorkspace/TranscriptDayGroupsTests.swift` covers shared list grouping by local calendar day while preserving entry order.
 - Automated: `VoicePenTests/Settings/AppSettingsStoreTests.swift` and `VoicePenTests/Settings/UserConfigStoreTests.swift` cover settings defaults, persistence, and normalization, including app appearance mode.
+- Automated: `VoicePenTests/Persistence/DatabaseMigratorTests.swift` covers deleting the removed hotkey hold-duration setting during migration.
 - Automated: `VoicePenTests/Settings/AppSettingsStoreTests.swift` covers saved-recordings defaults, persistence, and storage-limit clamping.
 - Automated: `VoicePenTests/App/AppPathsTests.swift` covers saved-recordings directories under Application Support and preservation during temporary-audio cleanup.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers launch-at-login updates, synchronization with current macOS login item status, and app appearance application.

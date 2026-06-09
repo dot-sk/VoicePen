@@ -1108,13 +1108,6 @@ struct ConfigSettingsView: View {
         )
     }
 
-    private var holdDuration: Binding<Double> {
-        Binding(
-            get: { settingsStore.hotkeyHoldDuration },
-            set: { controller.updateHotkeyHoldDuration($0) }
-        )
-    }
-
     private var boostDictationInputGain: Binding<Bool> {
         Binding(
             get: { settingsStore.boostDictationInputGain },
@@ -1240,29 +1233,6 @@ struct ConfigSettingsView: View {
                     }
                 }
 
-                LabeledContent {
-                    HStack(spacing: 10) {
-                        Slider(
-                            value: holdDuration,
-                            in: VoicePenConfig.minimumHotkeyHoldDuration...VoicePenConfig.maximumHotkeyHoldDuration,
-                            step: 0.05
-                        )
-                        .frame(width: 220)
-                        Text(settingsStore.hotkeyHoldDuration, format: .number.precision(.fractionLength(2)))
-                            .monospacedDigit()
-                            .frame(width: 42, alignment: .trailing)
-                        Text("s")
-                            .foregroundStyle(.secondary)
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        Text("Hold duration")
-                        HelpTipButton(
-                            title: "Hold duration",
-                            text: "Recording starts only after the selected shortcut is held for the configured duration. Release it to transcribe and insert text."
-                        )
-                    }
-                }
             } header: {
                 Text("Shortcut")
             }

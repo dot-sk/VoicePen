@@ -7,10 +7,15 @@ struct VoicePenOverlayView: View {
         TimelineView(.periodic(from: .now, by: 0.1)) { _ in
             ZStack {
                 switch viewModel.state {
-                case let .recording(startedAt, level):
+                case let .recordingStarting(startedAt):
                     ListeningOverlayContent(
                         elapsedText: elapsedTimeText(since: startedAt),
-                        level: level
+                        levelProvider: viewModel.recordingLevelProvider
+                    )
+                case let .recording(startedAt, _):
+                    ListeningOverlayContent(
+                        elapsedText: elapsedTimeText(since: startedAt),
+                        levelProvider: viewModel.recordingLevelProvider
                     )
                 case let .transcribing(stage, progress):
                     TextStatusOverlayContent(
@@ -47,11 +52,11 @@ struct VoicePenOverlayView: View {
 
 private struct ListeningOverlayContent: View {
     let elapsedText: String
-    let level: Double?
+    let levelProvider: @Sendable () -> Double?
 
     var body: some View {
         VStack(spacing: 7) {
-            ListeningMicrophoneIndicatorView(level: level)
+            ListeningMicrophoneIndicatorView(levelProvider: levelProvider)
 
             Text(elapsedText)
                 .font(.system(size: 11, weight: .semibold, design: .rounded))

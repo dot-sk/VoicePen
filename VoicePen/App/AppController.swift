@@ -150,12 +150,18 @@ final class AppController: ObservableObject {
     private var meetingDiarizationModelWarmupTask: Task<Void, Never>?
     private var transcriptionTask: Task<Void, Never>?
     private var transcriptionTimeoutTask: Task<Void, Never>?
+    private var recordingStartTask: Task<Void, Never>?
+    private var activeRecordingStartID: UUID?
+    private var pendingStopAfterRecordingStart = false
+    private var recordingPrepareTask: Task<Void, Never>?
     private var activeTranscriptionID: UUID?
     private var didHandleCurrentTranscriptionCancellation = false
     private var isWaitingForCustomShortcut = false
     private var accessibilityPermissionPollingTask: Task<Void, Never>?
     private var appActivationObserver: NSObjectProtocol?
+    private var workspaceWakeObserver: NSObjectProtocol?
     private var defaultInputDeviceObservation: DefaultAudioInputDeviceObservation?
+    private var lastLifecycleModelWarmupDate: Date?
 
     private static let microphonePermissionRequiredMessage = "Microphone permission is required to record dictation audio locally."
     private static let accessibilityPermissionRequiredMessage = "Text insertion permission is required so VoicePen can paste text into the active app."
@@ -416,7 +422,16 @@ final class AppController: ObservableObject {
     }
 
     deinit {
+        recordingPrepareTask?.cancel()
         defaultInputDeviceObservation?.cancel()
+        MainActor.assumeIsolated {
+            if let appActivationObserver {
+                NotificationCenter.default.removeObserver(appActivationObserver)
+            }
+            if let workspaceWakeObserver {
+                NSWorkspace.shared.notificationCenter.removeObserver(workspaceWakeObserver)
+            }
+        }
     }
 
     static func live() -> AppController {
@@ -427,13 +442,16 @@ final class AppController: ObservableObject {
         let historyStore = VoiceHistoryStore(historyURL: paths.historyURL)
         let meetingHistoryStore = MeetingHistoryStore(databaseURL: paths.databaseURL)
         let settingsStore = AppSettingsStore(databaseURL: paths.databaseURL)
-        let overlay = BottomOverlayWindowController()
         let recorder = LiveAudioRecordingClient(
             tempDirectory: paths.tempAudioDirectory,
             microphoneVoiceProcessingEnabledProvider: { settingsStore.microphoneVoiceProcessingEnabled }
         )
+        let overlay = BottomOverlayWindowController(recordingLevelProvider: {
+            recorder.currentLevel()
+        })
         let audioPreprocessor = LiveAudioPreprocessingClient(outputDirectory: paths.tempAudioDirectory)
         let savedAudioArchive = SavedAudioArchive(paths: paths)
+        let savedAudioScheduler = AsyncSavedAudioArchiveScheduler(archiver: savedAudioArchive)
         let whisperCppTranscriber = WhisperCppTranscriptionClient(paths: paths)
         let inserter = PasteboardTextInsertionClient(restoreDelay: VoicePenConfig.clipboardRestoreDelay)
         let userConfigStore = UserConfigStore()
@@ -454,7 +472,7 @@ final class AppController: ObservableObject {
             overlay: overlay,
             userConfigStore: userConfigStore,
             inputGainController: CoreAudioDefaultInputGainController(),
-            savedAudioArchiver: savedAudioArchive,
+            savedAudioScheduler: savedAudioScheduler,
             languageProvider: { settingsStore.transcriptionLanguage },
             speechPreprocessingModeProvider: { settingsStore.speechPreprocessingMode },
             boostDictationInputGainProvider: { settingsStore.boostDictationInputGain },
@@ -508,7 +526,7 @@ final class AppController: ObservableObject {
             diarizer: meetingDiarizationClient,
             historyStore: meetingHistoryStore,
             recoveryAudioStore: MeetingRecoveryAudioStore(directory: paths.meetingRecoveryDirectory),
-            savedAudioArchiver: savedAudioArchive,
+            savedAudioScheduler: savedAudioScheduler,
             languageProvider: { settingsStore.transcriptionLanguage },
             speechPreprocessingModeProvider: { settingsStore.speechPreprocessingMode },
             meetingVoiceLevelingEnabledProvider: { settingsStore.meetingVoiceLevelingEnabled },
@@ -641,6 +659,20 @@ final class AppController: ObservableObject {
             Task { @MainActor [controller] in
                 controller.refreshPermissionState()
                 controller.refreshOpenAtLoginState()
+                controller.scheduleLifecycleModelWarmupIfPossible()
+                controller.schedulePrepareRecordingIfPossible()
+            }
+        }
+
+        workspaceWakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let controller = self else { return }
+            Task { @MainActor [controller] in
+                controller.scheduleLifecycleModelWarmupIfPossible()
+                controller.invalidatePreparedRecordingAndPrepareIfPossible()
             }
         }
 
@@ -659,7 +691,65 @@ final class AppController: ObservableObject {
         defaultInputDeviceObservation?.cancel()
         defaultInputDeviceObservation = defaultInputDeviceProvider.observeDefaultInputDeviceChanges { [weak self] device in
             self?.currentMicrophone = device
+            self?.invalidatePreparedRecordingAndPrepareIfPossible()
         }
+    }
+
+    private func schedulePrepareRecordingIfPossible() {
+        guard permissions.microphonePermissionStatus == .authorized,
+            appState != .recording,
+            appState != .transcribing,
+            appState != .meetingRecording,
+            appState != .meetingProcessing
+        else {
+            return
+        }
+
+        let pipeline = pipeline
+        recordingPrepareTask?.cancel()
+        recordingPrepareTask = Task { [pipeline, weak self] in
+            await pipeline.prepareForRecording()
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.recordingPrepareTask = nil
+            }
+        }
+    }
+
+    private func invalidatePreparedRecordingAndPrepareIfPossible() {
+        let pipeline = pipeline
+        recordingPrepareTask?.cancel()
+        recordingPrepareTask = Task { [pipeline, weak self] in
+            await pipeline.invalidatePreparedRecording()
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self else { return }
+                self.recordingPrepareTask = nil
+                self.schedulePrepareRecordingIfPossible()
+            }
+        }
+    }
+
+    private func scheduleLifecycleModelWarmupIfPossible() {
+        guard modelWarmupTask == nil,
+            appState != .recording,
+            appState != .transcribing,
+            appState != .meetingRecording,
+            appState != .meetingProcessing,
+            !isDownloadingModel
+        else {
+            return
+        }
+
+        let now = Date()
+        if let lastLifecycleModelWarmupDate,
+            now.timeIntervalSince(lastLifecycleModelWarmupDate) < VoicePenConfig.modelWarmupLifecycleCooldown
+        {
+            return
+        }
+
+        guard scheduleModelWarmupIfInstalled() != nil else { return }
+        lastLifecycleModelWarmupDate = now
     }
 
     private func requestStartupPermissions() async {
@@ -692,6 +782,7 @@ final class AppController: ObservableObject {
 
         installHotkey()
         appState = isModelInstalled ? .ready : .missingModel
+        schedulePrepareRecordingIfPossible()
     }
 
     private func showMicrophoneDeniedNoticeIfNeeded(granted: Bool) {
@@ -715,22 +806,52 @@ final class AppController: ObservableObject {
         guard appState == .ready, !isDownloadingModel else { return nil }
 
         cancelModelWarmup()
-        let task = Task {
+        let startID = UUID()
+        activeRecordingStartID = startID
+        pendingStopAfterRecordingStart = false
+        appState = .recording
+        errorMessage = nil
+
+        let task = Task { [weak self] in
+            guard let self else { return }
             do {
-                appState = .recording
-                errorMessage = nil
                 try await pipeline.start()
+                guard activeRecordingStartID == startID else { return }
+                recordingStartTask = nil
+                activeRecordingStartID = nil
+
+                if pendingStopAfterRecordingStart {
+                    pendingStopAfterRecordingStart = false
+                    stopRecordingAndProcess()
+                }
             } catch {
+                guard activeRecordingStartID == startID else { return }
+                recordingStartTask = nil
+                activeRecordingStartID = nil
+                pendingStopAfterRecordingStart = false
                 setError(error)
             }
         }
+        recordingStartTask = task
         return task
     }
 
     @discardableResult
     func stopRecordingAndProcess() -> Task<Void, Never>? {
         guard appState == .recording, transcriptionTask == nil else { return nil }
+        if let recordingStartTask {
+            pendingStopAfterRecordingStart = true
+            return Task { @MainActor [weak self] in
+                await recordingStartTask.value
+                await self?.transcriptionTask?.value
+            }
+        }
 
+        return beginStopRecordingAndProcess()
+    }
+
+    @discardableResult
+    private func beginStopRecordingAndProcess() -> Task<Void, Never>? {
         didHandleCurrentTranscriptionCancellation = false
         let transcriptionID = UUID()
         activeTranscriptionID = transcriptionID
@@ -738,6 +859,7 @@ final class AppController: ObservableObject {
             guard let self else { return }
             defer {
                 finishTranscriptionProcessing(id: transcriptionID)
+                schedulePrepareRecordingIfPossible()
             }
 
             do {
@@ -1505,30 +1627,40 @@ final class AppController: ObservableObject {
         let model = selectedModel
         let language = TranscriptionLanguageResolver.resolve(settingsStore.transcriptionLanguage)
         let modelWarmupTimeout = self.modelWarmupTimeout
+        let warmupJob = AppModelWarmupJob(
+            client: modelWarmupClient,
+            model: model,
+            language: language,
+            timeout: modelWarmupTimeout
+        )
+        let stateSink = ModelWarmupStateSink(controller: self)
         modelWarmupTask?.cancel()
         modelRuntimeState = .warming(modelId: model.id)
-        let task = Task { @MainActor [weak self, modelWarmupClient] in
+        let task = Task.detached(priority: .utility) { [stateSink, warmupJob] in
             do {
-                AppLogger.info("Warming up model \(model.id)")
+                AppLogger.info("Warming up model \(warmupJob.model.id)")
                 try await AsyncOperationTimeout.run(
-                    timeout: modelWarmupTimeout,
+                    timeout: warmupJob.timeout,
                     timeoutError: { TranscriptionError.modelWarmupTimedOut },
                     operation: {
-                        try await modelWarmupClient.warmUp(model: model, language: language)
+                        try await warmupJob.client.warmUp(
+                            model: warmupJob.model,
+                            language: warmupJob.language
+                        )
                     }
                 )
                 guard !Task.isCancelled else { return }
-                self?.modelRuntimeState = .ready(modelId: model.id)
-                AppLogger.info("Model warmup completed for \(model.id)")
+                await stateSink.markReady(modelId: warmupJob.model.id)
+                AppLogger.info("Model warmup completed for \(warmupJob.model.id)")
             } catch is CancellationError {
-                AppLogger.info("Model warmup canceled for \(model.id)")
+                AppLogger.info("Model warmup canceled for \(warmupJob.model.id)")
             } catch {
                 guard !Task.isCancelled else { return }
-                self?.modelRuntimeState = .failed(modelId: model.id, message: error.localizedDescription)
-                AppLogger.error("Model warmup failed for \(model.id): \(error.localizedDescription)")
+                await stateSink.markFailed(modelId: warmupJob.model.id, message: error.localizedDescription)
+                AppLogger.error("Model warmup failed for \(warmupJob.model.id): \(error.localizedDescription)")
             }
 
-            self?.modelWarmupTask = nil
+            await stateSink.clearWarmupTask()
         }
         modelWarmupTask = task
         return task
@@ -1539,6 +1671,29 @@ final class AppController: ObservableObject {
         AppLogger.info("Canceling model warmup because recording started")
         modelWarmupTask?.cancel()
         modelWarmupTask = nil
+    }
+
+    nonisolated private final class ModelWarmupStateSink: @unchecked Sendable {
+        weak var controller: AppController?
+
+        init(controller: AppController) {
+            self.controller = controller
+        }
+
+        @MainActor
+        func markReady(modelId: String) {
+            controller?.modelRuntimeState = .ready(modelId: modelId)
+        }
+
+        @MainActor
+        func markFailed(modelId: String, message: String) {
+            controller?.modelRuntimeState = .failed(modelId: modelId, message: message)
+        }
+
+        @MainActor
+        func clearWarmupTask() {
+            controller?.modelWarmupTask = nil
+        }
     }
 
     @discardableResult
@@ -1583,6 +1738,7 @@ final class AppController: ObservableObject {
     func updateMicrophoneVoiceProcessingEnabled(_ isEnabled: Bool) {
         do {
             try settingsStore.updateMicrophoneVoiceProcessingEnabled(isEnabled)
+            invalidatePreparedRecordingAndPrepareIfPossible()
         } catch {
             setError(error)
         }
@@ -1726,15 +1882,6 @@ final class AppController: ObservableObject {
         guard permissions.hasAccessibilityPermission else { return }
         guard appState == .ready || appState == .missingModel || isWaitingForCustomShortcut else { return }
         installHotkey()
-    }
-
-    func updateHotkeyHoldDuration(_ duration: TimeInterval) {
-        do {
-            try settingsStore.updateHotkeyHoldDuration(duration)
-            reinstallHotkeyIfReady()
-        } catch {
-            setError(error)
-        }
     }
 
     func updateDeveloperModeOverride(_ mode: DeveloperMode) {
@@ -1927,6 +2074,7 @@ final class AppController: ObservableObject {
         errorMessage = nil
         installHotkey()
         appState = isModelInstalled ? .ready : .missingModel
+        schedulePrepareRecordingIfPossible()
     }
 
     private func artifactDiagnostics(_ artifact: ModelArtifactStatus) -> String {
@@ -1984,6 +2132,13 @@ final class AppController: ObservableObject {
         errorMessage = nil
         appState = .missingModel
     }
+}
+
+nonisolated private struct AppModelWarmupJob: @unchecked Sendable {
+    let client: ModelWarmupClient
+    let model: ModelManifestModel
+    let language: String
+    let timeout: Duration
 }
 
 nonisolated enum AppControllerDictionaryImportError: LocalizedError, Equatable, Sendable {

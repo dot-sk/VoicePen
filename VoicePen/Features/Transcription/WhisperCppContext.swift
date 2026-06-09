@@ -35,6 +35,7 @@ nonisolated private struct WhisperCppRunResult {
 
 actor WhisperCppContext {
     private let handle: WhisperCppContextHandle
+    private var promptTokenCache = WhisperCppPromptTokenCache()
 
     init(modelPath: String) throws {
         var contextParameters = whisper_context_default_params()
@@ -141,13 +142,17 @@ actor WhisperCppContext {
 
         let languageConfiguration = WhisperCppLanguageConfiguration.resolve(language: language)
         let languageCString = languageConfiguration.languageCode.map { Array($0.utf8CString) }
-
-        let promptCString: [CChar]?
-        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedPrompt.isEmpty {
-            promptCString = Array(trimmedPrompt.utf8CString)
-        } else {
-            promptCString = nil
+        let promptTokens = try promptTokenCache.tokens(for: prompt) { prompt, tokenBuffer in
+            prompt.withCString { promptCString in
+                tokenBuffer.withUnsafeMutableBufferPointer { tokenBuffer in
+                    whisper_tokenize(
+                        context,
+                        promptCString,
+                        tokenBuffer.baseAddress,
+                        Int32(tokenBuffer.count)
+                    )
+                }
+            }
         }
 
         parameters.print_realtime = false
@@ -170,35 +175,32 @@ actor WhisperCppContext {
         whisper_reset_timings(context)
         let start = Date()
 
-        let status: Int32
-        if let languageCString, let promptCString {
-            status = languageCString.withUnsafeBufferPointer { languageBuffer in
-                promptCString.withUnsafeBufferPointer { promptBuffer in
-                    parameters.language = languageBuffer.baseAddress
-                    parameters.initial_prompt = promptBuffer.baseAddress
-                    return samples.withUnsafeBufferPointer { sampleBuffer in
-                        whisper_full(context, parameters, sampleBuffer.baseAddress, Int32(sampleBuffer.count))
-                    }
-                }
-            }
-        } else if let languageCString {
-            status = languageCString.withUnsafeBufferPointer { languageBuffer in
-                parameters.language = languageBuffer.baseAddress
-                return samples.withUnsafeBufferPointer { sampleBuffer in
-                    whisper_full(context, parameters, sampleBuffer.baseAddress, Int32(sampleBuffer.count))
-                }
-            }
-        } else if let promptCString {
-            status = promptCString.withUnsafeBufferPointer { promptBuffer in
-                parameters.initial_prompt = promptBuffer.baseAddress
-                return samples.withUnsafeBufferPointer { sampleBuffer in
-                    whisper_full(context, parameters, sampleBuffer.baseAddress, Int32(sampleBuffer.count))
-                }
-            }
-        } else {
-            status = samples.withUnsafeBufferPointer { sampleBuffer in
+        func runFull() -> Int32 {
+            samples.withUnsafeBufferPointer { sampleBuffer in
                 whisper_full(context, parameters, sampleBuffer.baseAddress, Int32(sampleBuffer.count))
             }
+        }
+
+        func runWithPromptTokens() -> Int32 {
+            guard let promptTokens, !promptTokens.isEmpty else {
+                return runFull()
+            }
+
+            return promptTokens.withUnsafeBufferPointer { promptBuffer in
+                parameters.prompt_tokens = promptBuffer.baseAddress
+                parameters.prompt_n_tokens = Int32(promptBuffer.count)
+                return runFull()
+            }
+        }
+
+        let status: Int32
+        if let languageCString {
+            status = languageCString.withUnsafeBufferPointer { languageBuffer in
+                parameters.language = languageBuffer.baseAddress
+                return runWithPromptTokens()
+            }
+        } else {
+            status = runWithPromptTokens()
         }
 
         guard status == 0 else {
@@ -273,6 +275,39 @@ actor WhisperCppContext {
             samples.append(mixedSample / Float(channelCount))
         }
         return samples
+    }
+}
+
+nonisolated struct WhisperCppPromptTokenCache {
+    typealias Tokenizer = (_ prompt: String, _ tokenBuffer: inout [Int32]) -> Int32
+
+    private var tokensByPrompt: [String: [Int32]] = [:]
+    private let initialTokenCapacity = 1_024
+
+    mutating func tokens(for prompt: String, tokenize: Tokenizer) throws -> [Int32]? {
+        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPrompt.isEmpty else {
+            return nil
+        }
+
+        if let cachedTokens = tokensByPrompt[trimmedPrompt] {
+            return cachedTokens
+        }
+
+        var tokenBuffer = [Int32](repeating: 0, count: initialTokenCapacity)
+        var tokenCount = tokenize(trimmedPrompt, &tokenBuffer)
+        if tokenCount < 0 {
+            tokenBuffer = [Int32](repeating: 0, count: Int(-tokenCount))
+            tokenCount = tokenize(trimmedPrompt, &tokenBuffer)
+        }
+
+        guard tokenCount >= 0, Int(tokenCount) <= tokenBuffer.count else {
+            throw TranscriptionError.transcriptionFailed("whisper.cpp prompt tokenization failed.")
+        }
+
+        let tokens = Array(tokenBuffer.prefix(Int(tokenCount)))
+        tokensByPrompt[trimmedPrompt] = tokens
+        return tokens
     }
 }
 

@@ -14,7 +14,7 @@ final class MeetingPipeline {
     private let diarizer: MeetingDiarizationClient?
     private let historyStore: MeetingHistoryStore
     private let recoveryAudioStore: MeetingRecoveryAudioStore?
-    private let savedAudioArchiver: SavedAudioArchiving
+    private let savedAudioScheduler: SavedAudioArchiveScheduling
     private let languageProvider: () -> String
     private let speechPreprocessingModeProvider: () -> SpeechPreprocessingMode
     private let meetingVoiceLevelingEnabledProvider: () -> Bool
@@ -38,7 +38,7 @@ final class MeetingPipeline {
         diarizer: MeetingDiarizationClient? = nil,
         historyStore: MeetingHistoryStore,
         recoveryAudioStore: MeetingRecoveryAudioStore? = nil,
-        savedAudioArchiver: SavedAudioArchiving = NoOpSavedAudioArchive(),
+        savedAudioScheduler: SavedAudioArchiveScheduling = NoOpSavedAudioArchiveScheduler(),
         languageProvider: @escaping () -> String = { VoicePenConfig.defaultLanguage },
         speechPreprocessingModeProvider: @escaping () -> SpeechPreprocessingMode = { .off },
         meetingVoiceLevelingEnabledProvider: @escaping () -> Bool = { false },
@@ -60,7 +60,7 @@ final class MeetingPipeline {
         self.diarizer = diarizer
         self.historyStore = historyStore
         self.recoveryAudioStore = recoveryAudioStore
-        self.savedAudioArchiver = savedAudioArchiver
+        self.savedAudioScheduler = savedAudioScheduler
         self.languageProvider = languageProvider
         self.speechPreprocessingModeProvider = speechPreprocessingModeProvider
         self.meetingVoiceLevelingEnabledProvider = meetingVoiceLevelingEnabledProvider
@@ -364,6 +364,7 @@ final class MeetingPipeline {
     ) {
         guard saveMeetingAudioEnabledProvider() else { return }
         let spansByChunkURL = Dictionary(grouping: sourceSpans, by: \.chunkURL)
+        let storageLimitGB = savedAudioStorageLimitGBProvider()
         for (index, chunk) in chunks.sorted(by: chunkOrder).enumerated() {
             let request = SavedAudioArchiveRequest(
                 sourceURL: chunk.url,
@@ -375,11 +376,7 @@ final class MeetingPipeline {
                 ),
                 sequenceIndex: index
             )
-            do {
-                try savedAudioArchiver.archive(request, storageLimitGB: savedAudioStorageLimitGBProvider())
-            } catch {
-                AppLogger.info("Saved Meeting audio skipped: \(error.localizedDescription)")
-            }
+            savedAudioScheduler.archiveBestEffort(request, storageLimitGB: storageLimitGB)
         }
     }
 

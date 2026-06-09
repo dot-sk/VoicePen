@@ -22,10 +22,12 @@ final class LivePushToTalkHotkeyClient: PushToTalkHotkeyClient {
     private let settingsStore: AppSettingsStore
     private var globalEventMonitor: Any?
     private var localEventMonitor: Any?
+    private var eventTap: CFMachPort?
+    private var eventTapRunLoopSource: CFRunLoopSource?
     private var onKeyDown: (() -> Void)?
     private var onKeyUp: (() -> Void)?
     private var isModifierPressed = false
-    private var holdGate: HotkeyHoldGate?
+    private let pressTracker = HotkeyPressStateTracker(cooldown: 0.08)
     private var customShortcutTask: Task<Void, Never>?
     private var isInstalled = false
 
@@ -40,7 +42,7 @@ final class LivePushToTalkHotkeyClient: PushToTalkHotkeyClient {
         uninstall()
         self.onKeyDown = onKeyDown
         self.onKeyUp = onKeyUp
-        holdGate = HotkeyHoldGate(holdDuration: settingsStore.hotkeyHoldDuration)
+        installEventTapIfPossible()
 
         switch settingsStore.hotkeyPreference {
         case .option, .leftOption, .rightOption:
@@ -59,16 +61,23 @@ final class LivePushToTalkHotkeyClient: PushToTalkHotkeyClient {
         if let localEventMonitor {
             NSEvent.removeMonitor(localEventMonitor)
         }
+        if let eventTapRunLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), eventTapRunLoopSource, .commonModes)
+        }
+        if let eventTap {
+            CFMachPortInvalidate(eventTap)
+        }
 
         globalEventMonitor = nil
         localEventMonitor = nil
+        eventTap = nil
+        eventTapRunLoopSource = nil
         onKeyDown = nil
         onKeyUp = nil
         isModifierPressed = false
         customShortcutTask?.cancel()
         customShortcutTask = nil
-        holdGate?.cancel()
-        holdGate = nil
+        pressTracker.cancel()
 
         if isInstalled {
             KeyboardShortcuts.disable(.voicePenPushToTalk)
@@ -91,9 +100,9 @@ final class LivePushToTalkHotkeyClient: PushToTalkHotkeyClient {
                 guard let self else { return }
                 switch event {
                 case .keyDown:
-                    self.beginHold(onKeyDown: onKeyDown)
+                    self.beginPress(onKeyDown: onKeyDown)
                 case .keyUp:
-                    self.endHold(onKeyUp: onKeyUp)
+                    self.endPress(onKeyUp: onKeyUp)
                 }
             }
         }
@@ -114,6 +123,70 @@ final class LivePushToTalkHotkeyClient: PushToTalkHotkeyClient {
         }
     }
 
+    private func installEventTapIfPossible() {
+        let eventMask =
+            (1 << CGEventType.keyDown.rawValue)
+            | (1 << CGEventType.keyUp.rawValue)
+            | (1 << CGEventType.flagsChanged.rawValue)
+            | (1 << CGEventType.tapDisabledByTimeout.rawValue)
+            | (1 << CGEventType.tapDisabledByUserInput.rawValue)
+
+        guard
+            let tap = CGEvent.tapCreate(
+                tap: .cgSessionEventTap,
+                place: .headInsertEventTap,
+                options: .listenOnly,
+                eventsOfInterest: CGEventMask(eventMask),
+                callback: { _, type, event, userInfo in
+                    guard let userInfo else {
+                        return Unmanaged.passUnretained(event)
+                    }
+
+                    let client = Unmanaged<LivePushToTalkHotkeyClient>
+                        .fromOpaque(userInfo)
+                        .takeUnretainedValue()
+                    Task { @MainActor in
+                        client.handleEventTap(type: type, event: event)
+                    }
+                    return Unmanaged.passUnretained(event)
+                },
+                userInfo: Unmanaged.passUnretained(self).toOpaque()
+            )
+        else {
+            AppLogger.info("Push-to-talk CG event tap unavailable; using NSEvent/KeyboardShortcuts fallback")
+            return
+        }
+
+        guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
+            CFMachPortInvalidate(tap)
+            return
+        }
+
+        eventTap = tap
+        eventTapRunLoopSource = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+    }
+
+    fileprivate func handleEventTap(type: CGEventType, event: CGEvent) {
+        switch type {
+        case .tapDisabledByTimeout, .tapDisabledByUserInput:
+            if let eventTap {
+                CGEvent.tapEnable(tap: eventTap, enable: true)
+            }
+        case .keyDown:
+            guard matchesSelectedCustomShortcutKeyDown(event) else { return }
+            beginPress()
+        case .keyUp:
+            guard matchesSelectedCustomShortcutKeyUp(event) else { return }
+            endPress()
+        case .flagsChanged:
+            handleModifierEventTap(event)
+        default:
+            break
+        }
+    }
+
     private func handleModifierEvent(_ event: NSEvent) {
         guard matchesSelectedModifier(event) else { return }
 
@@ -122,36 +195,83 @@ final class LivePushToTalkHotkeyClient: PushToTalkHotkeyClient {
         isModifierPressed = isPressed
 
         if isPressed {
-            beginHold()
+            beginPress()
         } else {
-            endHold()
+            endPress()
         }
     }
 
-    private func beginHold(onKeyDown: (() -> Void)? = nil) {
+    private func handleModifierEventTap(_ event: CGEvent) {
+        guard settingsStore.hotkeyPreference != .custom else { return }
+        let keyCode = Int(event.getIntegerValueField(.keyboardEventKeycode))
+        guard matchesSelectedModifierKeyCode(keyCode) else { return }
+
+        let isPressed = event.flags.contains(.maskAlternate)
+        guard isPressed != isModifierPressed else { return }
+        isModifierPressed = isPressed
+
+        if isPressed {
+            beginPress()
+        } else {
+            endPress()
+        }
+    }
+
+    private func beginPress(onKeyDown: (() -> Void)? = nil) {
         let action = onKeyDown ?? self.onKeyDown
-        holdGate?.keyDown {
+        pressTracker.keyDown {
             action?()
         }
     }
 
-    private func endHold(onKeyUp: (() -> Void)? = nil) {
+    private func endPress(onKeyUp: (() -> Void)? = nil) {
         let action = onKeyUp ?? self.onKeyUp
-        holdGate?.keyUp {
+        pressTracker.keyUp {
             action?()
         }
     }
 
     private func matchesSelectedModifier(_ event: NSEvent) -> Bool {
+        matchesSelectedModifierKeyCode(Int(event.keyCode))
+    }
+
+    private func matchesSelectedModifierKeyCode(_ keyCode: Int) -> Bool {
         switch settingsStore.hotkeyPreference {
         case .option:
-            return event.keyCode == 0x3A || event.keyCode == 0x3D
+            return keyCode == 0x3A || keyCode == 0x3D
         case .leftOption:
-            return event.keyCode == 0x3A
+            return keyCode == 0x3A
         case .rightOption:
-            return event.keyCode == 0x3D
+            return keyCode == 0x3D
         case .custom:
             return false
         }
+    }
+
+    private func matchesSelectedCustomShortcutKeyDown(_ event: CGEvent) -> Bool {
+        guard settingsStore.hotkeyPreference == .custom,
+            let shortcut = KeyboardShortcuts.getShortcut(for: .voicePenPushToTalk)
+        else {
+            return false
+        }
+
+        let keyCode = Int(event.getIntegerValueField(.keyboardEventKeycode))
+        guard keyCode == shortcut.carbonKeyCode else { return false }
+
+        let relevantModifiers: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
+        let eventModifiers = NSEvent.ModifierFlags(rawValue: UInt(event.flags.rawValue))
+            .intersection(relevantModifiers)
+        let shortcutModifiers = shortcut.modifiers.intersection(relevantModifiers)
+        return eventModifiers == shortcutModifiers
+    }
+
+    private func matchesSelectedCustomShortcutKeyUp(_ event: CGEvent) -> Bool {
+        guard settingsStore.hotkeyPreference == .custom,
+            let shortcut = KeyboardShortcuts.getShortcut(for: .voicePenPushToTalk)
+        else {
+            return false
+        }
+
+        return Int(event.getIntegerValueField(.keyboardEventKeycode)) == shortcut.carbonKeyCode
     }
 }

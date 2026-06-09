@@ -10,13 +10,11 @@ nonisolated enum VoicePenConfig {
     static let minimumRecordingDuration: TimeInterval = 0.4
     static let clipboardRestoreDelay: TimeInterval = 0.7
     static let glossaryLimit = 40
-    static let shortRecordingPromptMaximumDuration: TimeInterval = 10
-    static let defaultHotkeyHoldDuration: TimeInterval = 0.15
-    static let minimumHotkeyHoldDuration: TimeInterval = 0.1
-    static let maximumHotkeyHoldDuration: TimeInterval = 0.5
     static let accessibilityPermissionPollInterval: Duration = .seconds(1)
     static let historyCopyFeedbackDuration: Duration = .milliseconds(1_400)
-    static let recordingLevelRefreshInterval: Duration = .milliseconds(80)
+    static let recordingMeterAnalysisWindowSampleCount = 256
+    static let recordingAudioTapBufferSize: UInt32 = 256
+    static let modelWarmupLifecycleCooldown: TimeInterval = 5 * 60
     static let dictationProcessingTimeout: Duration = .seconds(30)
     static let modelDownloadTimeout: Duration = .seconds(3_600)
     static let modelWarmupTimeout: Duration = .seconds(30)

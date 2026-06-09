@@ -1,10 +1,10 @@
 import Foundation
 
-protocol ModelWarmupClient: AnyObject {
+nonisolated protocol ModelWarmupClient: AnyObject {
     func warmUp(model: ModelManifestModel, language: String) async throws
 }
 
-enum ModelRuntimeState: Equatable {
+nonisolated enum ModelRuntimeState: Equatable, Sendable {
     case notLoaded
     case warming(modelId: String)
     case ready(modelId: String)

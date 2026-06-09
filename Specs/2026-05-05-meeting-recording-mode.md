@@ -1,12 +1,13 @@
 ---
 id: SPEC-011
 status: active
-updated: 2026-05-26
+updated: 2026-06-09
 tests:
   - VoicePenTests/Meetings/MeetingRecordingStoreTests.swift
   - VoicePenTests/Meetings/MeetingRecordingStateTests.swift
   - VoicePenTests/Meetings/MeetingPipelineTests.swift
   - VoicePenTests/AudioProcessing/SavedAudioArchiveTests.swift
+  - VoicePenTests/AudioProcessing/SavedAudioArchiveSchedulerTests.swift
   - VoicePenTests/Meetings/MeetingHistoryEntryTests.swift
   - VoicePenTests/Meetings/MeetingHistoryStoreTests.swift
   - VoicePenTests/Meetings/MeetingHistoryFilterTests.swift
@@ -17,7 +18,7 @@ tests:
   - VoicePenTests/App/AppControllerTests.swift
   - VoicePenTests/App/AppPathsTests.swift
   - VoicePenTests/App/VoicePenAppCommandTests.swift
-- VoicePenTests/Settings/AppSettingsStoreTests.swift
+  - VoicePenTests/Settings/AppSettingsStoreTests.swift
 ---
 
 # Meeting Recording Mode
@@ -101,9 +102,10 @@ creation, or transcript editing.
 - While recording is active, VoicePen shall show a pulsing recording indicator in the Meetings header stop action and in the persistent status panel so users can notice that capture is still running.
 - While recording is active, the persistent status panel shall show the meeting recording limit in minutes.
 - When recording is canceled, VoicePen shall delete temporary audio and not create meeting history.
-- When saved Meeting recordings are enabled, VoicePen shall best-effort copy the post-chunking, pre-preprocessing Meeting audio chunks to the user's saved recordings folder before voice leveling or transcription.
+- When saved Meeting recordings are enabled, VoicePen shall schedule best-effort asynchronous copies of the post-chunking, pre-preprocessing Meeting audio chunks to the user's saved recordings folder before voice leveling or transcription.
 - Saved Meeting recordings shall use the chunks that proceed to transcription, including readable original chunks, sliced chunks, or merged timeline chunks.
-- When Meeting saved-audio copying fails, VoicePen shall log the failure and continue Meeting processing without changing transcription, retry, recovery audio, or history behavior.
+- When saved Meeting audio copying or pruning is scheduled, VoicePen shall continue voice leveling, transcription, retry, recovery audio, and history handling without waiting for that saved-audio work to finish.
+- When Meeting saved-audio copying fails, VoicePen shall log the failure asynchronously and continue Meeting processing without changing transcription, retry, recovery audio, or history behavior.
 - Retrying a failed or partial Meeting recording shall not create duplicate saved Meeting audio for chunks that were already saved during the original processing attempt.
 - Canceling an active Meeting recording shall not save Meeting audio.
 - When recording is stopped and audio is not discarded as all-silent preprocessing, VoicePen shall transcribe locally and save a meeting entry.
@@ -221,7 +223,7 @@ creation, or transcript editing.
 | Canceled capture start | One audio source starts and another source does not finish starting before cancellation | Started sources are stopped before VoicePen exits recording state |
 | Cancel meeting | User cancels an active recording | Temporary audio is deleted and no meeting row is saved |
 | Stop meeting | User stops an active recording from the Meetings header | Local transcription runs, processing status is shown, meeting history is saved with active wall-clock duration, temporary audio is deleted after success |
-| Saved Meeting audio enabled | User stops a Meeting recording | The post-chunking audio files that proceed to transcription are copied locally with readable source/chunk filenames |
+| Saved Meeting audio enabled | User stops a Meeting recording | The post-chunking audio files that proceed to transcription are scheduled for local copy with readable source/chunk filenames |
 | Saved Meeting audio copy failure | Saved recordings folder cannot be written | Meeting processing still transcribes and saves or fails normally |
 | Retry failed meeting with saved audio enabled | User retries before recovery audio expires | Retry updates the existing row without creating duplicate saved audio files |
 | Meeting decode metadata | Meeting transcription returns local model metadata | Meeting history stores the local model metadata and app version used during decoding |
@@ -270,8 +272,9 @@ creation, or transcript editing.
 - Automated: `VoicePenTests/Meetings/MeetingRecordingStateTests.swift` covers Meeting system audio tap planning, older-macOS process-object app filtering, and preflight fallback.
 - Automated: `VoicePenTests/Meetings/MeetingRecordingStoreTests.swift` covers scheduling, canceling, and firing the one-time recording limit reminder.
 - Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers local transcription flow, chunk ordering, overlapping source merging before transcription, 16-bit PCM merged chunk output, optional meeting timecodes, separate diarization speaker labels, app version metadata, active wall-clock duration, processing recovery audio beyond the live recording limit, silent source chunks, all-silent discard, known subtitle/outro artifact cleanup, chunk timeout partial salvage, recovery audio retention and retry, temporary audio cleanup, and no automatic insertion.
-- Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers saved Meeting audio after chunking, cancel/no-save behavior, non-fatal archive failures, and retry without duplicate saved audio.
+- Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers saved Meeting audio scheduling after chunking, cancel/no-save behavior, and retry without duplicate saved audio.
 - Automated: `VoicePenTests/AudioProcessing/SavedAudioArchiveTests.swift` covers byte-for-byte saved audio copies, readable source/chunk filenames, extension preservation, and oldest-first pruning.
+- Automated: `VoicePenTests/AudioProcessing/SavedAudioArchiveSchedulerTests.swift` covers asynchronous saved-audio scheduling, request forwarding, non-fatal archive failures, and serialized copy/pruning work.
 - Automated: `VoicePenTests/App/AppPathsTests.swift` covers stale VoicePen-owned `.wav` and `.caf` temporary audio cleanup while preserving recent and unrelated files.
 - Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers removing repeated short trailing Meeting transcription hallucinations.
 - Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers diarization chunk planning, full-recording diarization request wiring, very-short Auto diarization skip with exact-count override, speaker turn postprocessing, word overlap speaker merge, segment midpoint fallback, uncovered-gap behavior, tiny-overlap rejection, diarization failure fallback, saving detected speaker count, and separate diarization execution before ASR chunk formatting.

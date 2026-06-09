@@ -1,8 +1,12 @@
 import Foundation
 
-protocol SavedAudioArchiving: AnyObject {
+nonisolated protocol SavedAudioArchiving: AnyObject, Sendable {
     @discardableResult
     func archive(_ request: SavedAudioArchiveRequest, storageLimitGB: Int) throws -> URL
+}
+
+nonisolated protocol SavedAudioArchiveScheduling: AnyObject, Sendable {
+    func archiveBestEffort(_ request: SavedAudioArchiveRequest, storageLimitGB: Int)
 }
 
 nonisolated struct SavedAudioArchiveRequest: Equatable, Sendable {
@@ -55,7 +59,7 @@ nonisolated enum SavedAudioDirectoryKind: Sendable {
     case meeting
 }
 
-final class SavedAudioArchive: SavedAudioArchiving {
+nonisolated final class SavedAudioArchive: SavedAudioArchiving, @unchecked Sendable {
     private let dictationDirectory: URL
     private let meetingDirectory: URL
     private let fileManager: FileManager
@@ -236,14 +240,90 @@ final class SavedAudioArchive: SavedAudioArchiving {
     }
 }
 
-final class NoOpSavedAudioArchive: SavedAudioArchiving {
+nonisolated final class AsyncSavedAudioArchiveScheduler: SavedAudioArchiveScheduling, @unchecked Sendable {
+    private let queue = SavedAudioArchiveJobQueue()
+    private let worker: SavedAudioArchiveWorker
+
+    init(archiver: SavedAudioArchiving) {
+        self.worker = SavedAudioArchiveWorker(archiver: archiver)
+    }
+
+    func archiveBestEffort(_ request: SavedAudioArchiveRequest, storageLimitGB: Int) {
+        let job = SavedAudioArchiveJob(request: request, storageLimitGB: storageLimitGB)
+        guard queue.enqueueAndStartDrainingIfNeeded(job) else { return }
+
+        Task.detached(priority: .utility) { [queue, worker] in
+            await worker.drain(queue)
+        }
+    }
+}
+
+nonisolated final class NoOpSavedAudioArchiveScheduler: SavedAudioArchiveScheduling {
+    func archiveBestEffort(_: SavedAudioArchiveRequest, storageLimitGB _: Int) {}
+}
+
+nonisolated final class NoOpSavedAudioArchive: SavedAudioArchiving {
     @discardableResult
     func archive(_ request: SavedAudioArchiveRequest, storageLimitGB _: Int) throws -> URL {
         request.sourceURL
     }
 }
 
-private struct SavedAudioFile {
+private actor SavedAudioArchiveWorker {
+    private let archiver: SavedAudioArchiving
+
+    init(archiver: SavedAudioArchiving) {
+        self.archiver = archiver
+    }
+
+    func drain(_ queue: SavedAudioArchiveJobQueue) {
+        while let job = queue.next() {
+            archive(job)
+        }
+    }
+
+    private func archive(_ job: SavedAudioArchiveJob) {
+        do {
+            try archiver.archive(job.request, storageLimitGB: job.storageLimitGB)
+        } catch {
+            AppLogger.info("Saved \(job.request.kind.fileComponent) audio skipped: \(error.localizedDescription)")
+        }
+    }
+}
+
+nonisolated private struct SavedAudioArchiveJob: Sendable {
+    let request: SavedAudioArchiveRequest
+    let storageLimitGB: Int
+}
+
+nonisolated private final class SavedAudioArchiveJobQueue: @unchecked Sendable {
+    private let lock = NSLock()
+    private var jobs: [SavedAudioArchiveJob] = []
+    private var isDraining = false
+
+    func enqueueAndStartDrainingIfNeeded(_ job: SavedAudioArchiveJob) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+
+        jobs.append(job)
+        guard !isDraining else { return false }
+        isDraining = true
+        return true
+    }
+
+    func next() -> SavedAudioArchiveJob? {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard !jobs.isEmpty else {
+            isDraining = false
+            return nil
+        }
+        return jobs.removeFirst()
+    }
+}
+
+nonisolated private struct SavedAudioFile: Sendable {
     var url: URL
     var sizeBytes: Int64
     var modifiedAt: Date

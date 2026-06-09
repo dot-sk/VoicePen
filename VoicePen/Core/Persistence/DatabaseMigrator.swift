@@ -2,7 +2,7 @@ import Foundation
 import SQLite3
 
 nonisolated enum DatabaseMigrator {
-    static let currentSchemaVersion = 10
+    static let currentSchemaVersion = 11
 
     private static let migrations: [DatabaseMigration] = [
         DatabaseMigration(
@@ -162,6 +162,16 @@ nonisolated enum DatabaseMigrator {
                 """
                 ALTER TABLE meeting_history
                 ADD COLUMN speaker_count INTEGER;
+                """
+            ]
+        ),
+        DatabaseMigration(
+            version: 11,
+            name: "Remove hotkey hold duration setting",
+            statements: [
+                """
+                DELETE FROM app_settings
+                WHERE key = 'hotkey.holdDuration';
                 """
             ]
         )

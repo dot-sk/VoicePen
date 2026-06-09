@@ -1,13 +1,14 @@
 ---
 id: SPEC-012
 status: implemented
-updated: 2026-05-29
+updated: 2026-06-09
 tests:
   - VoicePenTests/Settings/AppSettingsStoreTests.swift
   - VoicePenTests/App/AppControllerTests.swift
   - VoicePenTests/App/VoicePenAppCommandTests.swift
   - VoicePenTests/App/AppPathsTests.swift
   - VoicePenTests/AudioProcessing/SavedAudioArchiveTests.swift
+  - VoicePenTests/AudioProcessing/SavedAudioArchiveSchedulerTests.swift
   - VoicePenTests/Pipeline/DictationPipelineTests.swift
   - VoicePenTests/Meetings/MeetingPipelineTests.swift
   - VoicePenTests/Recording/DefaultAudioInputDeviceProviderTests.swift
@@ -43,8 +44,9 @@ changing transcription behavior.
 - When the macOS default input device changes while VoicePen is running, the Audio settings status shall update to the new system default microphone.
 - When no audio settings have been saved, VoicePen shall enable system microphone voice processing, dictation microphone boost, and Meeting voice leveling by default.
 - When no saved-recordings settings have been saved, VoicePen shall keep saved dictation recordings and saved Meeting recordings disabled by default.
-- Saved recordings shall be copied byte-for-byte, keep the source file extension, use readable date/time/source filenames, and be pruned oldest-first across dictation and Meeting saved audio when the configured total size cap is exceeded.
-- Saved dictation recordings shall save one audio file per valid dictation attempt, using the transcription input file when preprocessing creates one and the original recording otherwise.
+- Saved recordings shall be scheduled asynchronously for dictation and Meeting Mode, copied byte-for-byte, keep the source file extension, use readable date/time/source filenames, and be pruned oldest-first across dictation and Meeting saved audio when the configured total size cap is exceeded.
+- Saved dictation recordings shall schedule one audio file per valid dictation attempt, using the transcription input file when preprocessing creates one and the original recording otherwise.
+- Saved recording copy or pruning failures shall be logged asynchronously and shall not change dictation transcription, insertion, retry, or history behavior, or Meeting transcription, retry, recovery audio, or history behavior.
 - Saved recordings shall be stored under Application Support, not temporary audio storage, and stale temporary-audio cleanup shall not remove them.
 - When push-to-talk dictation starts and microphone boost is enabled, VoicePen shall attempt to set the current default input device's settable input volume to maximum before recording.
 - When dictation recording ends, is canceled, fails to start, times out, or fails during processing, VoicePen shall attempt to restore the original input volume it changed.
@@ -72,7 +74,7 @@ changing transcription behavior.
 | Multichannel interface | A USB interface exposes many input channels and speech is present on only one channel | Dictation and Meeting microphone capture preserve the speech channel instead of treating the recording as silence |
 | Meeting leveling | Meeting chunk has uneven voice levels | Chunk is rendered through system dynamics and limiter before transcription |
 | Leveling failure | Audio Unit effect creation fails | Meeting transcribes the ordinary preprocessed chunk and logs a diagnostic note |
-| Saved recordings opt-in | User enables saved dictation or Meeting recordings | VoicePen copies matching audio locally without changing transcription or history outcomes |
+| Saved recordings opt-in | User enables saved dictation or Meeting recordings | VoicePen schedules matching audio for local copy without changing transcription or history outcomes |
 | Saved recordings limit | Saved audio exceeds the configured cap | Oldest saved audio files are removed until storage is within the cap |
 
 ## Test Mapping
@@ -82,6 +84,7 @@ changing transcription behavior.
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers audio and saved-recordings controls living in the Settings screen and shared settings bindings.
 - Automated: `VoicePenTests/App/AppPathsTests.swift` covers saved audio paths and temporary cleanup boundaries.
 - Automated: `VoicePenTests/AudioProcessing/SavedAudioArchiveTests.swift` covers saved-audio copy semantics, readable names, extension preservation, and pruning.
+- Automated: `VoicePenTests/AudioProcessing/SavedAudioArchiveSchedulerTests.swift` covers asynchronous scheduling, request forwarding, failure swallowing, and serialized saved-audio work.
 - Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers dictation microphone boost lifecycle and best-effort failures.
 - Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers Meeting voice leveling routing, fallback, and processed temporary file cleanup.
 - Automated: `VoicePenTests/Recording/DefaultAudioInputDeviceProviderTests.swift` covers formatting of named and unnamed default input devices.

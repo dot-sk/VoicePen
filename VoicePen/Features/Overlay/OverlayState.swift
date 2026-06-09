@@ -2,6 +2,7 @@ import Foundation
 
 enum OverlayState: Equatable {
     case hidden
+    case recordingStarting(startedAt: Date)
     case recording(startedAt: Date, level: Double?)
     case transcribing(stage: TranscriptionStage, progress: Double?)
     case error(message: String)
