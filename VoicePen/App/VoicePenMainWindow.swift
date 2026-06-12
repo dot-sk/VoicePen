@@ -139,7 +139,7 @@ struct VoicePenMainWindow: View {
             return true
         }
 
-        guard controller.appState.canStartMeetingRecording else {
+        guard controller.canStartMeetingRecording else {
             return false
         }
 
@@ -1037,17 +1037,27 @@ private struct MeetingRecordingPanel: View {
 
                 if controller.appState == .meetingProcessing {
                     if let progress = controller.meetingProcessingProgress,
-                        progress.totalChunks > 1
+                        showsDeterminateProgress(progress)
                     {
                         ProgressView(value: progress.fraction, total: 1.0)
                             .controlSize(.small)
                             .frame(width: 72)
-                        Label("Processing \(progress.percent)%", systemImage: "waveform")
+                        Label(progressLabel(for: progress), systemImage: "waveform")
                     } else {
                         ProgressView()
                             .controlSize(.small)
                         Label("Processing Transcript", systemImage: "waveform")
                     }
+                    Button(role: .cancel) {
+                        controller.cancelMeetingProcessing()
+                    } label: {
+                        Image(systemName: "xmark.circle")
+                            .frame(width: 22, height: 22)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Cancel Meeting Processing")
+                    .accessibilityLabel("Cancel Meeting Processing")
+                    .pointingHandCursor()
                 } else {
                     Label(controller.meetingSourceStatus.microphone.title, systemImage: "mic")
                     Label(controller.meetingSourceStatus.systemAudio.title, systemImage: "waveform")
@@ -1068,6 +1078,21 @@ private struct MeetingRecordingPanel: View {
 
     private var showsPanel: Bool {
         controller.appState.showsMeetingRecordingPanel
+    }
+
+    private func showsDeterminateProgress(_ progress: MeetingProcessingProgress) -> Bool {
+        progress.totalChunks > 1 || progress.stage != .transcribing
+    }
+
+    private func progressLabel(for progress: MeetingProcessingProgress) -> String {
+        switch progress.stage {
+        case .transcribing:
+            return "Processing \(progress.percent)%"
+        case .labelingSpeakers:
+            return "Labeling speakers \(progress.percent)%"
+        case .finishing:
+            return "Finishing \(progress.percent)%"
+        }
     }
 
     private func formatDuration(_ duration: TimeInterval) -> String {
@@ -1186,6 +1211,7 @@ private struct MeetingsView: View {
             )
         }
         .onAppear {
+            controller.cleanupExpiredMeetingRecoveryAudio()
             selectedID = selectedID ?? filteredEntries.first?.id
         }
         .onChange(of: meetingHistoryStore.entries) { _, _ in
@@ -1221,7 +1247,7 @@ private struct MeetingsView: View {
     }
 
     private var canStartMeeting: Bool {
-        controller.appState.canStartMeetingRecording
+        controller.canStartMeetingRecording
     }
 
     private var canUseMeetingRecordingPrimaryAction: Bool {
@@ -1672,6 +1698,12 @@ private struct MeetingMetadataSection: View {
                         .textSelection(.enabled)
                 }
             }
+
+            if !controller.existingArchivedAudioURLs(for: entry).isEmpty {
+                TranscriptSidebarSection("Local recording") {
+                    revealArchivedAudioButton(for: entry)
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1685,6 +1717,16 @@ private struct MeetingMetadataSection: View {
         .disabled(!isRecoveryAudioAvailable(entry))
         .help("Retry Processing")
         .accessibilityLabel("Retry Processing")
+    }
+
+    private func revealArchivedAudioButton(for entry: MeetingHistoryEntry) -> some View {
+        Button {
+            controller.revealArchivedAudio(for: entry)
+        } label: {
+            Label("Reveal in Finder", systemImage: "folder")
+        }
+        .help("Reveal in Finder")
+        .accessibilityLabel("Reveal in Finder")
     }
 
     private func deleteRecordingButton(for entry: MeetingHistoryEntry) -> some View {
@@ -1787,7 +1829,7 @@ private struct MeetingMetadataSection: View {
 
     private func recoveryAudioStatusMessage(for recoveryAudio: MeetingRecoveryAudioManifest) -> String {
         if recoveryAudio.isExpired(at: Date()) {
-            return "The 7-day retry window has expired."
+            return "The retry window has expired."
         }
 
         if !recoveryAudio.hasAvailableAudio() {
@@ -1845,6 +1887,7 @@ private struct HistoryView: View {
             )
         } sidebarContent: { entry in
             SessionMetadataSection(
+                controller: controller,
                 entry: entry,
                 insertAction: {
                     insertHistoryEntry($0)
@@ -2053,6 +2096,7 @@ private struct SessionTranscriptWorkspace: View {
 }
 
 private struct SessionMetadataSection: View {
+    @ObservedObject var controller: AppController
     let entry: VoiceHistoryEntry?
     let insertAction: (VoiceHistoryEntry) -> Void
     let deleteAction: (VoiceHistoryEntry) -> Void
@@ -2131,6 +2175,12 @@ private struct SessionMetadataSection: View {
                         .textSelection(.enabled)
                 }
             }
+
+            if !controller.existingArchivedAudioURLs(for: entry).isEmpty {
+                TranscriptSidebarSection("Local recording") {
+                    revealArchivedAudioButton(for: entry)
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -2144,6 +2194,16 @@ private struct SessionMetadataSection: View {
         .disabled(entry.finalText.trimmed.isEmpty)
         .help("Insert Again")
         .accessibilityLabel("Insert Again")
+    }
+
+    private func revealArchivedAudioButton(for entry: VoiceHistoryEntry) -> some View {
+        Button {
+            controller.revealArchivedAudio(for: entry)
+        } label: {
+            Label("Reveal in Finder", systemImage: "folder")
+        }
+        .help("Reveal in Finder")
+        .accessibilityLabel("Reveal in Finder")
     }
 
     private func deleteSessionButton(for entry: VoiceHistoryEntry) -> some View {

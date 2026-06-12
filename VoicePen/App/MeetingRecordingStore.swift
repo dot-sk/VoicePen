@@ -33,6 +33,7 @@ final class MeetingRecordingStore {
         case retrySucceeded(UUID, MeetingHistoryEntry)
         case retryFailed(UUID, Error)
         case statusTick(elapsedTime: TimeInterval?, sourceStatus: MeetingSourceStatus)
+        case processingCancelRequested(UUID)
         case processingTimedOut(UUID)
         case processingFinished(UUID)
     }
@@ -49,6 +50,7 @@ final class MeetingRecordingStore {
         let recordingReminderLeadTime: TimeInterval
         let processingTimeout: Duration
         let runningApplicationBundleIdentifiersProvider: () -> Set<String>
+        let canStartMeetingRecording: () -> Bool
         let getAppState: () -> AppState
         let setAppState: (AppState) -> Void
         let setErrorMessage: (String?) -> Void
@@ -57,6 +59,50 @@ final class MeetingRecordingStore {
         let setProcessingProgress: (MeetingProcessingProgress?) -> Void
         let presentError: (Error) -> Void
         let refreshBaseState: () -> Void
+
+        init(
+            meetingPipeline: MeetingPipeline?,
+            meetingHistoryStore: MeetingHistoryStore?,
+            permissions: PermissionsClient,
+            settingsStore: AppSettingsStore,
+            userPrompts: UserPromptPresenter,
+            recordingReminderPresenter: MeetingRecordingReminderPresenter,
+            captureStartTimeout: Duration,
+            maximumRecordingDuration: TimeInterval,
+            recordingReminderLeadTime: TimeInterval,
+            processingTimeout: Duration,
+            runningApplicationBundleIdentifiersProvider: @escaping () -> Set<String>,
+            canStartMeetingRecording: @escaping () -> Bool = { true },
+            getAppState: @escaping () -> AppState,
+            setAppState: @escaping (AppState) -> Void,
+            setErrorMessage: @escaping (String?) -> Void,
+            setElapsedTime: @escaping (TimeInterval) -> Void,
+            setSourceStatus: @escaping (MeetingSourceStatus) -> Void,
+            setProcessingProgress: @escaping (MeetingProcessingProgress?) -> Void,
+            presentError: @escaping (Error) -> Void,
+            refreshBaseState: @escaping () -> Void
+        ) {
+            self.meetingPipeline = meetingPipeline
+            self.meetingHistoryStore = meetingHistoryStore
+            self.permissions = permissions
+            self.settingsStore = settingsStore
+            self.userPrompts = userPrompts
+            self.recordingReminderPresenter = recordingReminderPresenter
+            self.captureStartTimeout = captureStartTimeout
+            self.maximumRecordingDuration = maximumRecordingDuration
+            self.recordingReminderLeadTime = recordingReminderLeadTime
+            self.processingTimeout = processingTimeout
+            self.runningApplicationBundleIdentifiersProvider = runningApplicationBundleIdentifiersProvider
+            self.canStartMeetingRecording = canStartMeetingRecording
+            self.getAppState = getAppState
+            self.setAppState = setAppState
+            self.setErrorMessage = setErrorMessage
+            self.setElapsedTime = setElapsedTime
+            self.setSourceStatus = setSourceStatus
+            self.setProcessingProgress = setProcessingProgress
+            self.presentError = presentError
+            self.refreshBaseState = refreshBaseState
+        }
     }
 
     private static let microphonePermissionRequiredMessage = "Microphone permission is required to record dictation audio locally."
@@ -75,7 +121,7 @@ final class MeetingRecordingStore {
     @discardableResult
     func start() -> Task<Void, Never>? {
         guard let meetingPipeline = environment.meetingPipeline else { return nil }
-        guard environment.getAppState().canStartMeetingRecording else { return nil }
+        guard environment.canStartMeetingRecording() else { return nil }
         guard acknowledgeMeetingRecordingConsentIfNeeded() else { return nil }
 
         guard environment.permissions.microphonePermissionStatus == .authorized else {
@@ -170,6 +216,18 @@ final class MeetingRecordingStore {
             } catch {
                 send(.cancelFailed(error))
             }
+        }
+    }
+
+    @discardableResult
+    func cancelProcessing() -> Task<Void, Never>? {
+        guard environment.getAppState() == .meetingProcessing,
+            let processingID = state.activeProcessingID,
+            state.processingTask != nil
+        else { return nil }
+
+        return Task { [weak self] in
+            self?.send(.processingCancelRequested(processingID))
         }
     }
 
@@ -286,12 +344,25 @@ final class MeetingRecordingStore {
             }
             updateSourceStatus(sourceStatus)
 
+        case let .processingCancelRequested(processingID):
+            guard state.activeProcessingID == processingID,
+                environment.getAppState() == .meetingProcessing
+            else { return }
+
+            AppLogger.info("Meeting processing canceled by user")
+            environment.meetingPipeline?.prepareForProcessingCancellation(.userCancelled)
+            state.processingTask?.cancel()
+            finishProcessing(id: processingID)
+            environment.refreshBaseState()
+            environment.setErrorMessage(nil)
+
         case let .processingTimedOut(processingID):
             guard state.activeProcessingID == processingID,
                 environment.getAppState() == .meetingProcessing
             else { return }
 
             AppLogger.error("Meeting processing timed out")
+            environment.meetingPipeline?.prepareForProcessingCancellation(.timedOut)
             state.processingTask?.cancel()
             finishProcessing(id: processingID)
             environment.presentError(TranscriptionError.transcriptionTimedOut)

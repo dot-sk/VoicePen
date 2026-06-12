@@ -9,25 +9,33 @@ nonisolated protocol SavedAudioArchiveScheduling: AnyObject, Sendable {
     func archiveBestEffort(_ request: SavedAudioArchiveRequest, storageLimitGB: Int)
 }
 
+nonisolated enum SavedAudioArchiveOwner: Equatable, Sendable {
+    case voiceHistory(UUID)
+    case meetingHistory(UUID)
+}
+
 nonisolated struct SavedAudioArchiveRequest: Equatable, Sendable {
     var sourceURL: URL
     var kind: SavedAudioRecordingKind
     var capturedAt: Date
     var sourceLabel: String?
     var sequenceIndex: Int?
+    var owner: SavedAudioArchiveOwner?
 
     init(
         sourceURL: URL,
         kind: SavedAudioRecordingKind,
         capturedAt: Date,
         sourceLabel: String? = nil,
-        sequenceIndex: Int? = nil
+        sequenceIndex: Int? = nil,
+        owner: SavedAudioArchiveOwner? = nil
     ) {
         self.sourceURL = sourceURL
         self.kind = kind
         self.capturedAt = capturedAt
         self.sourceLabel = sourceLabel
         self.sequenceIndex = sequenceIndex
+        self.owner = owner
     }
 }
 
@@ -241,11 +249,19 @@ nonisolated final class SavedAudioArchive: SavedAudioArchiving, @unchecked Senda
 }
 
 nonisolated final class AsyncSavedAudioArchiveScheduler: SavedAudioArchiveScheduling, @unchecked Sendable {
+    typealias Completion = @Sendable (SavedAudioArchiveOwner, URL) -> Void
+
     private let queue = SavedAudioArchiveJobQueue()
     private let worker: SavedAudioArchiveWorker
 
-    init(archiver: SavedAudioArchiving) {
-        self.worker = SavedAudioArchiveWorker(archiver: archiver)
+    init(
+        archiver: SavedAudioArchiving,
+        completion: @escaping Completion = { _, _ in }
+    ) {
+        self.worker = SavedAudioArchiveWorker(
+            archiver: archiver,
+            completion: completion
+        )
     }
 
     func archiveBestEffort(_ request: SavedAudioArchiveRequest, storageLimitGB: Int) {
@@ -271,9 +287,14 @@ nonisolated final class NoOpSavedAudioArchive: SavedAudioArchiving {
 
 private actor SavedAudioArchiveWorker {
     private let archiver: SavedAudioArchiving
+    private let completion: AsyncSavedAudioArchiveScheduler.Completion
 
-    init(archiver: SavedAudioArchiving) {
+    init(
+        archiver: SavedAudioArchiving,
+        completion: @escaping AsyncSavedAudioArchiveScheduler.Completion
+    ) {
         self.archiver = archiver
+        self.completion = completion
     }
 
     func drain(_ queue: SavedAudioArchiveJobQueue) {
@@ -284,7 +305,10 @@ private actor SavedAudioArchiveWorker {
 
     private func archive(_ job: SavedAudioArchiveJob) {
         do {
-            try archiver.archive(job.request, storageLimitGB: job.storageLimitGB)
+            let archivedURL = try archiver.archive(job.request, storageLimitGB: job.storageLimitGB)
+            if let owner = job.request.owner {
+                completion(owner, archivedURL)
+            }
         } catch {
             AppLogger.info("Saved \(job.request.kind.fileComponent) audio skipped: \(error.localizedDescription)")
         }

@@ -15,6 +15,7 @@
 		11953DC12FA7200000ED707B /* Stencil in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DC22FA7200000ED707B /* Stencil */; };
 		11953DC42FA7300000ED707B /* SpeechVAD in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DC52FA7300000ED707B /* SpeechVAD */; };
 		11953DC62FA7300000ED707B /* AudioCommon in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DC72FA7300000ED707B /* AudioCommon */; };
+		11953DCC2FA7400000ED707B /* SpeakerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DCA2FA7400000ED707B /* SpeakerKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -71,6 +72,7 @@
 				11953DC12FA7200000ED707B /* Stencil in Frameworks */,
 				11953DC42FA7300000ED707B /* SpeechVAD in Frameworks */,
 				11953DC62FA7300000ED707B /* AudioCommon in Frameworks */,
+				11953DCC2FA7400000ED707B /* SpeakerKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -137,6 +139,7 @@
 				11953DBB2FA7000000ED707B /* Sparkle */,
 				11953DBF2FA7200000ED707B /* TOMLKit */,
 				11953DC22FA7200000ED707B /* Stencil */,
+				11953DCA2FA7400000ED707B /* SpeakerKit */,
 				11953DC52FA7300000ED707B /* SpeechVAD */,
 				11953DC72FA7300000ED707B /* AudioCommon */,
 			);
@@ -229,6 +232,7 @@
 				11953DBA2FA7000000ED707B /* XCRemoteSwiftPackageReference "Sparkle" */,
 				11953DBD2FA7200000ED707B /* XCRemoteSwiftPackageReference "TOMLKit" */,
 				11953DC02FA7200000ED707B /* XCRemoteSwiftPackageReference "Stencil" */,
+				11953DCE2FA7400000ED707B /* XCRemoteSwiftPackageReference "argmax-oss-swift" */,
 				11953DC32FA7300000ED707B /* XCRemoteSwiftPackageReference "speech-swift" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -684,6 +688,14 @@
 				revision = 88cd3784b489706b53a7e3b8bff02834b40855dd;
 			};
 		};
+		11953DCE2FA7400000ED707B /* XCRemoteSwiftPackageReference "argmax-oss-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/argmaxinc/argmax-oss-swift";
+			requirement = {
+				kind = exactVersion;
+				version = 1.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -726,6 +738,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 11953DC32FA7300000ED707B /* XCRemoteSwiftPackageReference "speech-swift" */;
 			productName = AudioCommon;
+		};
+		11953DCA2FA7400000ED707B /* SpeakerKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 11953DCE2FA7400000ED707B /* XCRemoteSwiftPackageReference "argmax-oss-swift" */;
+			productName = SpeakerKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

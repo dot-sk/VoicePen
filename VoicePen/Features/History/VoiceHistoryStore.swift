@@ -57,10 +57,31 @@ final class VoiceHistoryStore: ObservableObject {
         storageStats = result.storageStats
     }
 
+    func appendArchivedAudioURL(_ url: URL, for id: VoiceHistoryEntry.ID) throws {
+        let result = try withDatabase { database in
+            try DatabaseMigrator.migrate(database)
+            try ArchivedAudioHistoryLinks.insert(
+                url: url,
+                ownerKind: .voiceHistory,
+                ownerID: id,
+                in: database
+            )
+            let fetchedEntries = try fetchEntries(from: database)
+            return HistoryLoadResult(
+                entries: fetchedEntries,
+                storageStats: try fetchStorageStats(from: database)
+            )
+        }
+        entries = result.entries
+        usageStats = VoiceTranscriptionUsageStats(entries: result.entries)
+        storageStats = result.storageStats
+    }
+
     func clear() throws {
         let stats = try withDatabase { database in
             try DatabaseMigrator.migrate(database)
             try database.execute("DELETE FROM voice_history;")
+            try ArchivedAudioHistoryLinks.deleteAll(ownerKind: .voiceHistory, in: database)
             return try fetchStorageStats(from: database)
         }
         entries = []
@@ -72,6 +93,7 @@ final class VoiceHistoryStore: ObservableObject {
         let result = try withDatabase { database in
             try DatabaseMigrator.migrate(database)
             try deleteEntry(id: id, from: database)
+            try ArchivedAudioHistoryLinks.delete(ownerKind: .voiceHistory, ownerID: id, in: database)
             let fetchedEntries = try fetchEntries(from: database)
             return HistoryLoadResult(
                 entries: fetchedEntries,
@@ -319,8 +341,20 @@ final class VoiceHistoryStore: ObservableObject {
             case .row:
                 fetchedEntries.append(try entry(from: statement))
             case .done:
-                return fetchedEntries
+                return try entriesWithArchivedAudioURLs(fetchedEntries, from: database)
             }
+        }
+    }
+
+    private func entriesWithArchivedAudioURLs(
+        _ entries: [VoiceHistoryEntry],
+        from database: SQLiteConnection
+    ) throws -> [VoiceHistoryEntry] {
+        let linksByID = try ArchivedAudioHistoryLinks.fetch(ownerKind: .voiceHistory, in: database)
+        return entries.map { entry in
+            var entry = entry
+            entry.archivedAudioURLs = linksByID[entry.id] ?? []
+            return entry
         }
     }
 

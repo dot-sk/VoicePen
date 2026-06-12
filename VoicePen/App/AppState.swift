@@ -3,8 +3,6 @@ import Foundation
 enum AppState: Equatable {
     case starting
     case ready
-    case recording
-    case transcribing
     case meetingRecording
     case meetingProcessing
     case downloadingModel(progress: Double?)
@@ -14,15 +12,6 @@ enum AppState: Equatable {
     case missingSystemAudioPermission
     case missingModel
     case error(String)
-
-    var canStartMeetingRecording: Bool {
-        switch self {
-        case .ready, .missingModel, .missingAccessibilityPermission:
-            return true
-        default:
-            return false
-        }
-    }
 
     var isMeetingCaptureActive: Bool {
         switch self {
@@ -43,10 +32,6 @@ enum AppState: Equatable {
             return "Starting"
         case .ready:
             return "Ready"
-        case .recording:
-            return "Recording"
-        case .transcribing:
-            return "Transcribing"
         case .meetingRecording:
             return "Meeting recording"
         case .meetingProcessing:

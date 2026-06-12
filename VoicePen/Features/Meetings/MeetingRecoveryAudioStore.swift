@@ -15,7 +15,12 @@ final class MeetingRecoveryAudioStore {
         self.fileManager = fileManager
     }
 
-    func retain(recording: MeetingRecordingResult, entryID: UUID, createdAt: Date) throws -> MeetingRecoveryAudioManifest {
+    func retain(
+        recording: MeetingRecordingResult,
+        entryID: UUID,
+        createdAt: Date,
+        retentionDuration: TimeInterval? = nil
+    ) throws -> MeetingRecoveryAudioManifest {
         let entryDirectory = directory.appendingPathComponent(entryID.uuidString, isDirectory: true)
         if fileManager.fileExists(atPath: entryDirectory.path) {
             try fileManager.removeItem(at: entryDirectory)
@@ -35,7 +40,7 @@ final class MeetingRecoveryAudioStore {
 
         return MeetingRecoveryAudioManifest(
             createdAt: createdAt,
-            expiresAt: createdAt.addingTimeInterval(retentionDuration),
+            expiresAt: createdAt.addingTimeInterval(retentionDuration ?? self.retentionDuration),
             duration: recording.duration,
             sourceFlags: recording.sourceFlags,
             chunks: retainedChunks

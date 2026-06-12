@@ -130,14 +130,14 @@ final class CompositeMeetingRecordingClient: MeetingRecordingClient {
     }
 }
 
-final class AVFoundationMicrophoneMeetingAudioSource: MeetingAudioSourceClient {
+nonisolated final class CoreAudioMicrophoneMeetingAudioSource: MeetingAudioSourceClient, @unchecked Sendable {
     let source = MeetingSourceKind.microphone
 
     private let tempDirectory: URL
     private let fileManager: FileManager
     private let audioFileIO: MeetingAudioFileIO
-    private let microphoneVoiceProcessingEnabledProvider: () -> Bool
-    private var engine: AVAudioEngine?
+    private let microphoneCapture: CoreAudioMicrophoneCapturing
+    private let lock = NSLock()
     private var converter: AVAudioConverter?
     private var captureFormat: AVAudioFormat?
     private var outputFormat: AVAudioFormat?
@@ -146,67 +146,90 @@ final class AVFoundationMicrophoneMeetingAudioSource: MeetingAudioSourceClient {
     private var chunks: [MeetingAudioChunk] = []
     private var recordingError: Error?
     private var sourceStatus = MeetingSourceHealth.unavailable
+    private var isRecording = false
 
     init(
         tempDirectory: URL,
         fileManager: FileManager = .default,
-        microphoneVoiceProcessingEnabledProvider: @escaping () -> Bool = { true },
-        audioFileIO: MeetingAudioFileIO = AVFoundationMeetingAudioFileIO()
+        audioFileIO: MeetingAudioFileIO = AVFoundationMeetingAudioFileIO(),
+        microphoneCapture: CoreAudioMicrophoneCapturing = CoreAudioMicrophoneCapture()
     ) {
         self.tempDirectory = tempDirectory
         self.fileManager = fileManager
-        self.microphoneVoiceProcessingEnabledProvider = microphoneVoiceProcessingEnabledProvider
         self.audioFileIO = audioFileIO
+        self.microphoneCapture = microphoneCapture
     }
 
     var status: MeetingSourceHealth {
-        sourceStatus
+        lock.lock()
+        defer { lock.unlock() }
+        return sourceStatus
     }
 
     var level: Double? {
-        currentSink?.level
+        lock.lock()
+        let sink = currentSink
+        lock.unlock()
+        return sink?.level
     }
 
     func start(at offset: TimeInterval) async throws {
-        guard engine == nil else { throw MeetingRecordingError.alreadyRecording }
-        chunks = []
-        recordingError = nil
+        try prepareStartState()
         try startSegment(at: offset)
     }
 
     func stop(at offset: TimeInterval) async throws -> [MeetingAudioChunk] {
-        if engine != nil {
+        if hasCurrentSink() {
             try finishSegment(at: offset, healthAfterStop: .unavailable)
         }
+        return takeFinishedChunks()
+    }
+
+    func cancel() async throws {
+        microphoneCapture.teardown()
+        cancelState()?.cancel()
+    }
+
+    private func prepareStartState() throws {
+        lock.lock()
+        defer { lock.unlock() }
+        guard currentSink == nil else { throw MeetingRecordingError.alreadyRecording }
+        chunks = []
+        recordingError = nil
+    }
+
+    private func hasCurrentSink() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return currentSink != nil
+    }
+
+    private func takeFinishedChunks() -> [MeetingAudioChunk] {
+        lock.lock()
+        defer { lock.unlock() }
         let finishedChunks = chunks
         chunks = []
         return finishedChunks
     }
 
-    func cancel() async throws {
-        engine?.inputNode.removeTap(onBus: 0)
-        engine?.stop()
-        engine = nil
+    private func cancelState() -> MeetingAudioBufferFileSink? {
+        lock.lock()
+        defer { lock.unlock() }
+        isRecording = false
         converter = nil
         captureFormat = nil
         outputFormat = nil
-        currentSink?.cancel()
+        let sink = currentSink
         currentSink = nil
         chunks = []
         sourceStatus = .unavailable
+        return sink
     }
 
     private func startSegment(at offset: TimeInterval) throws {
         try fileManager.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
-        let engine = AVAudioEngine()
-        let inputNode = engine.inputNode
-        MicrophoneVoiceProcessingActivation.apply(
-            isEnabled: microphoneVoiceProcessingEnabledProvider(),
-            context: "Meeting microphone capture"
-        ) {
-            try inputNode.setVoiceProcessingEnabled(true)
-        }
-        let inputFormat = inputNode.outputFormat(forBus: 0)
+        try microphoneCapture.prepare()
+        let inputFormat = microphoneCapture.inputFormat
         let outputFormat = try audioFileIO.processingFormat()
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0,
             let captureFormat = ActiveChannelMonoMixer.makeFloatFormat(
@@ -226,61 +249,76 @@ final class AVFoundationMicrophoneMeetingAudioSource: MeetingAudioSourceClient {
             audioFileIO: audioFileIO
         )
 
-        self.engine = engine
+        lock.lock()
         self.converter = converter
         self.captureFormat = captureFormat
         self.outputFormat = outputFormat
         currentSink = sink
         currentSegmentStartOffset = offset
         recordingError = nil
+        isRecording = true
+        lock.unlock()
 
-        inputNode.installTap(onBus: 0, bufferSize: 1_024, format: inputFormat) { [weak self] buffer, _ in
-            self?.processInputBuffer(buffer)
-        }
-
-        engine.prepare()
         do {
-            try engine.start()
+            try microphoneCapture.start(onBuffer: { [weak self] buffer in
+                self?.processInputBuffer(buffer)
+            })
+            lock.lock()
             sourceStatus = .capturing
+            lock.unlock()
         } catch {
-            inputNode.removeTap(onBus: 0)
-            self.engine = nil
-            self.converter = nil
-            self.captureFormat = nil
-            self.outputFormat = nil
-            currentSink = nil
+            let error = MeetingRecordingError.captureFailed("Microphone capture could not be started.")
+            lock.lock()
+            recordingError = error
             sourceStatus = .failed
+            lock.unlock()
+            cleanupRecordingFailure()
             throw error
         }
     }
 
     private func finishSegment(at offset: TimeInterval, healthAfterStop: MeetingSourceHealth) throws {
-        guard let engine, let currentSink else { return }
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
-        self.engine = nil
+        microphoneCapture.stop()
+        lock.lock()
+        guard let currentSink else {
+            lock.unlock()
+            return
+        }
+        isRecording = false
         converter = nil
         captureFormat = nil
         outputFormat = nil
+        let recordingError = recordingError
+        let currentSegmentStartOffset = currentSegmentStartOffset
+        self.currentSink = nil
+        lock.unlock()
 
         if let recordingError {
+            lock.lock()
             sourceStatus = .failed
+            lock.unlock()
             currentSink.cancel()
-            self.currentSink = nil
             throw recordingError
         }
 
         if let chunk = try currentSink.finish(startOffset: currentSegmentStartOffset, endOffset: offset) {
+            lock.lock()
             chunks.append(chunk)
+            lock.unlock()
         }
-        self.currentSink = nil
+        lock.lock()
         sourceStatus = healthAfterStop
+        lock.unlock()
     }
 
-    private func processInputBuffer(_ buffer: AVAudioPCMBuffer) {
+    nonisolated private func processInputBuffer(_ buffer: AVAudioPCMBuffer) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard isRecording else { return }
         guard let converter,
             let captureFormat,
             let outputFormat,
+            let currentSink,
             let captureBuffer = AVAudioPCMBuffer(
                 pcmFormat: captureFormat,
                 frameCapacity: MeetingAudioFrameCapacity.converted(
@@ -317,11 +355,25 @@ final class AVFoundationMicrophoneMeetingAudioSource: MeetingAudioSourceClient {
             return
         }
         do {
-            try currentSink?.append(outputBuffer)
+            try currentSink.append(outputBuffer)
         } catch {
             recordingError = error
             sourceStatus = .failed
         }
+    }
+
+    private func cleanupRecordingFailure() {
+        microphoneCapture.stop()
+        lock.lock()
+        isRecording = false
+        converter = nil
+        captureFormat = nil
+        outputFormat = nil
+        let sink = currentSink
+        currentSink = nil
+        chunks = []
+        lock.unlock()
+        sink?.cancel()
     }
 }
 

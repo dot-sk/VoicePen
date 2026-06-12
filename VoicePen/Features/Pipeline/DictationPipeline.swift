@@ -46,6 +46,7 @@ final class DictationPipeline {
     private let languageProvider: () -> String
     private let speechPreprocessingModeProvider: () -> SpeechPreprocessingMode
     private let boostDictationInputGainProvider: () -> Bool
+    private var shouldEnableDictationInputGainProvider: () -> Bool
     private let saveDictationAudioEnabledProvider: () -> Bool
     private let savedAudioStorageLimitGBProvider: () -> Int
     private let developerModesEnabledProvider: () -> Bool
@@ -90,6 +91,7 @@ final class DictationPipeline {
         self.languageProvider = languageProvider
         self.speechPreprocessingModeProvider = speechPreprocessingModeProvider
         self.boostDictationInputGainProvider = boostDictationInputGainProvider
+        self.shouldEnableDictationInputGainProvider = { true }
         self.saveDictationAudioEnabledProvider = saveDictationAudioEnabledProvider
         self.savedAudioStorageLimitGBProvider = savedAudioStorageLimitGBProvider
         self.developerModesEnabledProvider = developerModesEnabledProvider
@@ -104,7 +106,7 @@ final class DictationPipeline {
         overlay.show(.recordingStarting(startedAt: Date()))
 
         activeInputGainRestoreToken =
-            boostDictationInputGainProvider()
+            boostDictationInputGainProvider() && shouldEnableDictationInputGainProvider()
             ? await inputGainController.boostDefaultInputGain()
             : nil
 
@@ -119,9 +121,13 @@ final class DictationPipeline {
         await overlay.show(.recording(startedAt: startedAt, level: nil))
     }
 
-    func stopAndProcess() async throws -> DictationPipelineResult {
+    func setDictationInputGainEligibility(_ provider: @escaping () -> Bool) {
+        shouldEnableDictationInputGainProvider = provider
+    }
+
+    func stopAndProcess(archiveOwner: SavedAudioArchiveOwner? = nil) async throws -> DictationPipelineResult {
         do {
-            let result = try await stopAndProcessRecording()
+            let result = try await stopAndProcessRecording(archiveOwner: archiveOwner)
             await restoreInputGainIfNeeded()
             return result
         } catch {
@@ -138,7 +144,7 @@ final class DictationPipeline {
         await recorder.invalidatePreparedRecording()
     }
 
-    private func stopAndProcessRecording() async throws -> DictationPipelineResult {
+    private func stopAndProcessRecording(archiveOwner: SavedAudioArchiveOwner?) async throws -> DictationPipelineResult {
         guard let recording = try await recorder.stopRecording() else {
             overlay.hide(after: 0.1)
             return DictationPipelineResult(rawText: "", finalText: "")
@@ -169,7 +175,11 @@ final class DictationPipeline {
             archiveSavedDictationAudio(sourceURL: recording.url, capturedAt: recording.startedAt)
             throw error
         }
-        archiveSavedDictationAudio(sourceURL: transcriptionAudioURL, capturedAt: recording.startedAt)
+        archiveSavedDictationAudio(
+            sourceURL: transcriptionAudioURL,
+            capturedAt: recording.startedAt,
+            owner: archiveOwner
+        )
 
         try Task.checkCancellation()
         let language = TranscriptionLanguageResolver.resolve(languageProvider())
@@ -287,12 +297,17 @@ final class DictationPipeline {
         return (value, TimeInterval(end - start) / 1_000_000_000)
     }
 
-    private func archiveSavedDictationAudio(sourceURL: URL, capturedAt: Date) {
+    private func archiveSavedDictationAudio(
+        sourceURL: URL,
+        capturedAt: Date,
+        owner: SavedAudioArchiveOwner? = nil
+    ) {
         guard saveDictationAudioEnabledProvider() else { return }
         let request = SavedAudioArchiveRequest(
             sourceURL: sourceURL,
             kind: .dictation,
-            capturedAt: capturedAt
+            capturedAt: capturedAt,
+            owner: owner
         )
         savedAudioScheduler.archiveBestEffort(request, storageLimitGB: savedAudioStorageLimitGBProvider())
     }

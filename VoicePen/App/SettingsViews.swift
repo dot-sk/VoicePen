@@ -43,7 +43,7 @@ enum VoicePenSettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .general:
             return "house"
         case .model:
-            return "arrow.down.circle"
+            return "sparkles"
         case .modes:
             return "terminal"
         case .ai:
@@ -188,7 +188,7 @@ private struct HomeStatusStrip: View {
             return .ready
         case .missingMicrophonePermission, .error:
             return .notReady
-        case .starting, .recording, .transcribing, .meetingRecording, .meetingProcessing,
+        case .starting, .meetingRecording, .meetingProcessing,
             .downloadingModel, .preparingModel, .missingAccessibilityPermission,
             .missingSystemAudioPermission, .missingModel:
             return .actionRequired
@@ -1115,13 +1115,6 @@ struct ConfigSettingsView: View {
         )
     }
 
-    private var microphoneVoiceProcessingEnabled: Binding<Bool> {
-        Binding(
-            get: { settingsStore.microphoneVoiceProcessingEnabled },
-            set: { controller.updateMicrophoneVoiceProcessingEnabled($0) }
-        )
-    }
-
     private var meetingVoiceLevelingEnabled: Binding<Bool> {
         Binding(
             get: { settingsStore.meetingVoiceLevelingEnabled },
@@ -1239,7 +1232,6 @@ struct ConfigSettingsView: View {
 
             Section {
                 CurrentMicrophoneStatusView(text: controller.currentMicrophoneStatusText)
-                Toggle("System voice processing", isOn: microphoneVoiceProcessingEnabled)
                 Toggle("Boost microphone level during dictation", isOn: boostDictationInputGain)
                 Toggle("Meeting voice leveling", isOn: meetingVoiceLevelingEnabled)
                 Picker("System Audio Source", selection: meetingSystemAudioSourceMode) {
@@ -1293,7 +1285,7 @@ struct ConfigSettingsView: View {
                 Text("Audio")
             } footer: {
                 Text(
-                    "VoicePen uses the macOS default microphone. System voice processing can ask macOS to enhance microphone capture for dictation and Meeting recordings. Dictation can temporarily raise supported input levels while recording. Meeting audio can use system dynamics and peak limiting before local transcription; if processing is unavailable, VoicePen continues with ordinary audio. Meeting system audio can capture all apps, only selected apps, or all apps except selected apps."
+                    "VoicePen uses the macOS default microphone and records while connected devices have no session-level gain or routing changes. Dictation can temporarily raise supported input levels while recording. Meeting audio can use system dynamics and peak limiting before local transcription; if processing is unavailable, VoicePen continues with ordinary audio. Meeting system audio can capture all apps, only selected apps, or all apps except selected apps."
                 )
             }
 

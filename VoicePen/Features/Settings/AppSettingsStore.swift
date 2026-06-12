@@ -7,11 +7,11 @@ final class AppSettingsStore: ObservableObject {
     @Published private(set) var selectedModelId: String
     @Published private(set) var speechPreprocessingMode: SpeechPreprocessingMode
     @Published private(set) var hotkeyPreference: HotkeyPreference
-    @Published private(set) var microphoneVoiceProcessingEnabled: Bool
     @Published private(set) var boostDictationInputGain: Bool
     @Published private(set) var meetingVoiceLevelingEnabled: Bool
     @Published private(set) var saveDictationAudioEnabled: Bool
     @Published private(set) var saveMeetingAudioEnabled: Bool
+    @Published private(set) var meetingDiarizationBackend: MeetingDiarizationBackend
     @Published private(set) var savedAudioStorageLimitGB: Int
     @Published private(set) var meetingTranscriptTimecodesEnabled: Bool
     @Published private(set) var meetingDiarizationEnabled: Bool
@@ -32,11 +32,11 @@ final class AppSettingsStore: ObservableObject {
         self.selectedModelId = VoicePenConfig.modelId
         self.speechPreprocessingMode = .off
         self.hotkeyPreference = .option
-        self.microphoneVoiceProcessingEnabled = true
         self.boostDictationInputGain = true
         self.meetingVoiceLevelingEnabled = true
         self.saveDictationAudioEnabled = false
         self.saveMeetingAudioEnabled = false
+        self.meetingDiarizationBackend = .speakerKit
         self.savedAudioStorageLimitGB = VoicePenConfig.defaultSavedAudioStorageLimitGB
         self.meetingTranscriptTimecodesEnabled = true
         self.meetingDiarizationEnabled = false
@@ -58,9 +58,6 @@ final class AppSettingsStore: ObservableObject {
             let boostDictationInputGain =
                 try fetchValue(forKey: Self.boostDictationInputGainKey, from: database)
                 ?? "true"
-            let microphoneVoiceProcessing =
-                try fetchValue(forKey: Self.microphoneVoiceProcessingEnabledKey, from: database)
-                ?? "true"
             let meetingVoiceLeveling =
                 try fetchValue(forKey: Self.meetingVoiceLevelingEnabledKey, from: database)
                 ?? "true"
@@ -76,6 +73,9 @@ final class AppSettingsStore: ObservableObject {
             let meetingTranscriptTimecodes =
                 try fetchValue(forKey: Self.meetingTranscriptTimecodesEnabledKey, from: database)
                 ?? "true"
+            let meetingDiarizationBackend =
+                try fetchValue(forKey: Self.meetingDiarizationBackendKey, from: database)
+                ?? MeetingDiarizationBackend.speakerKit.rawValue
             let meetingDiarization =
                 try fetchValue(forKey: Self.meetingDiarizationEnabledKey, from: database)
                 ?? "false"
@@ -94,7 +94,6 @@ final class AppSettingsStore: ObservableObject {
                 modelId: modelId,
                 preprocessing: preprocessing,
                 hotkey: hotkey,
-                microphoneVoiceProcessing: microphoneVoiceProcessing,
                 boostDictationInputGain: boostDictationInputGain,
                 meetingVoiceLeveling: meetingVoiceLeveling,
                 saveDictationAudio: saveDictationAudio,
@@ -102,6 +101,7 @@ final class AppSettingsStore: ObservableObject {
                 savedAudioStorageLimitGB: savedAudioStorageLimitGB,
                 meetingTranscriptTimecodes: meetingTranscriptTimecodes,
                 meetingDiarization: meetingDiarization,
+                meetingDiarizationBackend: meetingDiarizationBackend,
                 meetingSystemAudioSourceMode: meetingSystemAudioSourceMode,
                 meetingAudioAppSelections: meetingAudioAppSelections,
                 appAppearanceMode: appAppearanceMode,
@@ -114,7 +114,6 @@ final class AppSettingsStore: ObservableObject {
         selectedModelId = Self.normalizeModelId(values.modelId, fallback: defaultModelId)
         speechPreprocessingMode = Self.normalizeSpeechPreprocessingMode(values.preprocessing)
         hotkeyPreference = Self.normalizeHotkeyPreference(values.hotkey)
-        microphoneVoiceProcessingEnabled = Self.normalizeBoolean(values.microphoneVoiceProcessing)
         boostDictationInputGain = Self.normalizeBoolean(values.boostDictationInputGain)
         meetingVoiceLevelingEnabled = Self.normalizeBoolean(values.meetingVoiceLeveling)
         saveDictationAudioEnabled = Self.normalizeBoolean(values.saveDictationAudio)
@@ -122,6 +121,7 @@ final class AppSettingsStore: ObservableObject {
         savedAudioStorageLimitGB = Self.normalizeSavedAudioStorageLimitGB(values.savedAudioStorageLimitGB)
         meetingTranscriptTimecodesEnabled = Self.normalizeBoolean(values.meetingTranscriptTimecodes)
         meetingDiarizationEnabled = Self.normalizeBoolean(values.meetingDiarization)
+        meetingDiarizationBackend = Self.normalizeMeetingDiarizationBackend(values.meetingDiarizationBackend)
         meetingSystemAudioSourceMode = Self.normalizeMeetingSystemAudioSourceMode(values.meetingSystemAudioSourceMode)
         meetingAudioAppSelections = Self.normalizeMeetingAudioAppSelections(values.meetingAudioAppSelections)
         appAppearanceMode = Self.normalizeAppAppearanceMode(values.appAppearanceMode)
@@ -170,14 +170,6 @@ final class AppSettingsStore: ObservableObject {
             try setValue(String(isEnabled), forKey: Self.boostDictationInputGainKey, in: database)
         }
         boostDictationInputGain = isEnabled
-    }
-
-    func updateMicrophoneVoiceProcessingEnabled(_ isEnabled: Bool) throws {
-        try withDatabase { database in
-            try DatabaseMigrator.migrate(database)
-            try setValue(String(isEnabled), forKey: Self.microphoneVoiceProcessingEnabledKey, in: database)
-        }
-        microphoneVoiceProcessingEnabled = isEnabled
     }
 
     func updateMeetingVoiceLevelingEnabled(_ isEnabled: Bool) throws {
@@ -361,6 +353,11 @@ final class AppSettingsStore: ObservableObject {
         AppAppearanceMode(rawValue: value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? .system
     }
 
+    private static func normalizeMeetingDiarizationBackend(_ value: String) -> MeetingDiarizationBackend {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return MeetingDiarizationBackend(rawValue: normalized) ?? .speakerKit
+    }
+
     private static func normalizeMeetingAudioAppSelections(_ value: String?) -> [MeetingAudioAppSelection] {
         guard
             let value,
@@ -405,13 +402,13 @@ final class AppSettingsStore: ObservableObject {
     private static let languageKey = "transcription.language"
     private static let selectedModelKey = "transcription.selectedModelId"
     private static let speechPreprocessingKey = "audio.speechPreprocessingMode"
-    private static let microphoneVoiceProcessingEnabledKey = "audio.microphoneVoiceProcessingEnabled"
     private static let boostDictationInputGainKey = "audio.boostDictationInputGain"
     private static let meetingVoiceLevelingEnabledKey = "audio.meetingVoiceLevelingEnabled"
     private static let saveDictationAudioEnabledKey = "audio.saveDictationAudioEnabled"
     private static let saveMeetingAudioEnabledKey = "audio.saveMeetingAudioEnabled"
     private static let savedAudioStorageLimitGBKey = "audio.savedAudioStorageLimitGB"
     private static let meetingTranscriptTimecodesEnabledKey = "meeting.transcriptTimecodesEnabled"
+    private static let meetingDiarizationBackendKey = "meeting.diarizationBackend"
     private static let meetingDiarizationEnabledKey = "meeting.diarizationEnabled"
     private static let meetingSystemAudioSourceModeKey = "meeting.systemAudioSourceMode"
     private static let meetingAudioAppSelectionsKey = "meeting.systemAudioAppSelections"
@@ -437,7 +434,6 @@ private struct LoadedSettings {
     let modelId: String
     let preprocessing: String
     let hotkey: String
-    let microphoneVoiceProcessing: String
     let boostDictationInputGain: String
     let meetingVoiceLeveling: String
     let saveDictationAudio: String
@@ -445,6 +441,7 @@ private struct LoadedSettings {
     let savedAudioStorageLimitGB: String
     let meetingTranscriptTimecodes: String
     let meetingDiarization: String
+    let meetingDiarizationBackend: String
     let meetingSystemAudioSourceMode: String
     let meetingAudioAppSelections: String?
     let appAppearanceMode: String

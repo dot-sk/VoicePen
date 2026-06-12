@@ -7,6 +7,8 @@ nonisolated final class LiveRecordingMeter: @unchecked Sendable {
     private let analysisWindowSampleCount: Int
     private let attackSmoothingWeight: Double
     private let releaseSmoothingWeight: Double
+    private let silenceReleaseSmoothingWeight: Double
+    private let silenceLevelThreshold: Double
     private let analyzer: Analyzer
     private let lock = NSLock()
     private let analysisQueue = DispatchQueue(label: "voicepen.live-recording-meter.analysis", qos: .userInteractive)
@@ -22,15 +24,19 @@ nonisolated final class LiveRecordingMeter: @unchecked Sendable {
 
     init(
         analysisWindowSampleCount: Int = VoicePenConfig.recordingMeterAnalysisWindowSampleCount,
-        smoothingWeight: Double = 0.92,
-        releaseSmoothingWeight: Double = 0.30,
+        smoothingWeight: Double = 0.74,
+        releaseSmoothingWeight: Double = 0.18,
+        silenceReleaseSmoothingWeight: Double = 0.58,
+        silenceLevelThreshold: Double = 0.025,
         analyzer: @escaping Analyzer = {
-            VoiceBandAnalyzer.normalizedVoiceBandLevel(samples: $0, sampleRate: $1)
+            VoiceBandAnalyzer.collapsedSpectrumLevel(samples: $0, sampleRate: $1)
         }
     ) {
         self.analysisWindowSampleCount = max(1, analysisWindowSampleCount)
         attackSmoothingWeight = min(1, max(0, smoothingWeight))
         self.releaseSmoothingWeight = min(1, max(0, releaseSmoothingWeight))
+        self.silenceReleaseSmoothingWeight = min(1, max(0, silenceReleaseSmoothingWeight))
+        self.silenceLevelThreshold = min(1, max(0, silenceLevelThreshold))
         self.analyzer = analyzer
         samples = [Float](repeating: 0, count: self.analysisWindowSampleCount)
     }
@@ -89,13 +95,10 @@ nonisolated final class LiveRecordingMeter: @unchecked Sendable {
             guard let analysis = nextAnalysis() else { return }
 
             let rawLevel = min(1, max(0, analyzer(analysis.samples, analysis.sampleRate)))
-            let smoothedLevel: Double
-            if let previousLevel = analysis.previousLevel {
-                let weight = rawLevel >= previousLevel ? attackSmoothingWeight : releaseSmoothingWeight
-                smoothedLevel = previousLevel * (1 - weight) + rawLevel * weight
-            } else {
-                smoothedLevel = rawLevel
-            }
+            let smoothedLevel = envelopedLevel(
+                rawLevel: rawLevel,
+                previousLevel: analysis.previousLevel
+            )
 
             lock.lock()
             if generation == analysis.generation {
@@ -103,6 +106,21 @@ nonisolated final class LiveRecordingMeter: @unchecked Sendable {
             }
             lock.unlock()
         }
+    }
+
+    private func envelopedLevel(rawLevel: Double, previousLevel: Double?) -> Double {
+        guard let previousLevel else { return rawLevel }
+
+        let weight: Double
+        if rawLevel >= previousLevel {
+            weight = attackSmoothingWeight
+        } else if rawLevel <= silenceLevelThreshold {
+            weight = silenceReleaseSmoothingWeight
+        } else {
+            weight = releaseSmoothingWeight
+        }
+
+        return previousLevel * (1 - weight) + rawLevel * weight
     }
 
     private func nextAnalysis() -> PendingAnalysis? {

@@ -2,7 +2,7 @@ import Foundation
 import SQLite3
 
 nonisolated enum DatabaseMigrator {
-    static let currentSchemaVersion = 11
+    static let currentSchemaVersion = 12
 
     private static let migrations: [DatabaseMigration] = [
         DatabaseMigration(
@@ -172,6 +172,25 @@ nonisolated enum DatabaseMigrator {
                 """
                 DELETE FROM app_settings
                 WHERE key = 'hotkey.holdDuration';
+                """
+            ]
+        ),
+        DatabaseMigration(
+            version: 12,
+            name: "Add archived audio history links",
+            statements: [
+                """
+                CREATE TABLE IF NOT EXISTS archived_audio_links (
+                    owner_kind TEXT NOT NULL,
+                    owner_id TEXT NOT NULL,
+                    url TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    PRIMARY KEY (owner_kind, owner_id, url)
+                );
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS idx_archived_audio_links_owner
+                ON archived_audio_links(owner_kind, owner_id);
                 """
             ]
         )

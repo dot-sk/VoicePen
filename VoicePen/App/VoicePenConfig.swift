@@ -12,7 +12,7 @@ nonisolated enum VoicePenConfig {
     static let glossaryLimit = 40
     static let accessibilityPermissionPollInterval: Duration = .seconds(1)
     static let historyCopyFeedbackDuration: Duration = .milliseconds(1_400)
-    static let recordingMeterAnalysisWindowSampleCount = 256
+    static let recordingMeterAnalysisWindowSampleCount = 1024
     static let recordingAudioTapBufferSize: UInt32 = 256
     static let modelWarmupLifecycleCooldown: TimeInterval = 5 * 60
     static let dictationProcessingTimeout: Duration = .seconds(30)
@@ -21,9 +21,10 @@ nonisolated enum VoicePenConfig {
     static let meetingCaptureStartTimeout: Duration = .seconds(10)
     static let meetingMaximumRecordingDuration: TimeInterval = 120 * 60
     static let meetingRecordingReminderLeadTime: TimeInterval = 5 * 60
-    static let meetingProcessingTimeout: Duration = .seconds(1_800)
-    static let meetingChunkProcessingTimeout: Duration = .seconds(180)
+    static let meetingProcessingTimeout: Duration = .seconds(14_400)
+    static let meetingChunkProcessingTimeout: Duration = .seconds(900)
     static let meetingRecoveryAudioTTL: TimeInterval = 7 * 24 * 60 * 60
+    static let meetingCompletedRecoveryAudioTTL: TimeInterval = 24 * 60 * 60
     static let defaultSavedAudioStorageLimitGB = 5
     static let minimumSavedAudioStorageLimitGB = 1
     static let maximumSavedAudioStorageLimitGB = 50

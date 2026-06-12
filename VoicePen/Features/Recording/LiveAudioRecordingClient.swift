@@ -4,7 +4,7 @@ import Foundation
 nonisolated final class LiveAudioRecordingClient: NSObject, AudioRecordingClient, @unchecked Sendable {
     private let tempDirectory: URL
     private let fileManager: FileManager
-    private let microphoneVoiceProcessingEnabledProvider: @MainActor () -> Bool
+    private let microphoneCapture: CoreAudioMicrophoneCapturing
     private let workerQueue = DispatchQueue(label: "voicepen.live-audio-recording", qos: .userInitiated)
     private let recordingMeter = LiveRecordingMeter()
     private var preparedCapture: PreparedAudioCapture?
@@ -13,18 +13,17 @@ nonisolated final class LiveAudioRecordingClient: NSObject, AudioRecordingClient
     init(
         tempDirectory: URL,
         fileManager: FileManager = .default,
-        microphoneVoiceProcessingEnabledProvider: @escaping @MainActor () -> Bool = { true }
+        microphoneCapture: CoreAudioMicrophoneCapturing = CoreAudioMicrophoneCapture()
     ) {
         self.tempDirectory = tempDirectory
         self.fileManager = fileManager
-        self.microphoneVoiceProcessingEnabledProvider = microphoneVoiceProcessingEnabledProvider
+        self.microphoneCapture = microphoneCapture
     }
 
     func prepareForRecording() async {
-        let microphoneVoiceProcessingEnabled = await microphoneVoiceProcessingEnabledProvider()
         do {
             try await performOnWorker { [self] in
-                try prepareForRecordingOnWorker(microphoneVoiceProcessingEnabled: microphoneVoiceProcessingEnabled)
+                try prepareForRecordingOnWorker()
             }
         } catch {
             AppLogger.error("Failed to prepare dictation microphone capture: \(error.localizedDescription)")
@@ -38,9 +37,8 @@ nonisolated final class LiveAudioRecordingClient: NSObject, AudioRecordingClient
     }
 
     func startRecording() async throws {
-        let microphoneVoiceProcessingEnabled = await microphoneVoiceProcessingEnabledProvider()
         try await performOnWorker { [self] in
-            try startRecordingOnWorker(microphoneVoiceProcessingEnabled: microphoneVoiceProcessingEnabled)
+            try startRecordingOnWorker()
         }
     }
 
@@ -54,33 +52,28 @@ nonisolated final class LiveAudioRecordingClient: NSObject, AudioRecordingClient
         recordingMeter.currentLevel()
     }
 
-    private func prepareForRecordingOnWorker(microphoneVoiceProcessingEnabled: Bool) throws {
+    private func prepareForRecordingOnWorker() throws {
         guard session == nil else { return }
-        if let preparedCapture,
-            preparedCapture.microphoneVoiceProcessingEnabled == microphoneVoiceProcessingEnabled
-        {
-            preparedCapture.engine.prepare()
+        if let preparedCapture {
+            try preparedCapture.prepare()
             return
         }
 
-        preparedCapture = try makePreparedCapture(microphoneVoiceProcessingEnabled: microphoneVoiceProcessingEnabled)
+        preparedCapture = try makePreparedCapture()
     }
 
     private func invalidatePreparedRecordingOnWorker() {
         guard session == nil else { return }
-        preparedCapture?.stop()
+        preparedCapture?.teardown()
         preparedCapture = nil
         recordingMeter.reset()
     }
 
-    private func startRecordingOnWorker(microphoneVoiceProcessingEnabled: Bool) throws {
+    private func startRecordingOnWorker() throws {
         guard session == nil else { throw RecordingError.alreadyRecording }
-        if preparedCapture?.microphoneVoiceProcessingEnabled != microphoneVoiceProcessingEnabled {
-            preparedCapture?.stop()
-            preparedCapture = nil
-        }
+
         if preparedCapture == nil {
-            preparedCapture = try makePreparedCapture(microphoneVoiceProcessingEnabled: microphoneVoiceProcessingEnabled)
+            preparedCapture = try makePreparedCapture()
         }
         guard let preparedCapture else {
             throw RecordingError.couldNotStart
@@ -106,24 +99,17 @@ nonisolated final class LiveAudioRecordingClient: NSObject, AudioRecordingClient
         )
         self.session = session
         recordingMeter.reset()
-
-        preparedCapture.inputNode.installTap(
-            onBus: 0,
-            bufferSize: AVAudioFrameCount(VoicePenConfig.recordingAudioTapBufferSize),
-            format: preparedCapture.inputFormat
-        ) { [session] buffer, _ in
-            session.processInputBuffer(buffer)
-        }
-
         do {
-            try preparedCapture.engine.start()
+            try preparedCapture.start(onBuffer: { [session] buffer in
+                session.processInputBuffer(buffer)
+            })
         } catch {
             session.cancelAfterStartFailure()
             self.session = nil
             preparedCapture.stop()
             self.preparedCapture = nil
             recordingMeter.reset()
-            throw error
+            throw RecordingError.couldNotStart
         }
     }
 
@@ -136,16 +122,10 @@ nonisolated final class LiveAudioRecordingClient: NSObject, AudioRecordingClient
         return try session.stop()
     }
 
-    private func makePreparedCapture(microphoneVoiceProcessingEnabled: Bool) throws -> PreparedAudioCapture {
-        let engine = AVAudioEngine()
-        let inputNode = engine.inputNode
-        MicrophoneVoiceProcessingActivation.apply(
-            isEnabled: microphoneVoiceProcessingEnabled,
-            context: "dictation microphone capture"
-        ) {
-            try inputNode.setVoiceProcessingEnabled(true)
-        }
-        let inputFormat = inputNode.outputFormat(forBus: 0)
+    private func makePreparedCapture() throws -> PreparedAudioCapture {
+        let capture = microphoneCapture
+        try capture.prepare()
+        let inputFormat = capture.inputFormat
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
             throw RecordingError.couldNotStart
         }
@@ -165,14 +145,11 @@ nonisolated final class LiveAudioRecordingClient: NSObject, AudioRecordingClient
             throw RecordingError.couldNotStart
         }
 
-        engine.prepare()
         return PreparedAudioCapture(
-            engine: engine,
-            inputNode: inputNode,
+            microphoneCapture: capture,
             inputFormat: inputFormat,
             captureFormat: captureFormat,
             outputFormat: outputFormat,
-            microphoneVoiceProcessingEnabled: microphoneVoiceProcessingEnabled
         )
     }
 
@@ -199,36 +176,41 @@ nonisolated final class LiveAudioRecordingClient: NSObject, AudioRecordingClient
 }
 
 nonisolated private final class PreparedAudioCapture: @unchecked Sendable {
-    let engine: AVAudioEngine
-    let inputNode: AVAudioInputNode
+    let microphoneCapture: CoreAudioMicrophoneCapturing
     let inputFormat: AVAudioFormat
     let captureFormat: AVAudioFormat
     let outputFormat: AVAudioFormat
-    let microphoneVoiceProcessingEnabled: Bool
 
     init(
-        engine: AVAudioEngine,
-        inputNode: AVAudioInputNode,
+        microphoneCapture: CoreAudioMicrophoneCapturing,
         inputFormat: AVAudioFormat,
         captureFormat: AVAudioFormat,
-        outputFormat: AVAudioFormat,
-        microphoneVoiceProcessingEnabled: Bool
+        outputFormat: AVAudioFormat
     ) {
-        self.engine = engine
-        self.inputNode = inputNode
+        self.microphoneCapture = microphoneCapture
         self.inputFormat = inputFormat
         self.captureFormat = captureFormat
         self.outputFormat = outputFormat
-        self.microphoneVoiceProcessingEnabled = microphoneVoiceProcessingEnabled
+    }
+
+    func prepare() throws {
+        try microphoneCapture.prepare()
     }
 
     func makeConverter() -> AVAudioConverter? {
         AVAudioConverter(from: inputFormat, to: captureFormat)
     }
 
+    func start(onBuffer: @escaping @Sendable (AVAudioPCMBuffer) -> Void) throws {
+        try microphoneCapture.start(onBuffer: onBuffer)
+    }
+
     func stop() {
-        inputNode.removeTap(onBus: 0)
-        engine.stop()
+        microphoneCapture.stop()
+    }
+
+    func teardown() {
+        microphoneCapture.teardown()
     }
 }
 
@@ -267,8 +249,6 @@ nonisolated private final class LiveAudioRecordingSession: @unchecked Sendable {
         let didFinish = didFinish
         lock.unlock()
         guard !didFinish else { return }
-
-        recordingMeter.ingest(buffer)
 
         lock.lock()
         defer { lock.unlock() }
@@ -309,6 +289,8 @@ nonisolated private final class LiveAudioRecordingSession: @unchecked Sendable {
         else {
             return
         }
+
+        recordingMeter.ingest(outputBuffer)
 
         do {
             try audioFile.write(from: outputBuffer)

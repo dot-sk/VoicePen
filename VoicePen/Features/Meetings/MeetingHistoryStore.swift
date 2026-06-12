@@ -57,12 +57,27 @@ final class MeetingHistoryStore: ObservableObject {
         publish(result)
     }
 
+    func appendArchivedAudioURL(_ url: URL, for id: MeetingHistoryEntry.ID) throws {
+        let result = try withDatabase { database in
+            try DatabaseMigrator.migrate(database)
+            try ArchivedAudioHistoryLinks.insert(
+                url: url,
+                ownerKind: .meetingHistory,
+                ownerID: id,
+                in: database
+            )
+            return try loadResult(from: database)
+        }
+        publish(result)
+    }
+
     func delete(id: MeetingHistoryEntry.ID) throws {
         let result = try withDatabase { database in
             try DatabaseMigrator.migrate(database)
             if let recoveryAudio = try fetchRecoveryAudio(id: id, from: database) {
                 try removeRecoveryAudio(recoveryAudio)
             }
+            try ArchivedAudioHistoryLinks.delete(ownerKind: .meetingHistory, ownerID: id, in: database)
             let statement = try database.prepare("DELETE FROM meeting_history WHERE id = ?;")
             statement.bindText(id.uuidString, at: 1)
             try statement.stepDone()
@@ -77,6 +92,7 @@ final class MeetingHistoryStore: ObservableObject {
             for recoveryAudio in try fetchRecoveryAudioEntries(from: database) {
                 try removeRecoveryAudio(recoveryAudio.manifest)
             }
+            try ArchivedAudioHistoryLinks.deleteAll(ownerKind: .meetingHistory, in: database)
             try database.execute("DELETE FROM meeting_history;")
             return try fetchStorageStats(from: database)
         }
@@ -316,7 +332,7 @@ final class MeetingHistoryStore: ObservableObject {
             case .row:
                 fetchedEntries.append(try entrySummary(from: statement))
             case .done:
-                return fetchedEntries
+                return try entriesWithArchivedAudioURLs(fetchedEntries, from: database)
             }
         }
     }
@@ -334,9 +350,22 @@ final class MeetingHistoryStore: ObservableObject {
 
         switch try statement.step() {
         case .row:
-            return try entry(from: statement)
+            let entry = try entry(from: statement)
+            return try entriesWithArchivedAudioURLs([entry], from: database).first
         case .done:
             return nil
+        }
+    }
+
+    private func entriesWithArchivedAudioURLs(
+        _ entries: [MeetingHistoryEntry],
+        from database: SQLiteConnection
+    ) throws -> [MeetingHistoryEntry] {
+        let linksByID = try ArchivedAudioHistoryLinks.fetch(ownerKind: .meetingHistory, in: database)
+        return entries.map { entry in
+            var entry = entry
+            entry.archivedAudioURLs = linksByID[entry.id] ?? []
+            return entry
         }
     }
 

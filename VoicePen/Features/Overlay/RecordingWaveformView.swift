@@ -147,11 +147,14 @@ private final class RecordingLevelBarNSView: NSView {
     private func displayFrame(_ displayLink: CADisplayLink) {
         let previousFrameTime = lastFrameTime ?? (displayLink.timestamp - displayLink.duration)
         let measuredDelta = displayLink.timestamp - previousFrameTime
-        let deltaTime = max(1.0 / 240.0, min(1.0 / 30.0, measuredDelta > 0 ? measuredDelta : displayLink.duration))
+        let deltaTime = max(
+            1.0 / 240.0,
+            min(1.0 / 30.0, measuredDelta > 0 ? measuredDelta : displayLink.duration)
+        )
         lastFrameTime = displayLink.timestamp
 
         let targetLevel = min(1, max(0, levelProvider?() ?? Self.fallbackLevel))
-        let timeConstant = targetLevel >= displayedLevel ? Self.attackTimeConstant : Self.releaseTimeConstant
+        let timeConstant = Self.levelSmoothingTimeConstant
         let response = 1 - exp(-deltaTime / timeConstant)
         displayedLevel += (targetLevel - displayedLevel) * response
 
@@ -159,7 +162,8 @@ private final class RecordingLevelBarNSView: NSView {
             displayedLevel = targetLevel
         }
 
-        updateBarTransform()
+        let barHeight = Self.barHeight(for: displayedLevel, trembleTime: displayLink.timestamp)
+        updateBarTransform(height: barHeight)
     }
 
     private func updateBarGeometry() {
@@ -169,19 +173,36 @@ private final class RecordingLevelBarNSView: NSView {
         CATransaction.setDisableActions(true)
         barLayer.bounds = CGRect(x: 0, y: 0, width: Self.barWidth, height: Self.maximumBarHeight)
         barLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
-        applyBarTransform()
+        let barHeight = Self.barHeight(for: displayedLevel)
+        applyBarTransform(height: barHeight)
         CATransaction.commit()
     }
 
-    private func updateBarTransform() {
+    private func updateBarTransform(height: CGFloat? = nil) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        applyBarTransform()
+        applyBarTransform(height: height)
         CATransaction.commit()
     }
 
-    private func applyBarTransform() {
-        let height = Self.minimumBarHeight + CGFloat(displayedLevel) * Self.barTravel
+    private static func tremble(for level: Double, at trembleTime: CFTimeInterval) -> CGFloat {
+        let trembleIntensity = min(1, max(0, (level - 0.12) / 0.88))
+        let tremble = sin(trembleTime * 48) * 2.2 + sin(trembleTime * 83) * 1.1
+        return CGFloat(tremble * trembleIntensity)
+    }
+
+    private static func barHeight(for level: Double, trembleTime: CFTimeInterval? = nil) -> CGFloat {
+        let baseHeight = Self.minimumBarHeight + CGFloat(level) * Self.barTravel
+        guard let trembleTime else {
+            return baseHeight
+        }
+
+        let liveHeight = baseHeight + tremble(for: level, at: trembleTime)
+        return min(Self.maximumBarHeight, max(Self.minimumBarHeight, liveHeight))
+    }
+
+    private func applyBarTransform(height: CGFloat? = nil) {
+        let height = min(Self.maximumBarHeight, max(Self.minimumBarHeight, height ?? Self.barHeight(for: displayedLevel)))
         let scaleY = height / Self.maximumBarHeight
         barLayer.transform = CATransform3DMakeScale(1, scaleY, 1)
     }
@@ -191,8 +212,7 @@ private final class RecordingLevelBarNSView: NSView {
     private static let minimumBarHeight: CGFloat = 12
     private static let maximumBarHeight: CGFloat = 48
     private static let barTravel = maximumBarHeight - minimumBarHeight
-    private static let attackTimeConstant = 0.006
-    private static let releaseTimeConstant = 0.055
+    private static let levelSmoothingTimeConstant = 0.045
 }
 
 struct RecordingWaveformView: View {
