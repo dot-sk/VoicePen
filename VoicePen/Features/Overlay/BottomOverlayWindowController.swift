@@ -5,11 +5,15 @@ import SwiftUI
 final class BottomOverlayWindowController: OverlayPresenter {
     private var panel: NSPanel?
     private var hostingController: NSHostingController<VoicePenOverlayView>?
-    private let viewModel = OverlayViewModel()
+    private let viewModel: OverlayViewModel
     private var hideToken = UUID()
     var onCancelTranscription: (() -> Void)? {
         get { viewModel.onCancelTranscription }
         set { viewModel.onCancelTranscription = newValue }
+    }
+
+    init(recordingLevelProvider: @escaping @Sendable () -> Double? = { nil }) {
+        viewModel = OverlayViewModel(recordingLevelProvider: recordingLevelProvider)
     }
 
     func show(_ state: OverlayState) {
@@ -17,11 +21,12 @@ final class BottomOverlayWindowController: OverlayPresenter {
     }
 
     func update(_ state: OverlayState) {
-        hideToken = UUID()
         let shouldAnimateIn = panel?.isVisible != true || panel?.alphaValue == 0
 
         ensurePanel()
-        viewModel.state = state
+
+        hideToken = UUID()
+        viewModel.apply(state)
         positionPanel()
         panel?.ignoresMouseEvents = !state.isInteractive
 
@@ -49,7 +54,7 @@ final class BottomOverlayWindowController: OverlayPresenter {
             } completionHandler: {
                 MainActor.assumeIsolated {
                     panel.orderOut(nil)
-                    self.viewModel.state = .hidden
+                    self.viewModel.apply(.hidden)
                 }
             }
         }

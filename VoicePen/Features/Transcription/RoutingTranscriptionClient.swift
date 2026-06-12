@@ -1,6 +1,6 @@
 import Foundation
 
-protocol WhisperCppTranscribing {
+protocol WhisperCppTranscribing: Sendable {
     func transcribe(
         audioURL: URL,
         model: ModelManifestModel,

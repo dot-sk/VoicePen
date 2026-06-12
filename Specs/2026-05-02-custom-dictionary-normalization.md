@@ -1,13 +1,14 @@
 ---
 id: SPEC-003
 status: implemented
-updated: 2026-05-25
+updated: 2026-06-09
 tests:
   - VoicePenTests/Dictionary/DictionaryCSVImporterTests.swift
   - VoicePenTests/Dictionary/DictionaryStoreTests.swift
   - VoicePenTests/Dictionary/PromptGlossaryBuilderTests.swift
   - VoicePenTests/Dictionary/TermNormalizerTests.swift
   - VoicePenTests/Dictionary/DictionaryEntryFilterTests.swift
+  - VoicePenTests/Pipeline/DictationPipelineTests.swift
 ---
 
 # Custom Dictionary Normalization
@@ -18,7 +19,7 @@ Technical dictation often produces phonetically correct but textually wrong term
 
 ## Behavior
 
-Dictionary entries contain a canonical form and variants. VoicePen imports entries from CSV, stores them locally, builds glossary prompts for longer recordings, filters entries, and normalizes transcribed text with configured variants. CSV import requires every parsed entry to have a canonical form and at least one variant. It does not provide cloud dictionary sync, grammar rewriting, or semantic post-processing beyond configured term replacements.
+Dictionary entries contain a canonical form and variants. VoicePen imports entries from CSV, stores them locally, builds glossary prompts for dictation transcription, filters entries, and normalizes transcribed text with configured variants. CSV import requires every parsed entry to have a canonical form and at least one variant. It does not provide cloud dictionary sync, grammar rewriting, or semantic post-processing beyond configured term replacements.
 
 ## Acceptance Criteria
 
@@ -28,6 +29,7 @@ Dictionary entries contain a canonical form and variants. VoicePen imports entri
 - When VoicePen seeds sample dictionary entries for a fresh local database, it shall do so only once; if the user later deletes all dictionary entries, subsequent loads shall keep the dictionary empty.
 - When the user clicks Add in the dictionary editor, VoicePen shall open an empty editable term draft on the first click even if another term was selected.
 - When a prompt glossary is built, VoicePen shall produce deterministic, language-aware output that respects configured limits.
+- When a valid dictation recording is transcribed, VoicePen shall build and pass the glossary prompt regardless of recording duration.
 - When transcribed text contains configured variants, VoicePen shall replace them with canonical terms while preserving unrelated text.
 - When dictionary data is empty or invalid, VoicePen shall fail predictably without corrupting existing data.
 
@@ -48,6 +50,7 @@ Dictionary entries contain a canonical form and variants. VoicePen imports entri
 - Automated: `VoicePenTests/Dictionary/DictionaryStoreTests.swift` covers local storage behavior and one-time sample dictionary seeding.
 - Automated: CSV import tests cover rejection of canonical-only or partially valid imports without dictionary corruption.
 - Automated: `VoicePenTests/Dictionary/PromptGlossaryBuilderTests.swift` covers glossary ordering, language, and limits.
+- Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers passing glossary prompts for short and long valid dictation recordings.
 - Automated: `VoicePenTests/Dictionary/TermNormalizerTests.swift` and `VoicePenTests/Dictionary/DictionaryEntryFilterTests.swift` cover replacement and filtering behavior.
 - Manual: with an existing dictionary term selected, click Add once and verify the editor immediately shows an empty draft instead of the previously selected term.
 - Manual: import a small CSV in the app and verify a configured spoken variant is inserted as the canonical term.

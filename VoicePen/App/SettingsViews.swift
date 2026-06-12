@@ -43,7 +43,7 @@ enum VoicePenSettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .general:
             return "house"
         case .model:
-            return "arrow.down.circle"
+            return "sparkles"
         case .modes:
             return "terminal"
         case .ai:
@@ -188,7 +188,7 @@ private struct HomeStatusStrip: View {
             return .ready
         case .missingMicrophonePermission, .error:
             return .notReady
-        case .starting, .recording, .transcribing, .meetingRecording, .meetingProcessing,
+        case .starting, .meetingRecording, .meetingProcessing,
             .downloadingModel, .preparingModel, .missingAccessibilityPermission,
             .missingSystemAudioPermission, .missingModel:
             return .actionRequired
@@ -1108,13 +1108,6 @@ struct ConfigSettingsView: View {
         )
     }
 
-    private var holdDuration: Binding<Double> {
-        Binding(
-            get: { settingsStore.hotkeyHoldDuration },
-            set: { controller.updateHotkeyHoldDuration($0) }
-        )
-    }
-
     private var boostDictationInputGain: Binding<Bool> {
         Binding(
             get: { settingsStore.boostDictationInputGain },
@@ -1233,34 +1226,12 @@ struct ConfigSettingsView: View {
                     }
                 }
 
-                LabeledContent {
-                    HStack(spacing: 10) {
-                        Slider(
-                            value: holdDuration,
-                            in: VoicePenConfig.minimumHotkeyHoldDuration...VoicePenConfig.maximumHotkeyHoldDuration,
-                            step: 0.05
-                        )
-                        .frame(width: 220)
-                        Text(settingsStore.hotkeyHoldDuration, format: .number.precision(.fractionLength(2)))
-                            .monospacedDigit()
-                            .frame(width: 42, alignment: .trailing)
-                        Text("s")
-                            .foregroundStyle(.secondary)
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        Text("Hold duration")
-                        HelpTipButton(
-                            title: "Hold duration",
-                            text: "Recording starts only after the selected shortcut is held for the configured duration. Release it to transcribe and insert text."
-                        )
-                    }
-                }
             } header: {
                 Text("Shortcut")
             }
 
             Section {
+                CurrentMicrophoneStatusView(text: controller.currentMicrophoneStatusText)
                 Toggle("Boost microphone level during dictation", isOn: boostDictationInputGain)
                 Toggle("Meeting voice leveling", isOn: meetingVoiceLevelingEnabled)
                 Picker("System Audio Source", selection: meetingSystemAudioSourceMode) {
@@ -1314,7 +1285,7 @@ struct ConfigSettingsView: View {
                 Text("Audio")
             } footer: {
                 Text(
-                    "VoicePen uses the macOS default microphone. Dictation can temporarily raise supported input levels while recording. Meeting audio can use system dynamics and peak limiting before local transcription; if processing is unavailable, VoicePen continues with ordinary audio. Meeting system audio can capture all apps, only selected apps, or all apps except selected apps."
+                    "VoicePen uses the macOS default microphone and records while connected devices have no session-level gain or routing changes. Dictation can temporarily raise supported input levels while recording. Meeting audio can use system dynamics and peak limiting before local transcription; if processing is unavailable, VoicePen continues with ordinary audio. Meeting system audio can capture all apps, only selected apps, or all apps except selected apps."
                 )
             }
 
@@ -1453,6 +1424,35 @@ struct ConfigSettingsView: View {
             Text(title)
             HelpTipButton(title: title, text: help)
         }
+    }
+}
+
+private struct CurrentMicrophoneStatusView: View {
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "mic")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+
+            Text(text)
+                .font(.callout)
+                .lineLimit(2)
+                .minimumScaleFactor(0.9)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.35), lineWidth: 1)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 

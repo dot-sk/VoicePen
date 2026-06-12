@@ -49,22 +49,52 @@ nonisolated struct MeetingPipelineTimings: Codable, Equatable, Sendable {
     }
 }
 
+nonisolated enum MeetingProcessingStage: Equatable, Sendable {
+    case transcribing
+    case labelingSpeakers
+    case finishing
+}
+
 nonisolated struct MeetingProcessingProgress: Equatable, Sendable {
     var completedChunks: Int
     var totalChunks: Int
+    var stage: MeetingProcessingStage
+    private var aggregateFraction: Double?
 
-    init(completedChunks: Int, totalChunks: Int) {
+    init(
+        completedChunks: Int,
+        totalChunks: Int,
+        stage: MeetingProcessingStage = .transcribing,
+        fraction: Double? = nil
+    ) {
         self.totalChunks = max(0, totalChunks)
         self.completedChunks = min(max(0, completedChunks), self.totalChunks)
+        self.stage = stage
+        aggregateFraction = fraction.map(Self.clampedFraction)
     }
 
     var fraction: Double {
+        if let aggregateFraction {
+            return aggregateFraction
+        }
         guard totalChunks > 0 else { return 0 }
         return Double(completedChunks) / Double(totalChunks)
     }
 
     var percent: Int {
         Int((fraction * 100).rounded())
+    }
+
+    static func == (lhs: MeetingProcessingProgress, rhs: MeetingProcessingProgress) -> Bool {
+        lhs.completedChunks == rhs.completedChunks
+            && lhs.totalChunks == rhs.totalChunks
+            && lhs.stage == rhs.stage
+            && abs(lhs.fraction - rhs.fraction) < 0.000_001
+    }
+
+    private static func clampedFraction(_ fraction: Double) -> Double {
+        guard fraction.isFinite else { return 0 }
+        return min(1, max(0, fraction))
     }
 }
 
@@ -74,6 +104,46 @@ nonisolated struct MeetingRecoveryAudioManifest: Codable, Equatable, Sendable {
     var duration: TimeInterval
     var sourceFlags: MeetingSourceFlags
     var chunks: [MeetingAudioChunk]
+
+    init(
+        createdAt: Date,
+        expiresAt: Date,
+        duration: TimeInterval,
+        sourceFlags: MeetingSourceFlags,
+        chunks: [MeetingAudioChunk]
+    ) {
+        self.createdAt = createdAt
+        self.expiresAt = expiresAt
+        self.duration = duration
+        self.sourceFlags = sourceFlags
+        self.chunks = chunks
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        expiresAt = try container.decode(Date.self, forKey: .expiresAt)
+        duration = try container.decode(TimeInterval.self, forKey: .duration)
+        sourceFlags = try container.decode(MeetingSourceFlags.self, forKey: .sourceFlags)
+        chunks = try container.decode([MeetingAudioChunk].self, forKey: .chunks)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(expiresAt, forKey: .expiresAt)
+        try container.encode(duration, forKey: .duration)
+        try container.encode(sourceFlags, forKey: .sourceFlags)
+        try container.encode(chunks, forKey: .chunks)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case createdAt
+        case expiresAt
+        case duration
+        case sourceFlags
+        case chunks
+    }
 
     func isExpired(at date: Date) -> Bool {
         date >= expiresAt
@@ -85,6 +155,16 @@ nonisolated struct MeetingRecoveryAudioManifest: Codable, Equatable, Sendable {
 
     func isAvailableForRetry(at date: Date = Date(), fileManager: FileManager = .default) -> Bool {
         !isExpired(at: date) && hasAvailableAudio(fileManager: fileManager)
+    }
+
+    func refreshingRetention(createdAt: Date, retentionDuration: TimeInterval) -> MeetingRecoveryAudioManifest {
+        MeetingRecoveryAudioManifest(
+            createdAt: createdAt,
+            expiresAt: createdAt.addingTimeInterval(retentionDuration),
+            duration: duration,
+            sourceFlags: sourceFlags,
+            chunks: chunks
+        )
     }
 }
 
@@ -102,6 +182,7 @@ nonisolated struct MeetingHistoryEntry: Codable, Identifiable, Equatable, Sendab
     var speakerCount: Int?
     var recoveryAudio: MeetingRecoveryAudioManifest?
     var isTextPayloadEvicted: Bool = false
+    var archivedAudioURLs: [URL] = []
 
     init(
         id: UUID,
@@ -116,7 +197,8 @@ nonisolated struct MeetingHistoryEntry: Codable, Identifiable, Equatable, Sendab
         recognizedWordCount: Int? = nil,
         speakerCount: Int? = nil,
         recoveryAudio: MeetingRecoveryAudioManifest? = nil,
-        isTextPayloadEvicted: Bool = false
+        isTextPayloadEvicted: Bool = false,
+        archivedAudioURLs: [URL] = []
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -131,6 +213,7 @@ nonisolated struct MeetingHistoryEntry: Codable, Identifiable, Equatable, Sendab
         self.speakerCount = speakerCount
         self.recoveryAudio = recoveryAudio
         self.isTextPayloadEvicted = isTextPayloadEvicted
+        self.archivedAudioURLs = archivedAudioURLs
     }
 
     var previewText: String {
@@ -243,6 +326,7 @@ enum MeetingRecordingError: LocalizedError, Equatable {
     case durationLimitExceeded
     case systemAudioPermissionDenied
     case captureTimedOut
+    case processingCanceled
     case captureFailed(String)
     case recoveryAudioUnavailable
     case recoveryAudioExpired
@@ -262,6 +346,8 @@ enum MeetingRecordingError: LocalizedError, Equatable {
             return "System Audio permission is required to capture meeting audio."
         case .captureTimedOut:
             return "Meeting audio capture did not start in time."
+        case .processingCanceled:
+            return "Meeting processing was canceled."
         case let .captureFailed(message):
             return "Meeting audio capture failed: \(message)"
         case .recoveryAudioUnavailable:
@@ -270,6 +356,11 @@ enum MeetingRecordingError: LocalizedError, Equatable {
             return "Meeting audio retry window has expired."
         }
     }
+}
+
+enum MeetingProcessingCancellationReason: Equatable, Sendable {
+    case userCancelled
+    case timedOut
 }
 
 enum MeetingPipelineNoSpeechError: LocalizedError, Equatable {

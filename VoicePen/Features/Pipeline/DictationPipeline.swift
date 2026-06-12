@@ -42,10 +42,11 @@ final class DictationPipeline {
     private let overlay: OverlayPresenter
     private let userConfigStore: UserConfigStore
     private let inputGainController: DefaultInputGainControlling
-    private let savedAudioArchiver: SavedAudioArchiving
+    private let savedAudioScheduler: SavedAudioArchiveScheduling
     private let languageProvider: () -> String
     private let speechPreprocessingModeProvider: () -> SpeechPreprocessingMode
     private let boostDictationInputGainProvider: () -> Bool
+    private var shouldEnableDictationInputGainProvider: () -> Bool
     private let saveDictationAudioEnabledProvider: () -> Bool
     private let savedAudioStorageLimitGBProvider: () -> Int
     private let developerModesEnabledProvider: () -> Bool
@@ -54,7 +55,6 @@ final class DictationPipeline {
     private let activeApplicationProvider: () -> ActiveApplicationInfo?
     private let llmIntentParserFactory: LLMIntentParserFactory
     private let minimumRecordingDuration: TimeInterval
-    private var recordingLevelTask: Task<Void, Never>?
     private var activeInputGainRestoreToken: DefaultInputGainRestoreToken?
 
     init(
@@ -66,7 +66,7 @@ final class DictationPipeline {
         overlay: OverlayPresenter,
         userConfigStore: UserConfigStore = UserConfigStore(),
         inputGainController: DefaultInputGainControlling = NoOpDefaultInputGainController(),
-        savedAudioArchiver: SavedAudioArchiving = NoOpSavedAudioArchive(),
+        savedAudioScheduler: SavedAudioArchiveScheduling = NoOpSavedAudioArchiveScheduler(),
         languageProvider: @escaping () -> String = { VoicePenConfig.defaultLanguage },
         speechPreprocessingModeProvider: @escaping () -> SpeechPreprocessingMode = { .off },
         boostDictationInputGainProvider: @escaping () -> Bool = { false },
@@ -87,10 +87,11 @@ final class DictationPipeline {
         self.overlay = overlay
         self.userConfigStore = userConfigStore
         self.inputGainController = inputGainController
-        self.savedAudioArchiver = savedAudioArchiver
+        self.savedAudioScheduler = savedAudioScheduler
         self.languageProvider = languageProvider
         self.speechPreprocessingModeProvider = speechPreprocessingModeProvider
         self.boostDictationInputGainProvider = boostDictationInputGainProvider
+        self.shouldEnableDictationInputGainProvider = { true }
         self.saveDictationAudioEnabledProvider = saveDictationAudioEnabledProvider
         self.savedAudioStorageLimitGBProvider = savedAudioStorageLimitGBProvider
         self.developerModesEnabledProvider = developerModesEnabledProvider
@@ -102,30 +103,49 @@ final class DictationPipeline {
     }
 
     func start() async throws {
+        overlay.show(.recordingStarting(startedAt: Date()))
+
         activeInputGainRestoreToken =
-            boostDictationInputGainProvider()
-            ? inputGainController.boostDefaultInputGain()
+            boostDictationInputGainProvider() && shouldEnableDictationInputGainProvider()
+            ? await inputGainController.boostDefaultInputGain()
             : nil
 
         do {
-            try recorder.startRecording()
+            try await recorder.startRecording()
         } catch {
-            restoreInputGainIfNeeded()
+            await restoreInputGainIfNeeded()
             throw error
         }
 
         let startedAt = Date()
         await overlay.show(.recording(startedAt: startedAt, level: nil))
-        startRecordingLevelUpdates(startedAt: startedAt)
     }
 
-    func stopAndProcess() async throws -> DictationPipelineResult {
-        stopRecordingLevelUpdates()
-        defer {
-            restoreInputGainIfNeeded()
-        }
+    func setDictationInputGainEligibility(_ provider: @escaping () -> Bool) {
+        shouldEnableDictationInputGainProvider = provider
+    }
 
-        guard let recording = try recorder.stopRecording() else {
+    func stopAndProcess(archiveOwner: SavedAudioArchiveOwner? = nil) async throws -> DictationPipelineResult {
+        do {
+            let result = try await stopAndProcessRecording(archiveOwner: archiveOwner)
+            await restoreInputGainIfNeeded()
+            return result
+        } catch {
+            await restoreInputGainIfNeeded()
+            throw error
+        }
+    }
+
+    func prepareForRecording() async {
+        await recorder.prepareForRecording()
+    }
+
+    func invalidatePreparedRecording() async {
+        await recorder.invalidatePreparedRecording()
+    }
+
+    private func stopAndProcessRecording(archiveOwner: SavedAudioArchiveOwner?) async throws -> DictationPipelineResult {
+        guard let recording = try await recorder.stopRecording() else {
             overlay.hide(after: 0.1)
             return DictationPipelineResult(rawText: "", finalText: "")
         }
@@ -135,13 +155,6 @@ final class DictationPipeline {
             overlay.hide(after: 0.1)
             return DictationPipelineResult(rawText: "", finalText: "")
         }
-        archiveSavedAudio(
-            SavedAudioArchiveRequest(
-                sourceURL: recording.url,
-                kind: .dictationRaw,
-                capturedAt: recording.startedAt
-            )
-        )
 
         await overlay.update(.transcribing(stage: .preparingAudio, progress: nil))
         let transcriptionAudioURL: URL
@@ -155,23 +168,22 @@ final class DictationPipeline {
             transcriptionAudioURL = measured.value
             timings.preprocessing = measured.elapsed
         } catch AudioPreprocessingError.noSpeechDetected {
+            archiveSavedDictationAudio(sourceURL: recording.url, capturedAt: recording.startedAt)
             overlay.hide(after: 0.1)
             return DictationPipelineResult(rawText: "", finalText: "", recording: nil)
+        } catch {
+            archiveSavedDictationAudio(sourceURL: recording.url, capturedAt: recording.startedAt)
+            throw error
         }
-        archiveSavedAudio(
-            SavedAudioArchiveRequest(
-                sourceURL: transcriptionAudioURL,
-                kind: .dictationProcessed,
-                capturedAt: recording.startedAt
-            )
+        archiveSavedDictationAudio(
+            sourceURL: transcriptionAudioURL,
+            capturedAt: recording.startedAt,
+            owner: archiveOwner
         )
 
         try Task.checkCancellation()
         let language = TranscriptionLanguageResolver.resolve(languageProvider())
-        let glossary = try glossaryPrompt(
-            recording: recording,
-            language: language
-        )
+        let glossary = try glossaryPrompt(language: language)
 
         await overlay.update(.transcribing(stage: .transcribing, progress: nil))
         let transcriptionResult: TranscriptionClientResult
@@ -285,13 +297,19 @@ final class DictationPipeline {
         return (value, TimeInterval(end - start) / 1_000_000_000)
     }
 
-    private func archiveSavedAudio(_ request: SavedAudioArchiveRequest) {
+    private func archiveSavedDictationAudio(
+        sourceURL: URL,
+        capturedAt: Date,
+        owner: SavedAudioArchiveOwner? = nil
+    ) {
         guard saveDictationAudioEnabledProvider() else { return }
-        do {
-            try savedAudioArchiver.archive(request, storageLimitGB: savedAudioStorageLimitGBProvider())
-        } catch {
-            AppLogger.info("Saved dictation audio skipped: \(error.localizedDescription)")
-        }
+        let request = SavedAudioArchiveRequest(
+            sourceURL: sourceURL,
+            kind: .dictation,
+            capturedAt: capturedAt,
+            owner: owner
+        )
+        savedAudioScheduler.archiveBestEffort(request, storageLimitGB: savedAudioStorageLimitGBProvider())
     }
 
     private func measure<T>(_ operation: () async throws -> T) async rethrows -> (value: T, elapsed: TimeInterval) {
@@ -372,41 +390,16 @@ final class DictationPipeline {
         }
     }
 
-    private func startRecordingLevelUpdates(startedAt: Date) {
-        recordingLevelTask?.cancel()
-        recordingLevelTask = Task { [recorder, overlay] in
-            while !Task.isCancelled {
-                let level = recorder.currentLevel()
-                await overlay.update(.recording(startedAt: startedAt, level: level))
-
-                do {
-                    try await Task.sleep(for: VoicePenConfig.recordingLevelRefreshInterval)
-                } catch {
-                    return
-                }
-            }
-        }
-    }
-
-    private func stopRecordingLevelUpdates() {
-        recordingLevelTask?.cancel()
-        recordingLevelTask = nil
-    }
-
-    private func restoreInputGainIfNeeded() {
+    private func restoreInputGainIfNeeded() async {
         guard let token = activeInputGainRestoreToken else {
             return
         }
 
         activeInputGainRestoreToken = nil
-        inputGainController.restoreDefaultInputGain(token)
+        await inputGainController.restoreDefaultInputGain(token)
     }
 
-    private func glossaryPrompt(recording: RecordingResult, language: String) throws -> String {
-        guard recording.duration > VoicePenConfig.shortRecordingPromptMaximumDuration else {
-            return ""
-        }
-
+    private func glossaryPrompt(language: String) throws -> String {
         return try dictionaryStore.promptGlossary(
             limit: VoicePenConfig.glossaryLimit,
             language: language

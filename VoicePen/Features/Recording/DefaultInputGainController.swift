@@ -1,13 +1,13 @@
 import CoreAudio
 import Foundation
 
-protocol DefaultInputGainControlling: AnyObject {
-    func boostDefaultInputGain() -> DefaultInputGainRestoreToken?
-    func restoreDefaultInputGain(_ token: DefaultInputGainRestoreToken)
+nonisolated protocol DefaultInputGainControlling: AnyObject, Sendable {
+    func boostDefaultInputGain() async -> DefaultInputGainRestoreToken?
+    func restoreDefaultInputGain(_ token: DefaultInputGainRestoreToken) async
 }
 
-struct DefaultInputGainRestoreToken: Equatable {
-    struct RestoredGain: Equatable {
+nonisolated struct DefaultInputGainRestoreToken: Equatable, Sendable {
+    struct RestoredGain: Equatable, Sendable {
         let deviceID: AudioDeviceID
         let element: AudioObjectPropertyElement
         let originalVolume: Float32
@@ -17,22 +17,40 @@ struct DefaultInputGainRestoreToken: Equatable {
     let gains: [RestoredGain]
 }
 
-final class NoOpDefaultInputGainController: DefaultInputGainControlling {
-    func boostDefaultInputGain() -> DefaultInputGainRestoreToken? {
+nonisolated final class NoOpDefaultInputGainController: DefaultInputGainControlling {
+    func boostDefaultInputGain() async -> DefaultInputGainRestoreToken? {
         nil
     }
 
-    func restoreDefaultInputGain(_: DefaultInputGainRestoreToken) {}
+    func restoreDefaultInputGain(_: DefaultInputGainRestoreToken) async {}
 }
 
-final class CoreAudioDefaultInputGainController: DefaultInputGainControlling {
+nonisolated final class CoreAudioDefaultInputGainController: DefaultInputGainControlling, @unchecked Sendable {
     private let audioSystem: CoreAudioInputGainSystem
+    private let workerQueue = DispatchQueue(label: "voicepen.default-input-gain", qos: .userInitiated)
 
     init(audioSystem: CoreAudioInputGainSystem = LiveCoreAudioInputGainSystem()) {
         self.audioSystem = audioSystem
     }
 
-    func boostDefaultInputGain() -> DefaultInputGainRestoreToken? {
+    func boostDefaultInputGain() async -> DefaultInputGainRestoreToken? {
+        await withCheckedContinuation { continuation in
+            workerQueue.async { [self] in
+                continuation.resume(returning: boostDefaultInputGainOnWorker())
+            }
+        }
+    }
+
+    func restoreDefaultInputGain(_ token: DefaultInputGainRestoreToken) async {
+        await withCheckedContinuation { continuation in
+            workerQueue.async { [self] in
+                restoreDefaultInputGainOnWorker(token)
+                continuation.resume()
+            }
+        }
+    }
+
+    private func boostDefaultInputGainOnWorker() -> DefaultInputGainRestoreToken? {
         guard let deviceID = audioSystem.defaultInputDeviceID() else {
             return nil
         }
@@ -62,7 +80,7 @@ final class CoreAudioDefaultInputGainController: DefaultInputGainControlling {
         return restoredGains.isEmpty ? nil : DefaultInputGainRestoreToken(gains: restoredGains)
     }
 
-    func restoreDefaultInputGain(_ token: DefaultInputGainRestoreToken) {
+    private func restoreDefaultInputGainOnWorker(_ token: DefaultInputGainRestoreToken) {
         for gain in token.gains {
             guard let currentVolume = audioSystem.inputVolume(deviceID: gain.deviceID, element: gain.element),
                 abs(currentVolume - gain.boostedVolume) < 0.02,
@@ -89,7 +107,7 @@ final class CoreAudioDefaultInputGainController: DefaultInputGainControlling {
     }
 }
 
-protocol CoreAudioInputGainSystem {
+nonisolated protocol CoreAudioInputGainSystem: Sendable {
     func defaultInputDeviceID() -> AudioDeviceID?
     func inputChannelCount(deviceID: AudioDeviceID) -> Int
     func inputVolume(deviceID: AudioDeviceID, element: AudioObjectPropertyElement) -> Float32?

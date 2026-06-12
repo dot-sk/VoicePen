@@ -3,7 +3,8 @@ import Foundation
 final class MeetingPipeline {
     static let maximumMeetingDuration: TimeInterval = VoicePenConfig.meetingMaximumRecordingDuration
     static let chunkDuration: TimeInterval = 60
-    private static let minimumAutoDiarizationDuration: TimeInterval = 15
+    private static let asrProgressFractionWhenDiarizing = 0.85
+    private static let finishingProgressFractionWhenDiarizing = 0.98
 
     private let recorder: MeetingRecordingClient
     private let audioPreprocessor: AudioPreprocessingClient
@@ -14,7 +15,7 @@ final class MeetingPipeline {
     private let diarizer: MeetingDiarizationClient?
     private let historyStore: MeetingHistoryStore
     private let recoveryAudioStore: MeetingRecoveryAudioStore?
-    private let savedAudioArchiver: SavedAudioArchiving
+    private let savedAudioScheduler: SavedAudioArchiveScheduling
     private let languageProvider: () -> String
     private let speechPreprocessingModeProvider: () -> SpeechPreprocessingMode
     private let meetingVoiceLevelingEnabledProvider: () -> Bool
@@ -22,11 +23,13 @@ final class MeetingPipeline {
     private let savedAudioStorageLimitGBProvider: () -> Int
     private let meetingTranscriptTimecodesEnabledProvider: () -> Bool
     private let meetingDiarizationEnabledProvider: () -> Bool
-    private let meetingDiarizationExpectedSpeakerCountProvider: @MainActor () -> Int?
+    private let meetingDiarizationBackendProvider: @MainActor () -> MeetingDiarizationBackend
     private let appVersionProvider: () -> String
+    private let nowProvider: () -> Date
     private var processingProgressHandler: @MainActor (MeetingProcessingProgress?) -> Void = { _ in }
     private let fileManager: FileManager
     private let chunkProcessingTimeout: Duration
+    private let processingCancellationState = MeetingProcessingCancellationState()
 
     init(
         recorder: MeetingRecordingClient,
@@ -38,7 +41,7 @@ final class MeetingPipeline {
         diarizer: MeetingDiarizationClient? = nil,
         historyStore: MeetingHistoryStore,
         recoveryAudioStore: MeetingRecoveryAudioStore? = nil,
-        savedAudioArchiver: SavedAudioArchiving = NoOpSavedAudioArchive(),
+        savedAudioScheduler: SavedAudioArchiveScheduling = NoOpSavedAudioArchiveScheduler(),
         languageProvider: @escaping () -> String = { VoicePenConfig.defaultLanguage },
         speechPreprocessingModeProvider: @escaping () -> SpeechPreprocessingMode = { .off },
         meetingVoiceLevelingEnabledProvider: @escaping () -> Bool = { false },
@@ -46,8 +49,9 @@ final class MeetingPipeline {
         savedAudioStorageLimitGBProvider: @escaping () -> Int = { VoicePenConfig.defaultSavedAudioStorageLimitGB },
         meetingTranscriptTimecodesEnabledProvider: @escaping () -> Bool = { true },
         meetingDiarizationEnabledProvider: @escaping () -> Bool = { false },
-        meetingDiarizationExpectedSpeakerCountProvider: @escaping @MainActor () -> Int? = { nil },
+        meetingDiarizationBackendProvider: @escaping @MainActor () -> MeetingDiarizationBackend = { .speakerKit },
         appVersionProvider: @escaping () -> String = { VoicePenConfig.appVersion },
+        nowProvider: @escaping () -> Date = Date.init,
         chunkProcessingTimeout: Duration = VoicePenConfig.meetingChunkProcessingTimeout,
         fileManager: FileManager = .default
     ) {
@@ -60,7 +64,7 @@ final class MeetingPipeline {
         self.diarizer = diarizer
         self.historyStore = historyStore
         self.recoveryAudioStore = recoveryAudioStore
-        self.savedAudioArchiver = savedAudioArchiver
+        self.savedAudioScheduler = savedAudioScheduler
         self.languageProvider = languageProvider
         self.speechPreprocessingModeProvider = speechPreprocessingModeProvider
         self.meetingVoiceLevelingEnabledProvider = meetingVoiceLevelingEnabledProvider
@@ -68,14 +72,19 @@ final class MeetingPipeline {
         self.savedAudioStorageLimitGBProvider = savedAudioStorageLimitGBProvider
         self.meetingTranscriptTimecodesEnabledProvider = meetingTranscriptTimecodesEnabledProvider
         self.meetingDiarizationEnabledProvider = meetingDiarizationEnabledProvider
-        self.meetingDiarizationExpectedSpeakerCountProvider = meetingDiarizationExpectedSpeakerCountProvider
+        self.meetingDiarizationBackendProvider = meetingDiarizationBackendProvider
         self.appVersionProvider = appVersionProvider
+        self.nowProvider = nowProvider
         self.fileManager = fileManager
         self.chunkProcessingTimeout = chunkProcessingTimeout
     }
 
     func setProcessingProgressHandler(_ handler: @escaping @MainActor (MeetingProcessingProgress?) -> Void) {
         processingProgressHandler = handler
+    }
+
+    func prepareForProcessingCancellation(_ reason: MeetingProcessingCancellationReason) {
+        processingCancellationState.set(reason)
     }
 
     var sourceStatus: MeetingSourceStatus {
@@ -92,20 +101,16 @@ final class MeetingPipeline {
 
     func stopAndProcess() async throws -> MeetingHistoryEntry {
         let recording = try await recorder.stop()
-        let expectedSpeakerCount = await expectedDiarizationSpeakerCountIfNeeded()
-        return try await process(recording, expectedDiarizationSpeakerCount: expectedSpeakerCount)
-    }
-
-    private func expectedDiarizationSpeakerCountIfNeeded() async -> Int? {
-        guard meetingDiarizationEnabledProvider() else { return nil }
-        return await MainActor.run { meetingDiarizationExpectedSpeakerCountProvider() }
+        return try await process(recording)
     }
 
     func process(
-        _ recording: MeetingRecordingResult,
-        expectedDiarizationSpeakerCount: Int? = nil
+        _ recording: MeetingRecordingResult
     ) async throws -> MeetingHistoryEntry {
+        processingCancellationState.clear()
         var cleanupURLs = recording.temporaryAudioURLs
+        let meetingDiarizationBackend = await MainActor.run { meetingDiarizationBackendProvider() }
+        let entryID = UUID()
         do {
             let chunkingResult = try await chunker.split(
                 recording.chunks,
@@ -116,7 +121,8 @@ final class MeetingPipeline {
             archiveSavedMeetingAudio(
                 chunks: chunkingResult.chunks,
                 sourceSpans: chunkingResult.sourceSpans,
-                capturedAt: recording.startedAt
+                capturedAt: recording.startedAt,
+                owner: .meetingHistory(entryID)
             )
             let meetingDiarizationEnabled = meetingDiarizationEnabledProvider()
             let entry = try await processRecording(
@@ -124,29 +130,43 @@ final class MeetingPipeline {
                 chunks: chunkingResult.chunks,
                 sourceSpans: chunkingResult.sourceSpans,
                 meetingDiarizationEnabled: meetingDiarizationEnabled,
-                expectedDiarizationSpeakerCount: expectedDiarizationSpeakerCount
+                meetingDiarizationBackend: meetingDiarizationBackend,
+                entryID: entryID
             )
             try removeTemporaryAudioFiles(cleanupURLs)
             return entry
         } catch is CancellationError {
-            _ = try? saveFailedEntry(recording: recording, error: TranscriptionError.transcriptionTimedOut)
+            let cancellationError = Self.processingCancellationError(
+                for: processingCancellationState.take(default: .timedOut)
+            )
+            _ = try? saveFailedEntry(
+                recording: recording,
+                error: cancellationError,
+                entryID: entryID
+            )
             try removeTemporaryAudioFiles(cleanupURLs)
             throw CancellationError()
         } catch MeetingPipelineNoSpeechError.noSpeechDetected {
             try removeTemporaryAudioFiles(cleanupURLs)
             throw MeetingPipelineNoSpeechError.noSpeechDetected
         } catch {
-            let entry = try saveFailedEntry(recording: recording, error: error)
+            let entry = try saveFailedEntry(
+                recording: recording,
+                error: error,
+                entryID: entryID,
+                speakerCount: nil
+            )
             try removeTemporaryAudioFiles(cleanupURLs)
             return entry
         }
     }
 
     func retryProcessing(_ entry: MeetingHistoryEntry) async throws -> MeetingHistoryEntry {
+        processingCancellationState.clear()
         guard let recoveryAudio = entry.recoveryAudio else {
             throw MeetingRecordingError.recoveryAudioUnavailable
         }
-        try recoveryAudioStore?.validate(recoveryAudio)
+        try recoveryAudioStore?.validate(recoveryAudio, now: nowProvider())
 
         let recording = MeetingRecordingResult(
             startedAt: entry.createdAt.addingTimeInterval(-recoveryAudio.duration),
@@ -159,6 +179,7 @@ final class MeetingPipeline {
 
         var cleanupURLs: [URL] = []
         do {
+            let meetingDiarizationBackend = await MainActor.run { meetingDiarizationBackendProvider() }
             let chunkingResult = try await chunker.split(
                 recording.chunks,
                 maximumDuration: Self.processingDuration(for: recording),
@@ -171,21 +192,24 @@ final class MeetingPipeline {
                 chunks: chunkingResult.chunks,
                 sourceSpans: chunkingResult.sourceSpans,
                 meetingDiarizationEnabled: meetingDiarizationEnabled,
-                expectedDiarizationSpeakerCount: nil,
+                meetingDiarizationBackend: meetingDiarizationBackend,
                 entryID: entry.id,
                 existingTranscript: entry.transcriptText,
                 existingRecoveryAudio: recoveryAudio,
                 existingSpeakerCount: entry.speakerCount
             )
             try removeTemporaryAudioFiles(cleanupURLs)
-            if retryEntry.status == .completed {
-                try recoveryAudioStore?.remove(recoveryAudio)
-            }
             return retryEntry
         } catch is CancellationError {
+            let cancellationReason = processingCancellationState.take(default: .timedOut)
+            guard cancellationReason != .userCancelled else {
+                try removeTemporaryAudioFiles(cleanupURLs)
+                throw CancellationError()
+            }
+            let cancellationError = Self.processingCancellationError(for: cancellationReason)
             _ = try? saveFailedEntry(
                 recording: recording,
-                error: TranscriptionError.transcriptionTimedOut,
+                error: cancellationError,
                 entryID: entry.id,
                 existingTranscript: entry.transcriptText,
                 recoveryAudio: recoveryAudio,
@@ -212,7 +236,7 @@ final class MeetingPipeline {
         chunks: [MeetingAudioChunk],
         sourceSpans: [MeetingAudioSourceSpan],
         meetingDiarizationEnabled: Bool,
-        expectedDiarizationSpeakerCount: Int?,
+        meetingDiarizationBackend: MeetingDiarizationBackend,
         entryID: UUID = UUID(),
         existingTranscript: String = "",
         existingRecoveryAudio: MeetingRecoveryAudioManifest? = nil,
@@ -228,26 +252,17 @@ final class MeetingPipeline {
         let meetingVoiceLevelingEnabled = meetingVoiceLevelingEnabledProvider()
         let meetingTranscriptTimecodesEnabled = meetingTranscriptTimecodesEnabledProvider()
         let orderedChunks = chunks.sorted(by: chunkOrder)
+        let timelineDuration = Self.processingDuration(for: recording)
+        let reservesDiarizationProgress = meetingDiarizationEnabled && diarizer != nil
         let sourceSpansByChunkURL = Dictionary(grouping: sourceSpans, by: \.chunkURL)
-        let diarization = await measure {
-            await meetingSpeakerAnalysis(
-                chunks: orderedChunks,
-                enabled: meetingDiarizationEnabled,
-                expectedSpeakerCount: expectedDiarizationSpeakerCount
-            )
-        }
-        let speakerAnalysis = diarization.value
-        let speakerTurns = speakerAnalysis.turns
-        let detectedSpeakerCount = speakerAnalysis.speakerCount ?? existingSpeakerCount
-        if meetingDiarizationEnabled {
-            AppLogger.info(
-                "Meeting diarization timing: elapsed=\(Self.elapsedTime(diarization.elapsed)), turns=\(speakerTurns.count)"
-            )
-        }
-        var transcriptParts: [String] = []
+        var processedChunks: [MeetingProcessedChunk] = []
         var modelMetadata: VoiceTranscriptionModelMetadata?
         var noSpeechChunkCount = 0
-        await reportProcessingProgress(completedChunks: 0, totalChunks: orderedChunks.count)
+        await reportTranscriptionProgress(
+            completedChunks: 0,
+            totalChunks: orderedChunks.count,
+            reservesDiarizationProgress: reservesDiarizationProgress
+        )
 
         for (index, chunk) in orderedChunks.enumerated() {
             try Task.checkCancellation()
@@ -263,17 +278,7 @@ final class MeetingPipeline {
                             voiceLevelingEnabled: meetingVoiceLevelingEnabled,
                             timecodesEnabled: meetingTranscriptTimecodesEnabled,
                             diarizationEnabled: meetingDiarizationEnabled,
-                            speakerTurns: speakerTurns,
-                            sourceSpans: sourceSpansByChunkURL[chunk.url] ?? [
-                                MeetingAudioSourceSpan(
-                                    chunkURL: chunk.url,
-                                    source: chunk.source,
-                                    sourceURL: chunk.url,
-                                    sourceStartOffset: chunk.startOffset,
-                                    startOffset: chunk.startOffset,
-                                    duration: chunk.duration
-                                )
-                            ]
+                            sourceSpans: sourceSpansByChunkURL[chunk.url] ?? Self.fallbackSourceSpans(for: chunk)
                         )
                     }
                 )
@@ -286,30 +291,93 @@ final class MeetingPipeline {
                 )
 
                 if !processedChunk.text.isEmpty {
-                    transcriptParts.append(processedChunk.text)
+                    processedChunks.append(processedChunk)
                 }
-                await reportProcessingProgress(completedChunks: index + 1, totalChunks: orderedChunks.count)
+                await reportTranscriptionProgress(
+                    completedChunks: index + 1,
+                    totalChunks: orderedChunks.count,
+                    reservesDiarizationProgress: reservesDiarizationProgress
+                )
             } catch AudioPreprocessingError.noSpeechDetected {
                 noSpeechChunkCount += 1
-                await reportProcessingProgress(completedChunks: index + 1, totalChunks: orderedChunks.count)
+                await reportTranscriptionProgress(
+                    completedChunks: index + 1,
+                    totalChunks: orderedChunks.count,
+                    reservesDiarizationProgress: reservesDiarizationProgress
+                )
                 continue
             } catch TranscriptionError.transcriptionTimedOut {
-                guard !transcriptParts.isEmpty else {
+                guard !processedChunks.isEmpty else {
                     throw TranscriptionError.transcriptionTimedOut
                 }
-                return try savePartialEntry(
+                await reportSpeakerLabelingProgressIfNeeded(
+                    reservesDiarizationProgress: reservesDiarizationProgress,
+                    completedChunks: index,
+                    totalChunks: orderedChunks.count
+                )
+                let speakerAnalysis = await self.measuredMeetingSpeakerAnalysis(
+                    processedChunks: processedChunks,
+                    fullTimelineChunks: chunks,
+                    fullTimelineDuration: timelineDuration,
+                    enabled: meetingDiarizationEnabled,
+                    backend: meetingDiarizationBackend
+                )
+                logSpeakerAnalysisTiming(speakerAnalysis, enabled: meetingDiarizationEnabled)
+                let transcriptParts = self.formatProcessedChunks(
+                    processedChunks,
+                    speakerTurns: speakerAnalysis.value.turns,
+                    timecodesEnabled: meetingTranscriptTimecodesEnabled,
+                    diarizationEnabled: meetingDiarizationEnabled
+                )
+                await reportFinishingProgressIfNeeded(
+                    reservesDiarizationProgress: reservesDiarizationProgress,
+                    completedChunks: index,
+                    totalChunks: orderedChunks.count
+                )
+
+                let entry = try savePartialEntry(
                     recording: recording,
                     transcriptParts: transcriptParts,
                     error: TranscriptionError.transcriptionTimedOut,
                     timings: timings,
                     modelMetadata: modelMetadata,
-                    speakerCount: detectedSpeakerCount,
+                    speakerCount: speakerAnalysis.value.speakerCount ?? existingSpeakerCount,
                     entryID: entryID,
                     existingTranscript: existingTranscript,
                     existingRecoveryAudio: existingRecoveryAudio
                 )
+                await reportProcessingCompleteIfNeeded(
+                    reservesDiarizationProgress: reservesDiarizationProgress,
+                    totalChunks: orderedChunks.count
+                )
+                return entry
             }
         }
+
+        await reportSpeakerLabelingProgressIfNeeded(
+            reservesDiarizationProgress: reservesDiarizationProgress,
+            completedChunks: orderedChunks.count,
+            totalChunks: orderedChunks.count
+        )
+        let speakerAnalysis = await self.measuredMeetingSpeakerAnalysis(
+            processedChunks: processedChunks,
+            fullTimelineChunks: chunks,
+            fullTimelineDuration: timelineDuration,
+            enabled: meetingDiarizationEnabled,
+            backend: meetingDiarizationBackend
+        )
+        logSpeakerAnalysisTiming(speakerAnalysis, enabled: meetingDiarizationEnabled)
+        let transcriptParts = self.formatProcessedChunks(
+            processedChunks,
+            speakerTurns: speakerAnalysis.value.turns,
+            timecodesEnabled: meetingTranscriptTimecodesEnabled,
+            diarizationEnabled: meetingDiarizationEnabled
+        )
+        await reportFinishingProgressIfNeeded(
+            reservesDiarizationProgress: reservesDiarizationProgress,
+            completedChunks: orderedChunks.count,
+            totalChunks: orderedChunks.count
+        )
 
         guard !transcriptParts.isEmpty else {
             if noSpeechChunkCount == orderedChunks.count {
@@ -319,19 +387,27 @@ final class MeetingPipeline {
         }
 
         let transcript = transcriptParts.joined(separator: "\n")
-        let status: MeetingRecordingStatus = recording.sourceFlags.partial ? .partial : .completed
+        let status: MeetingRecordingStatus = .completed
         let sourceFlags = MeetingSourceFlags(
             microphoneCaptured: recording.sourceFlags.microphoneCaptured,
             systemAudioCaptured: recording.sourceFlags.systemAudioCaptured,
-            partial: status == .partial
+            partial: recording.sourceFlags.partial
         )
         let recoveryAudio: MeetingRecoveryAudioManifest?
         if status == .completed {
-            recoveryAudio = nil
+            recoveryAudio = try completedRecoveryAudio(
+                recording: recording,
+                entryID: entryID,
+                existingRecoveryAudio: existingRecoveryAudio
+            )
         } else {
             recoveryAudio =
                 try existingRecoveryAudio
-                ?? recoveryAudioStore?.retain(recording: recording, entryID: entryID, createdAt: recording.endedAt)
+                ?? recoveryAudioStore?.retain(
+                    recording: recording,
+                    entryID: entryID,
+                    createdAt: recording.endedAt
+                )
         }
         let entry = MeetingHistoryEntry(
             id: entryID,
@@ -343,27 +419,127 @@ final class MeetingPipeline {
             errorMessage: errorMessage(recording: recording, processingError: nil),
             timings: timings,
             modelMetadata: metadataWithAppVersion(modelMetadata),
-            speakerCount: detectedSpeakerCount,
+            speakerCount: speakerAnalysis.value.speakerCount ?? existingSpeakerCount,
             recoveryAudio: recoveryAudio
         )
         try historyStore.append(entry)
+        await reportProcessingCompleteIfNeeded(
+            reservesDiarizationProgress: reservesDiarizationProgress,
+            totalChunks: orderedChunks.count
+        )
         return entry
     }
 
-    private func reportProcessingProgress(completedChunks: Int, totalChunks: Int) async {
-        let progress = MeetingProcessingProgress(completedChunks: completedChunks, totalChunks: totalChunks)
+    private func completedRecoveryAudio(
+        recording: MeetingRecordingResult,
+        entryID: UUID,
+        existingRecoveryAudio: MeetingRecoveryAudioManifest?
+    ) throws -> MeetingRecoveryAudioManifest? {
+        let completedAt = nowProvider()
+        if let existingRecoveryAudio {
+            return existingRecoveryAudio.refreshingRetention(
+                createdAt: completedAt,
+                retentionDuration: VoicePenConfig.meetingCompletedRecoveryAudioTTL
+            )
+        }
+        return try recoveryAudioStore?.retain(
+            recording: recording,
+            entryID: entryID,
+            createdAt: completedAt,
+            retentionDuration: VoicePenConfig.meetingCompletedRecoveryAudioTTL
+        )
+    }
+
+    private func reportTranscriptionProgress(
+        completedChunks: Int,
+        totalChunks: Int,
+        reservesDiarizationProgress: Bool
+    ) async {
+        let chunkFraction = Self.chunkProgressFraction(completedChunks: completedChunks, totalChunks: totalChunks)
+        let aggregateFraction =
+            reservesDiarizationProgress
+            ? chunkFraction * Self.asrProgressFractionWhenDiarizing
+            : chunkFraction
+        await reportProcessingProgress(
+            completedChunks: completedChunks,
+            totalChunks: totalChunks,
+            stage: .transcribing,
+            fraction: aggregateFraction
+        )
+    }
+
+    private func reportSpeakerLabelingProgressIfNeeded(
+        reservesDiarizationProgress: Bool,
+        completedChunks: Int,
+        totalChunks: Int
+    ) async {
+        guard reservesDiarizationProgress else { return }
+        await reportProcessingProgress(
+            completedChunks: completedChunks,
+            totalChunks: totalChunks,
+            stage: .labelingSpeakers,
+            fraction: Self.asrProgressFractionWhenDiarizing
+        )
+    }
+
+    private func reportFinishingProgressIfNeeded(
+        reservesDiarizationProgress: Bool,
+        completedChunks: Int,
+        totalChunks: Int
+    ) async {
+        guard reservesDiarizationProgress else { return }
+        await reportProcessingProgress(
+            completedChunks: completedChunks,
+            totalChunks: totalChunks,
+            stage: .finishing,
+            fraction: Self.finishingProgressFractionWhenDiarizing
+        )
+    }
+
+    private func reportProcessingCompleteIfNeeded(
+        reservesDiarizationProgress: Bool,
+        totalChunks: Int
+    ) async {
+        guard reservesDiarizationProgress else { return }
+        await reportProcessingProgress(
+            completedChunks: totalChunks,
+            totalChunks: totalChunks,
+            stage: .finishing,
+            fraction: 1
+        )
+    }
+
+    private func reportProcessingProgress(
+        completedChunks: Int,
+        totalChunks: Int,
+        stage: MeetingProcessingStage,
+        fraction: Double
+    ) async {
+        let progress = MeetingProcessingProgress(
+            completedChunks: completedChunks,
+            totalChunks: totalChunks,
+            stage: stage,
+            fraction: fraction
+        )
         await MainActor.run { [processingProgressHandler] in
             processingProgressHandler(progress)
         }
     }
 
+    private static func chunkProgressFraction(completedChunks: Int, totalChunks: Int) -> Double {
+        guard totalChunks > 0 else { return 0 }
+        return Double(min(max(0, completedChunks), totalChunks)) / Double(totalChunks)
+    }
+
     private func archiveSavedMeetingAudio(
         chunks: [MeetingAudioChunk],
         sourceSpans: [MeetingAudioSourceSpan],
-        capturedAt: Date
+        capturedAt: Date,
+        owner: SavedAudioArchiveOwner
     ) {
         guard saveMeetingAudioEnabledProvider() else { return }
         let spansByChunkURL = Dictionary(grouping: sourceSpans, by: \.chunkURL)
+        let storageLimitGB = savedAudioStorageLimitGBProvider()
         for (index, chunk) in chunks.sorted(by: chunkOrder).enumerated() {
             let request = SavedAudioArchiveRequest(
                 sourceURL: chunk.url,
@@ -373,13 +549,19 @@ final class MeetingPipeline {
                     for: chunk,
                     sourceSpans: spansByChunkURL[chunk.url] ?? []
                 ),
-                sequenceIndex: index
+                sequenceIndex: index,
+                owner: owner
             )
-            do {
-                try savedAudioArchiver.archive(request, storageLimitGB: savedAudioStorageLimitGBProvider())
-            } catch {
-                AppLogger.info("Saved Meeting audio skipped: \(error.localizedDescription)")
-            }
+            savedAudioScheduler.archiveBestEffort(request, storageLimitGB: storageLimitGB)
+        }
+    }
+
+    private static func processingCancellationError(for reason: MeetingProcessingCancellationReason) -> Error {
+        switch reason {
+        case .userCancelled:
+            return MeetingRecordingError.processingCanceled
+        case .timedOut:
+            return TranscriptionError.transcriptionTimedOut
         }
     }
 
@@ -398,9 +580,11 @@ final class MeetingPipeline {
     }
 
     private func meetingSpeakerAnalysis(
-        chunks: [MeetingAudioChunk],
+        processedChunks: [MeetingProcessedChunk],
+        fullTimelineChunks: [MeetingAudioChunk],
+        fullTimelineDuration: TimeInterval,
         enabled: Bool,
-        expectedSpeakerCount: Int?
+        backend: MeetingDiarizationBackend
     ) async -> MeetingSpeakerAnalysis {
         guard enabled else {
             AppLogger.debug("Meeting diarization disabled for this meeting")
@@ -410,32 +594,134 @@ final class MeetingPipeline {
             AppLogger.info("Meeting diarization unavailable: no diarizer configured")
             return .empty
         }
-        let recordingDuration = Self.recordingDuration(for: chunks)
-        if expectedSpeakerCount == nil, recordingDuration < Self.minimumAutoDiarizationDuration {
-            AppLogger.info(
-                "Meeting diarization skipped: recording=\(MeetingDiarizationDebug.interval(0, recordingDuration)) is shorter than auto diarization minimum \(Self.elapsedTime(Self.minimumAutoDiarizationDuration)); choose an exact speaker count to force diarization for very short recordings"
-            )
+        guard Self.hasUsableDiarizationTimestamps(in: processedChunks) else {
+            AppLogger.info("Meeting diarization skipped: ASR did not provide usable segment timestamps")
             return .empty
         }
+
+        let fullTimelineInput = try? buildFullTimelineDiarizationInput(
+            from: fullTimelineChunks,
+            timelineDuration: fullTimelineDuration
+        )
+        guard let fullTimelineInput else {
+            AppLogger.info("Meeting diarization skipped: no readable full-timeline audio for diarization")
+            return .empty
+        }
+        defer {
+            removeTemporaryAudioFileIfNeeded(fullTimelineInput.temporaryURL)
+        }
+
         AppLogger.info(
-            "Meeting diarization requested: chunks=\(chunks.count), expectedSpeakers=\(expectedSpeakerCount.map(String.init) ?? "auto")"
+            "Meeting diarization requested: path=\(fullTimelineInput.temporaryURL.lastPathComponent), duration=\(Self.elapsedTime(fullTimelineInput.recording.duration)), strategy=\(MeetingDiarizationStrategy.fullTimeline.rawValue)"
         )
         do {
             let result = try await diarizer.diarize(
                 recording: MeetingDiarizationRecording(
-                    chunks: chunks,
-                    maximumDuration: Self.recordingDuration(for: chunks),
-                    expectedSpeakerCount: expectedSpeakerCount
+                    chunks: [fullTimelineInput.recording],
+                    maximumDuration: fullTimelineDuration,
+                    backend: backend,
+                    strategy: .fullTimeline
                 ))
-            let turns = result.turns
             AppLogger.info(
-                "Meeting diarization returned: backend=\(result.backend), turns=\(turns.count), coverage=\(MeetingDiarizationDebug.coverage(turns)), speakers=\(MeetingDiarizationDebug.speakerCounts(turns))"
+                "Meeting diarization returned: backend=\(result.backend), returnedTurns=\(result.turns.count), speakers=\(MeetingDiarizationDebug.speakerCounts(result.turns))"
             )
             return MeetingSpeakerAnalysis(result: result)
         } catch {
             AppLogger.info("Meeting diarization skipped: \(error.localizedDescription)")
             return .empty
         }
+    }
+
+    private func buildFullTimelineDiarizationInput(
+        from chunks: [MeetingAudioChunk],
+        timelineDuration: TimeInterval
+    ) throws -> (recording: MeetingAudioChunk, temporaryURL: URL)? {
+        guard timelineDuration > 0 else { return nil }
+        let orderedChunks = chunks.sorted(by: chunkOrder)
+        guard !orderedChunks.isEmpty else { return nil }
+        let sampleRate = Int(audioFileIO.sampleRate)
+        guard sampleRate > 0 else { return nil }
+        let totalSamples = max(1, Int((timelineDuration * Double(sampleRate)).rounded(.up)))
+        var timelineSamples = Array(repeating: Float(0), count: totalSamples)
+        for chunk in orderedChunks where chunk.duration > 0 {
+            guard chunk.startOffset < timelineDuration else { continue }
+            let startOffset = max(0, chunk.startOffset)
+            let startFrame = min(
+                totalSamples,
+                max(0, Int((startOffset * Double(sampleRate)).rounded(.down)))
+            )
+            guard startFrame < totalSamples else { continue }
+
+            let sourceSamples = try audioFileIO.readMonoSamples(
+                from: chunk.url,
+                targetSampleRate: sampleRate
+            )
+            guard !sourceSamples.isEmpty else { continue }
+            let sampleWindowDuration = min(
+                chunk.duration,
+                Double(totalSamples - startFrame) / Double(sampleRate),
+                timelineDuration - startOffset
+            )
+            let sampleCountToWrite = min(
+                sourceSamples.count,
+                Int((sampleWindowDuration * Double(sampleRate)).rounded(.down))
+            )
+            guard sampleCountToWrite > 0 else { continue }
+
+            for index in 0..<sampleCountToWrite {
+                let outputIndex = startFrame + index
+                timelineSamples[outputIndex] = min(1, max(-1, timelineSamples[outputIndex] + sourceSamples[index]))
+            }
+        }
+
+        let outputURL =
+            fileManager.temporaryDirectory
+            .appendingPathComponent("voicepen-meeting-diarization-\(UUID().uuidString)")
+            .appendingPathExtension("wav")
+        let recordedDuration = try audioFileIO.writeMonoSamples(timelineSamples, to: outputURL)
+        guard recordedDuration > 0 else { return nil }
+        let source = orderedChunks.first?.source ?? .microphone
+        return (
+            recording: MeetingAudioChunk(
+                url: outputURL,
+                source: source,
+                startOffset: 0,
+                duration: recordedDuration
+            ),
+            temporaryURL: outputURL
+        )
+    }
+
+    private static func hasUsableDiarizationTimestamps(in processedChunks: [MeetingProcessedChunk]) -> Bool {
+        let minimumDuration: TimeInterval = 0.005
+        return processedChunks.contains { processedChunk in
+            processedChunk.segments.contains { segment in
+                if segment.endTime - segment.startTime >= minimumDuration {
+                    return true
+                }
+                return segment.words.contains { word in
+                    word.endTime - word.startTime >= minimumDuration
+                }
+            }
+        }
+    }
+
+    private static func detectedSpeakerCount(in turns: [SpeakerTurn]) -> Int? {
+        let count = Set(turns.map(\.speakerId)).count
+        return count > 0 ? count : nil
+    }
+
+    private static func fallbackSourceSpans(for chunk: MeetingAudioChunk) -> [MeetingAudioSourceSpan] {
+        [
+            MeetingAudioSourceSpan(
+                chunkURL: chunk.url,
+                source: chunk.source,
+                sourceURL: chunk.url,
+                sourceStartOffset: chunk.startOffset,
+                startOffset: chunk.startOffset,
+                duration: chunk.duration
+            )
+        ]
     }
 
     private func processChunk(
@@ -445,7 +731,6 @@ final class MeetingPipeline {
         voiceLevelingEnabled: Bool,
         timecodesEnabled: Bool,
         diarizationEnabled: Bool,
-        speakerTurns: [SpeakerTurn],
         sourceSpans: [MeetingAudioSourceSpan]
     ) async throws -> MeetingProcessedChunk {
         let preprocessed = try await measure {
@@ -479,22 +764,64 @@ final class MeetingPipeline {
         }
 
         let sanitizedText = TranscriptionPostFilter.sanitize(transcription.value.text).trimmed
-        let transcriptText = MeetingTranscriptFormatter.format(
+        return MeetingProcessedChunk(
             text: sanitizedText,
             segments: transcription.value.segments,
             chunk: chunk,
             sourceSpans: sourceSpans,
-            timecodesEnabled: timecodesEnabled,
-            diarizationEnabled: diarizationEnabled,
-            speakerTurns: speakerTurns,
-            audioFileIO: audioFileIO
-        )
-        return MeetingProcessedChunk(
-            text: transcriptText,
             preprocessing: preprocessed.elapsed,
             transcription: transcription.elapsed,
             modelMetadata: transcription.value.modelMetadata
         )
+    }
+
+    private func measuredMeetingSpeakerAnalysis(
+        processedChunks: [MeetingProcessedChunk],
+        fullTimelineChunks: [MeetingAudioChunk],
+        fullTimelineDuration: TimeInterval,
+        enabled: Bool,
+        backend: MeetingDiarizationBackend
+    ) async -> (value: MeetingSpeakerAnalysis, elapsed: TimeInterval) {
+        await measure {
+            await meetingSpeakerAnalysis(
+                processedChunks: processedChunks,
+                fullTimelineChunks: fullTimelineChunks,
+                fullTimelineDuration: fullTimelineDuration,
+                enabled: enabled,
+                backend: backend
+            )
+        }
+    }
+
+    private func logSpeakerAnalysisTiming(
+        _ speakerAnalysis: (value: MeetingSpeakerAnalysis, elapsed: TimeInterval),
+        enabled: Bool
+    ) {
+        guard enabled else { return }
+        AppLogger.info(
+            "Meeting diarization timing: elapsed=\(Self.elapsedTime(speakerAnalysis.elapsed)), turns=\(speakerAnalysis.value.turns.count)"
+        )
+    }
+
+    private func formatProcessedChunks(
+        _ chunks: [MeetingProcessedChunk],
+        speakerTurns: [SpeakerTurn],
+        timecodesEnabled: Bool,
+        diarizationEnabled: Bool
+    ) -> [String] {
+        let results = chunks.map { chunk in
+            MeetingTranscriptFormatter.format(
+                text: chunk.text,
+                segments: chunk.segments,
+                chunk: chunk.chunk,
+                sourceSpans: chunk.sourceSpans,
+                timecodesEnabled: timecodesEnabled,
+                diarizationEnabled: diarizationEnabled,
+                speakerTurns: speakerTurns,
+                audioFileIO: audioFileIO
+            )
+        }
+        return results.filter { !$0.isEmpty }
     }
 
     private func savePartialEntry(
@@ -511,7 +838,11 @@ final class MeetingPipeline {
         let transcript = transcriptParts.joined(separator: "\n")
         let recoveryAudio =
             try existingRecoveryAudio
-            ?? recoveryAudioStore?.retain(recording: recording, entryID: entryID, createdAt: recording.endedAt)
+            ?? recoveryAudioStore?.retain(
+                recording: recording,
+                entryID: entryID,
+                createdAt: recording.endedAt
+            )
         let flags = MeetingSourceFlags(
             microphoneCaptured: recording.sourceFlags.microphoneCaptured,
             systemAudioCaptured: recording.sourceFlags.systemAudioCaptured,
@@ -545,7 +876,11 @@ final class MeetingPipeline {
         let duration = recording.duration
         let retainedAudio =
             try recoveryAudio
-            ?? recoveryAudioStore?.retain(recording: recording, entryID: entryID, createdAt: recording.endedAt)
+            ?? recoveryAudioStore?.retain(
+                recording: recording,
+                entryID: entryID,
+                createdAt: recording.endedAt
+            )
         let flags = MeetingSourceFlags(
             microphoneCaptured: recording.sourceFlags.microphoneCaptured,
             systemAudioCaptured: recording.sourceFlags.systemAudioCaptured,
@@ -601,7 +936,7 @@ final class MeetingPipeline {
         }
     }
 
-    private func removeTemporaryAudioFileIfNeeded(_ url: URL, preserving preservedURL: URL) {
+    private func removeTemporaryAudioFileIfNeeded(_ url: URL, preserving preservedURL: URL? = nil) {
         guard url != preservedURL,
             fileManager.fileExists(atPath: url.path)
         else {
@@ -637,8 +972,37 @@ final class MeetingPipeline {
     }
 }
 
+private final class MeetingProcessingCancellationState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var reason: MeetingProcessingCancellationReason?
+
+    func set(_ reason: MeetingProcessingCancellationReason) {
+        lock.lock()
+        self.reason = reason
+        lock.unlock()
+    }
+
+    func clear() {
+        lock.lock()
+        reason = nil
+        lock.unlock()
+    }
+
+    func take(default defaultReason: MeetingProcessingCancellationReason) -> MeetingProcessingCancellationReason {
+        lock.lock()
+        defer {
+            reason = nil
+            lock.unlock()
+        }
+        return reason ?? defaultReason
+    }
+}
+
 private struct MeetingProcessedChunk: Sendable {
     var text: String
+    var segments: [TranscriptionSegment]
+    var chunk: MeetingAudioChunk
+    var sourceSpans: [MeetingAudioSourceSpan]
     var preprocessing: TimeInterval
     var transcription: TimeInterval
     var modelMetadata: VoiceTranscriptionModelMetadata?
@@ -670,7 +1034,7 @@ private struct MeetingSpeakerAnalysis: Sendable {
     }
 }
 
-private enum MeetingTranscriptFormatter {
+enum MeetingTranscriptFormatter {
     static func format(
         text: String,
         segments: [TranscriptionSegment],

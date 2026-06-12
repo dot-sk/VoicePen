@@ -17,10 +17,7 @@ let package = Package(
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.1"),
         .package(url: "https://github.com/LebJe/TOMLKit.git", from: "0.6.0"),
         .package(url: "https://github.com/stencilproject/Stencil.git", from: "0.15.1"),
-        .package(
-            url: "https://github.com/soniqo/speech-swift",
-            revision: "88cd3784b489706b53a7e3b8bff02834b40855dd"
-        )
+        .package(url: "https://github.com/argmaxinc/argmax-oss-swift", exact: "1.0.0")
     ],
     targets: [
         .target(
@@ -32,8 +29,7 @@ let package = Package(
                 .product(name: "Sparkle", package: "Sparkle"),
                 .product(name: "TOMLKit", package: "TOMLKit"),
                 .product(name: "Stencil", package: "Stencil"),
-                .product(name: "SpeechVAD", package: "speech-swift"),
-                .product(name: "AudioCommon", package: "speech-swift")
+                .product(name: "SpeakerKit", package: "argmax-oss-swift")
             ],
             path: "VoicePen",
             exclude: [

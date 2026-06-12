@@ -4,54 +4,60 @@ struct VoicePenOverlayView: View {
     @ObservedObject var viewModel: OverlayViewModel
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.1)) { _ in
-            ZStack {
-                switch viewModel.state {
-                case let .recording(startedAt, level):
-                    ListeningOverlayContent(
-                        elapsedText: elapsedTimeText(since: startedAt),
-                        level: level
-                    )
-                case let .transcribing(stage, progress):
-                    TextStatusOverlayContent(
-                        title: stage.rawValue,
-                        subtitle: "Working locally",
-                        progress: progress,
-                        symbolName: "text.cursor",
-                        cancelAction: viewModel.onCancelTranscription
-                    )
-                case let .done(message):
-                    TextStatusOverlayContent(
-                        title: message,
-                        subtitle: "Ready",
-                        progress: nil,
-                        symbolName: "checkmark",
-                        cancelAction: nil
-                    )
-                case let .error(message):
-                    TextStatusOverlayContent(
-                        title: "VoicePen needs attention",
-                        subtitle: message,
-                        progress: nil,
-                        symbolName: "exclamationmark.triangle",
-                        cancelAction: nil
-                    )
-                case .hidden:
-                    EmptyView()
-                }
+        ZStack {
+            switch viewModel.state {
+            case let .recordingStarting(startedAt):
+                listeningOverlay(startedAt: startedAt)
+            case let .recording(startedAt, _):
+                listeningOverlay(startedAt: startedAt)
+            case let .transcribing(stage, progress):
+                TextStatusOverlayContent(
+                    title: stage.rawValue,
+                    subtitle: "Working locally",
+                    progress: progress,
+                    symbolName: "text.cursor",
+                    cancelAction: viewModel.onCancelTranscription
+                )
+            case let .done(message):
+                TextStatusOverlayContent(
+                    title: message,
+                    subtitle: "Ready",
+                    progress: nil,
+                    symbolName: "checkmark",
+                    cancelAction: nil
+                )
+            case let .error(message):
+                TextStatusOverlayContent(
+                    title: "VoicePen needs attention",
+                    subtitle: message,
+                    progress: nil,
+                    symbolName: "exclamationmark.triangle",
+                    cancelAction: nil
+                )
+            case .hidden:
+                EmptyView()
             }
-            .frame(width: 360, height: 128)
+        }
+        .frame(width: 360, height: 128)
+    }
+
+    private func listeningOverlay(startedAt: Date) -> some View {
+        TimelineView(.periodic(from: .now, by: 0.1)) { _ in
+            ListeningOverlayContent(
+                elapsedText: elapsedTimeText(since: startedAt),
+                levelProvider: viewModel.recordingLevelProvider
+            )
         }
     }
 }
 
 private struct ListeningOverlayContent: View {
     let elapsedText: String
-    let level: Double?
+    let levelProvider: @Sendable () -> Double?
 
     var body: some View {
         VStack(spacing: 7) {
-            ListeningMicrophoneIndicatorView(level: level)
+            ListeningMicrophoneIndicatorView(levelProvider: levelProvider)
 
             Text(elapsedText)
                 .font(.system(size: 11, weight: .semibold, design: .rounded))

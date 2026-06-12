@@ -59,7 +59,7 @@ nonisolated struct WhisperCppDecodingOptions: Equatable {
     }
 
     static func defaultThreadCount(processorCount: Int) -> Int32 {
-        Int32(max(1, min(8, processorCount - 2)))
+        Int32(max(1, min(4, processorCount - 2)))
     }
 }
 
@@ -90,10 +90,8 @@ nonisolated enum WhisperCppBenchmarkPlan {
         preferredLanguage: String
     ) -> [WhisperCppBenchmarkConfiguration] {
         let maxThreads = Int(WhisperCppDecodingOptions.defaultThreadCount(processorCount: processorCount))
-        let threadCounts = [4, 6, 8]
-            .filter { $0 <= maxThreads }
-            .ifEmpty([maxThreads])
-        let audioContexts: [Int32] = [0, 768]
+        let threadCounts = [maxThreads]
+        let audioContexts: [Int32] = [0]
         let languages = normalizedLanguages(preferredLanguage)
 
         return threadCounts.flatMap { threadCount in
@@ -115,11 +113,5 @@ nonisolated enum WhisperCppBenchmarkPlan {
             return ["auto"]
         }
         return [normalized, "auto"]
-    }
-}
-
-nonisolated private extension Array {
-    func ifEmpty(_ fallback: @autoclosure () -> [Element]) -> [Element] {
-        isEmpty ? fallback() : self
     }
 }

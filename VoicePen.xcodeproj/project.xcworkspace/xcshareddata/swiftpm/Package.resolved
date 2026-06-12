@@ -1,5 +1,5 @@
 {
-  "originHash" : "0290a78e564217443172075921fe745ba5f8b9b8a10773334e18248a57a2c7f0",
+  "originHash" : "057a77c89927c7ce6459cdbdf23b1b0e62384c82cfc150ff7d6d94cd7315a899",
   "pins" : [
     {
       "identity" : "alamofire",
@@ -8,6 +8,15 @@
       "state" : {
         "revision" : "e938f8c66708e7352fc7e3512647fa54255b267a",
         "version" : "5.11.2"
+      }
+    },
+    {
+      "identity" : "argmax-oss-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/argmaxinc/argmax-oss-swift",
+      "state" : {
+        "revision" : "25c62997041c134b03ca82731ce2f6fd2cae1eb9",
+        "version" : "1.0.0"
       }
     },
     {

@@ -9,31 +9,32 @@ Accepted
 ## Context
 
 Meeting diarization needs to produce stable speaker turns for recordings from
-about one minute to two hours. A custom Silero VAD to WeSpeaker embedding path
-made Silero false negatives too important: missed speech regions produced no
-speaker evidence, and transcript fallback labeling could only hide the gap.
+about one minute to two hours. The phase-1 migration standardizes on a
+single backend path to remove backend swaps and custom pre/post-processing
+branches that caused silent regions and recovery gaps.
 
 ## Decision
 
-- VoicePen owns a backend boundary of full meeting timeline recording in,
-  global speaker turns out.
-- Physical chunking is an implementation detail inside a backend, not part of
-  VoicePen's speaker identity model.
-- The default backend is speech-swift's Pyannote diarization pipeline.
-- Silero VAD is not used as a hard pre-filter in the default backend.
-- VoicePen still postprocesses backend speaker turns and merges them with ASR
-  timestamps, but it does not create speaker labels for uncovered transcript
-  spans.
-- Sortformer remains a candidate backend to compare separately behind the same
-  boundary.
+- VoicePen owns a backend boundary that consumes full meeting timeline audio and
+  emits speaker turns in timeline coordinates, which are then mapped to
+  transcript regions.
+- Physical chunking and capture strategy are backend implementation details;
+  VoicePen owns the merged full-timeline inputs and timeline remapping contract.
+- The only supported meeting diarization backend is `SpeakerKit` from
+  `argmax-oss-swift`.
+- SpeakerKit is loaded from local artifacts with `download: false` during local
+  warm/load/diarization operations after successful download and during playback
+  flows.
+- VoicePen validates backend readiness during warm/load and logs setup/load errors
+  before processing to make model failures explicit.
 
 ## Consequences
 
-VoicePen no longer depends on a custom VAD-window-clustering chain for Meeting
-Mode. Backend swaps are easier because Pyannote and Sortformer can both fit the
-same contract. Exact speaker count is carried through VoicePen's request, but
-the Pyannote backend may not be able to force that count until speech-swift
-exposes such a control or VoicePen adds a backend-specific adapter.
+VoicePen no longer depends on `speech-swift` backend variants or custom
+clustering branches in Meeting Mode. A single local `.speakerKit` path keeps
+frontend behavior stable while reducing complexity around backend-specific
+controls and feature flags. Legacy backend values are normalized to `.speakerKit`
+so migration is tolerant and automatic.
 
 ## Links
 

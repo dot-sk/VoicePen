@@ -13,6 +13,7 @@ nonisolated struct VoiceHistoryEntry: Codable, Identifiable, Equatable, Sendable
     var diagnosticNotes: [String] = []
     var recognizedWordCount: Int?
     var isTextPayloadEvicted: Bool = false
+    var archivedAudioURLs: [URL] = []
 
     var bestText: String {
         finalText.isEmpty ? rawText : finalText
