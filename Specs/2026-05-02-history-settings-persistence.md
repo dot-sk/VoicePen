@@ -1,7 +1,7 @@
 ---
 id: SPEC-004
 status: implemented
-updated: 2026-05-26
+updated: 2026-06-10
 tests:
   - VoicePenTests/App/VoicePenAppCommandTests.swift
   - VoicePenTests/App/AppPathsTests.swift
@@ -35,13 +35,14 @@ session-specific persistence and actions here.
 - When the database opens, VoicePen shall create or update required tables without losing existing compatible data.
 - When saved settings are missing or invalid, VoicePen shall load safe defaults.
 - When settings migrate to the immediate push-to-talk model, VoicePen shall remove any stored hotkey hold-duration setting.
-- When no audio settings have been saved, VoicePen shall enable system microphone voice processing, dictation microphone boost, and Meeting voice leveling by default.
+- When no audio settings have been saved, VoicePen shall enable dictation microphone boost, and Meeting voice leveling by default.
 - When no saved-recordings settings have been saved, VoicePen shall disable saved dictation recordings and saved Meeting recordings by default, and use a 5 GB saved-audio storage limit.
 - When saved-recordings settings are updated, VoicePen shall persist the dictation toggle, Meeting toggle, and storage limit to SQLite using the same immediate settings path as other Settings controls.
 - When a saved-audio storage limit is loaded or saved, VoicePen shall normalize it to the supported 1-50 GB range.
 - When VoicePen creates required local directories, it shall create saved-recordings directories under Application Support, separate from temporary audio cleanup.
 - When settings are updated, VoicePen shall persist them to SQLite and update published in-memory values.
 - When a voice history entry is saved, VoicePen shall retain history rows without an application entry-count limit while using deterministic local size budgets for transcription text payloads.
+- When an archived saved-recording audio file is associated with a voice history entry, VoicePen shall keep that association with the history entry.
 - When the uncompressed transcription text budget is exceeded after saving an entry, VoicePen shall compress a fixed-size batch of oldest plain text-bearing rows instead of trimming to an exact byte target.
 - When older history text is compressed to manage the local text budget, VoicePen shall preserve and restore raw and final text content when the row is loaded.
 - When the total stored text payload budget is exceeded after compression, VoicePen shall evict a fixed-size batch of oldest text payloads while keeping the history rows.
@@ -83,6 +84,8 @@ session-specific persistence and actions here.
 - When Sessions search runs, VoicePen shall search visible final text, status, error, date/time, duration, local transcription model, and visible VoicePen app version metadata.
 - When Sessions search runs, VoicePen shall not match raw transcript text.
 - When the user opens a history entry detail, VoicePen shall show the repeat insertion action as an icon-only retry control.
+- When the user opens a Sessions entry detail and that entry has an existing archived saved-recording audio file, VoicePen shall show a Reveal in Finder action in the right sidebar after the metadata content.
+- When a Sessions entry has no archived saved-recording audio file, or the archived file no longer exists, VoicePen shall hide the Reveal in Finder action.
 - When the user copies or repeats insertion from Sessions, VoicePen shall use final text only.
 - When the Sessions UI has visible entries from multiple local calendar days, VoicePen shall group the list into sticky day sections while preserving newest-first entry order within each day.
 - When the Open VoicePen at login setting is displayed, VoicePen shall reflect the current macOS login item status instead of only the last saved preference.
@@ -96,7 +99,7 @@ session-specific persistence and actions here.
 | New database | Missing SQLite file | Current schema is created |
 | Invalid language | Unsupported saved value | Default language is loaded |
 | Removed hold duration | Existing database contains `hotkey.holdDuration` | Migration deletes the key and VoicePen starts push-to-talk immediately |
-| Missing audio settings | No saved audio setting values | System microphone voice processing, dictation microphone boost, and Meeting voice leveling default to enabled |
+| Missing audio settings | No saved audio setting values | Dictation microphone boost and Meeting voice leveling default to enabled |
 | Missing saved-recordings settings | No saved recording values | Saved dictation and Meeting recordings are off, with a 5 GB storage limit |
 | Saved-recordings settings | User toggles dictation or Meeting saving and changes the limit | Values persist and reload from SQLite |
 | Saved-audio limit bounds | Saved or entered storage limit is outside 1-50 GB | Limit is clamped into the supported range |
@@ -135,6 +138,8 @@ session-specific persistence and actions here.
 | History detail text | Selected entry has final and raw text | Final text is visible in the shared center workspace; raw transcript is not shown in Sessions |
 | Empty final text | Selected entry has raw text but no final text | Sessions shows an error or status fallback and disables copy and repeat insertion |
 | History repeat insertion | Open a history entry detail | The repeat insertion action is shown as an icon-only retry control |
+| History archived audio reveal | Open a Sessions entry with an existing archived saved recording | The right sidebar shows Reveal in Finder after metadata and selects the archived file |
+| Missing history archived audio | Open a Sessions entry without an archive or whose archive file was pruned | Reveal in Finder is hidden |
 | Raw transcript search | Search for text that appears only in raw transcript | Sessions does not match that entry |
 | History day groups | History contains entries from multiple local calendar days | Entries appear under sticky day sections while preserving newest-first order within each day |
 | Open at login external change | macOS Login Items status changes outside VoicePen | VoicePen refreshes the toggle to the current system status |
@@ -152,7 +157,7 @@ session-specific persistence and actions here.
 - Automated: `VoicePenTests/Settings/AppSettingsStoreTests.swift` covers saved-recordings defaults, persistence, and storage-limit clamping.
 - Automated: `VoicePenTests/App/AppPathsTests.swift` covers saved-recordings directories under Application Support and preservation during temporary-audio cleanup.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers launch-at-login updates, synchronization with current macOS login item status, and app appearance application.
-- Automated: `VoicePenTests/History/VoiceHistoryStoreTests.swift` covers unlimited local history rows, batch text compression, text payload eviction, storage stats, ordering, deletion, clearing, and persisted history metadata including app version.
+- Automated: `VoicePenTests/History/VoiceHistoryStoreTests.swift` covers unlimited local history rows, batch text compression, text payload eviction, storage stats, ordering, deletion, clearing, persisted history metadata including app version, and archived audio associations.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers saving the app version used for decoding with voice history model metadata.
 - Automated: `VoicePenTests/TranscriptWorkspace/TranscriptSearchFilterTests.swift`, `VoicePenTests/History/VoiceHistoryFilterTests.swift`, and `VoicePenTests/History/VoiceTranscriptionUsageStatsTests.swift` cover shared filtering mechanics, Sessions search field indexing, typing-time-avoided usage stats, weekly buckets, streaks, best streak, daily word counts, best day, latest reached milestone, and next milestone.
 - Manual: open Home with empty and populated history in light and dark mode; verify the readiness strip, weekly dashboard, daily activity chart, and milestone progress read as one compact dashboard.
@@ -164,6 +169,7 @@ session-specific persistence and actions here.
 - Manual: secondary-click a completed Sessions row and verify Copy Text and Delete Session are available; verify keyboard or VoiceOver accessibility actions expose the same actions.
 - Manual: verify successful Sessions rows show only a green checkmark status, while empty or failed rows show a textual reason.
 - Manual: select a completed Sessions entry and verify final text is visible immediately in the center workspace while raw transcript is not shown.
+- Manual: open a Sessions entry with saved archived audio and verify Reveal in Finder appears after metadata and selects the archived audio file.
 - Manual: open Sessions with entries from several days and verify sessions are grouped by day and the current day header sticks while scrolling.
 - Manual: verify README local data paths match where a running development build creates its database.
 

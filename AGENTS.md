@@ -95,6 +95,37 @@ feature store in the app layer:
 For simpler features, a dedicated view model, service, pipeline, or persistence
 store is enough. Do not add a feature store just to follow a pattern.
 
+## Swift 6 Main Actor And AppKit
+
+Swift 6 treats `deinit` as nonisolated even when the enclosing class is
+`@MainActor`. Do not access AppKit objects, SwiftUI objects, or other
+non-`Sendable` state from `deinit`; this causes errors such as "Cannot access
+property with a non-Sendable type from nonisolated deinit."
+
+- Prefer app-lifetime ownership for app-lifetime AppKit objects such as
+  `NSStatusItem` instead of adding cleanup in `deinit`.
+- If teardown is genuinely required, expose an explicit `@MainActor` cleanup
+  method and call it from a known main-actor lifecycle point.
+- Do not work around this with `Task { @MainActor ... }` from `deinit`; it can
+  outlive the object and hide lifetime bugs.
+
+## Menu Bar Performance
+
+The tray menu is a simple macOS status-bar menu. Keep it implemented with
+AppKit `NSStatusItem`, `NSMenu`, and plain `NSMenuItem` rows. Do not reintroduce
+SwiftUI `MenuBarExtra` or custom SwiftUI row trees for this menu without first
+capturing a measured reason in the relevant spec.
+
+- Rebuild menu rows only when the native menu opens, from immutable snapshot
+  state plus explicit action callbacks.
+- Keep frequently changing app state out of `VoicePenStatusMenuState` unless it
+  is directly needed to decide visible commands, labels, or the status item
+  icon.
+- For tray menu submenus, copy option metadata into simple value types in the
+  menu state and update through `NSMenuItem` targets/actions.
+- Do not pass `AppController`, settings stores, or other `ObservableObject`s
+  into menu row views. The tray menu should not contain SwiftUI views.
+
 ## Settings Screens
 
 Settings screens should use one shared app/settings controller path for reading

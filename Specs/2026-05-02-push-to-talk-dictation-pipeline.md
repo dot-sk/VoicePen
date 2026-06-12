@@ -1,7 +1,7 @@
 ---
 id: SPEC-001
 status: implemented
-updated: 2026-06-09
+updated: 2026-06-12
 tests:
   - VoicePenTests/Hotkey/HotkeyPreferenceTests.swift
   - VoicePenTests/Insertion/TextInsertionClientTests.swift
@@ -32,14 +32,20 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 - When pre-capture recording feedback is visible, VoicePen shall not count that time as captured audio and shall not save or transcribe audio until capture start succeeds.
 - When push-to-talk is released before capture start finishes, VoicePen shall finish the pending startup safely and stop through the normal short-recording path without transcribing pre-capture time.
 - When push-to-talk recording starts or captures audio, microphone preparation, microphone boost, metering, model warmup, and ASR-related work shall not block or starve app-state updates or visible recording UI updates.
-- When VoicePen is idle and microphone permission/settings allow capture preparation, VoicePen shall best-effort prepare microphone capture before the next push-to-talk press.
+- When dictation runs, PTT shall be modeled only with `DictationRuntimeState` values `idle`, `starting`, `recording`, `transcribing`; `AppState.recording` and `AppState.transcribing` are not used as dictation-state.
+- When push-to-talk starts while a meeting is recording, dictation shall execute without canceling or pausing meeting lifecycle and shall keep meeting state unchanged.
+- When push-to-talk starts while a meeting is recording or processing, dictation shall use the same shared ASR actor/client path and share `RoutingTranscriptionClient` + `WhisperCppTranscriptionClient` with any existing meeting request.
+- When dictation and meeting concurrently request ASR, shared ASR work shall be serialized by the shared actor/client and dictation timeout remains a dictation timeout.
+- When VoicePen is idle and microphone permission/settings allow capture preparation, VoicePen shall best-effort prepare microphone capture before the next push-to-talk press by creating input-only AUHAL capture state without starting output or affecting playback.
 - When dictation starts and audio settings enable microphone boost, VoicePen shall best-effort raise the current default input device level for the recording and restore it afterward without performing CoreAudio gain work on the main actor.
 - When microphone level is not available yet, the recording overlay shall stay visible with a stable fallback level until real input levels arrive.
-- When the recording overlay shows the microphone level indicator, the white level bar shall animate vertically from a display-sampled cached voice-band microphone level without routing every level sample through overlay state updates.
+- When the recording overlay shows the microphone level indicator, the single white level bar shall animate vertically from a display-sampled cached collapsed-spectrum microphone level without routing every level sample through overlay state updates.
+- When speech or sung vowels remain present, including sustained flat A/O-like tones, the microphone level bar shall keep a stable visible height instead of decaying toward zero due to lack of spectral novelty; when input becomes silent, the bar shall release down.
 - When recording duration is below the minimum, VoicePen shall stop without transcription or insertion.
 - When recording duration is below the minimum, VoicePen shall not save a local audio recording even if saved dictation recordings are enabled.
 - When saved dictation recordings are enabled and recording duration meets the minimum, VoicePen shall schedule one best-effort asynchronous audio copy for the dictation attempt to the user's saved recordings folder.
 - When audio preprocessing produces a transcription input file, VoicePen shall schedule saving that transcription input; when preprocessing reports no speech or fails before producing an input file, VoicePen shall schedule saving the original recording once.
+- When a saved dictation audio copy succeeds for a dictation that creates a history entry, VoicePen shall associate the archived audio file with that history entry.
 - When saved dictation audio copying or pruning is scheduled, VoicePen shall continue transcription, normalization, insertion, and result handling without waiting for that saved-audio work to finish.
 - When saving dictation audio fails, VoicePen shall log the failure asynchronously and continue the dictation workflow without changing transcription, insertion, retry, or history behavior.
 - When audio is silent or transcription returns an empty result, VoicePen shall not insert text or create a history recording.
@@ -53,7 +59,11 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 - When the user records or changes a custom push-to-talk shortcut, VoicePen shall install that shortcut without requiring an app restart or another hotkey preference change.
 - When the custom push-to-talk shortcut recorder is visible, VoicePen shall show a short secondary note that macOS or app menus can reserve some shortcuts.
 - When push-to-talk is pressed, VoicePen shall start pre-capture feedback immediately without a configurable hold-duration gate.
+- While a meeting is recording, VoicePen shall not raise default input gain for push-to-talk.
+- When push-to-talk is active during meeting recording or processing, pushed audio may remain in the shared default-input path and may be included in meeting audio; V1 does not apply a manual suppression filter.
+- When dictation returns an error or timeout during active meeting capture or processing, meeting state and lifecycle timers shall remain active.
 - When the custom shortcut preference is selected before a shortcut has been recorded, VoicePen shall surface that the shortcut is missing without entering a persistent fatal error state.
+- Manual double-capture guard for default-input PTT remains disabled in V1; meeting and dictation share the default input capture path when HAL supports concurrent input opens.
 - When VoicePen shows its menu bar extra menu, it shall group related commands with separators, hide dictation or text actions that are not available in the current state, omit idle status text, include the configured push-to-talk hotkey hint on visible dictation commands, and label latest-text actions as dictation actions so they are not confused with Meeting Mode transcripts.
 
 ## Examples
@@ -63,9 +73,11 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 | Short recording | 0.2s recording | No transcription and no insertion |
 | Saved dictation audio disabled | Default settings | No raw or processed audio is copied to saved recordings |
 | Saved dictation audio enabled | Valid push-to-talk recording | One dictation audio file is scheduled for local copy with a readable audio filename |
+| Saved dictation audio linked to history | Valid push-to-talk recording creates history and the saved audio copy succeeds | The history entry can reveal the archived audio file |
 | Saved dictation audio failure | Saved recordings folder cannot be written | Dictation still transcribes and inserts normally |
 | Recording startup | Press push-to-talk while ready | Recording feedback appears immediately, before capture startup finishes |
-| Recording overlay | Active recording with changing input level | The microphone level bar changes height from voice-band levels while staying horizontally anchored |
+| Recording overlay | Active recording with changing input level | The microphone level bar changes height from collapsed-spectrum levels while staying horizontally anchored |
+| Sustained vowel meter | Hold a steady A/O-like vowel while recording | The single white microphone level bar stays visibly raised and stable while voice remains present |
 | Silent recording | Valid duration with no speech | No insertion and no history recording |
 | Artifact-only transcription | Whisper returns only `Субтитры создавал DimaTorzok` | No insertion and no history recording |
 | Artifact line with useful text | Whisper returns subtitle credit, useful dictated text, and `Продолжение следует...` | Inserts and stores only the useful dictated text |
@@ -84,19 +96,22 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 
 - Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers async recording start/stop ordering, immediate pre-capture recording feedback, confirmed recording feedback after successful capture start, short recording skip, preprocessing, glossary/language routing for short and long valid recordings, normalization, global output cleanup, insertion, silent audio, empty transcription, error propagation, and saved dictation audio scheduling.
 - Automated: `VoicePenTests/AudioProcessing/SavedAudioArchiveTests.swift` covers byte-for-byte saved audio copies, readable filenames, extension preservation, and storage pruning.
-- Automated: `VoicePenTests/AudioProcessing/SavedAudioArchiveSchedulerTests.swift` covers asynchronous saved-audio scheduling, request forwarding, non-fatal archive failures, and serialized copy/pruning work.
+- Automated: `VoicePenTests/AudioProcessing/SavedAudioArchiveSchedulerTests.swift` covers asynchronous saved-audio scheduling, request forwarding, owner correlation, non-fatal archive failures, completion callbacks, and serialized copy/pruning work.
 - Automated: `VoicePenTests/Insertion/TextInsertionClientTests.swift` covers temporary pasteboard replacement and restoration of previous plain text, empty pasteboards, and multi-item or multi-type pasteboard contents.
 - Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers awaited best-effort microphone boost start and restore around dictation recordings.
-- Automated: `VoicePenTests/Recording/VoiceBandAnalyzerTests.swift` covers FFT voice-band level calculation used by live dictation metering.
-- Automated: `VoicePenTests/Recording/LiveRecordingMeterTests.swift` covers fresh-buffer live metering with asynchronously analyzed, smoothed rolling FFT voice-band levels and cheap cached level reads.
+- Automated: `VoicePenTests/Recording/VoiceBandAnalyzerTests.swift` covers FFT voice-band ratio and collapsed-spectrum level calculation used by live dictation metering, including sustained vowel-like tones and non-voice high-frequency tones.
+- Automated: `VoicePenTests/Recording/LiveRecordingMeterTests.swift` covers fresh-buffer live metering with asynchronously analyzed rolling collapsed-spectrum levels, display envelope behavior for sustained voice, silence release, and cheap cached level reads.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers canceling pending model warmup when push-to-talk starts without scheduling a replacement warmup.
 - Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` and `VoicePenTests/Transcription/TranscriptionPostFilterTests.swift` cover known subtitle/outro artifact cleanup before insertion.
 - Automated: `VoicePenTests/TextOutput/TextOutputNormalizerTests.swift` covers global output character replacements.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers reinstalling the push-to-talk hotkey when a custom shortcut is recorded after the custom preference is selected and dictation timeout recovery when processing hangs.
+- Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers DictationRuntimeState usage without `AppState.recording`/`AppState.transcribing` and validates dictation timeout error reporting when ASR concurrency with meetings is simulated.
+- Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers concurrent meeting + dictation requests sharing the same transcriber actor/client and preserving meeting state on PTT timeout/error.
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers menu bar extra command grouping, hiding unavailable menu actions, omitting idle status text, showing push-to-talk hotkey hints, showing the custom shortcut limitation note in the Settings screen, omitting the removed hold-duration control from Settings, and labeling latest-text actions as dictation actions.
 - Manual: verify the menu bar app records while the configured hotkey is held and pastes final text into the active app when Accessibility permission is granted.
 - Manual: hold the configured push-to-talk hotkey and verify the white microphone level bar changes height without moving left or right inside the red capsule.
 - Manual: select the custom push-to-talk shortcut, record Ctrl-E, press Ctrl-E, and verify recording feedback appears immediately without restarting VoicePen.
+- Manual: run the HAL input probe on the default input device and confirm two `AUHAL` input opens are supported before release; confirm this removes the need for a manual double-capture gate.
 
 ## Notes
 

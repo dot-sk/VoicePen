@@ -1,7 +1,7 @@
 ---
 id: SPEC-002
 status: implemented
-updated: 2026-06-09
+updated: 2026-06-10
 tests:
   - VoicePenTests/App/VoicePenAppCommandTests.swift
   - VoicePenTests/App/AppControllerTests.swift
@@ -35,6 +35,7 @@ confirmation, or public model marketplace behavior.
 - When VoicePen shows Model settings, it shall place supported Meeting-only controls in a Meeting features section, including transcript timecodes and Meeting diarization; these controls shall not be duplicated as availability-only rows.
 - When VoicePen shows Meeting feature controls, the Meeting timecodes explanation shall describe adding timecodes without implementation-specific segment details, and the Meeting diarization explanation shall describe speaker labels from a separate local diarization model.
 - When VoicePen shows Model settings, it shall avoid redundant bottom explanatory text once model details, actions, feature support, and per-control help are visible.
+- When VoicePen shows the tray menu, it shall expose a Recognition Language submenu backed by the same supported language options and persisted setting as Model settings; the selected language shall be visibly marked, and choosing an option shall update the global transcription language for future dictation and Meeting transcription.
 - When a Whisper.cpp model is selected, VoicePen shall require the expected model and Core ML companion artifacts before accelerated transcription.
 - When a Whisper.cpp model is installed by download, VoicePen shall treat it as installed only after the full download set validates and a completed-download marker is written.
 - When a transcription request runs, VoicePen shall route it to the backend that matches the selected model.
@@ -60,6 +61,7 @@ confirmation, or public model marketplace behavior.
 | Recognition help | User hovers a question-mark icon beside Primary language | The explanation appears and mentions that a single selected language can be faster than auto-detect |
 | Meeting feature support | User opens Model settings | Meeting timecode and diarization toggles appear in Meeting features without duplicate Available rows |
 | Model settings bottom text | User opens Model settings | The view does not add an extra bottom text-only explanatory section |
+| Tray language switch | User opens the tray menu and selects English in Recognition Language | English is visibly selected and the global transcription language setting changes to English |
 | Whisper.cpp artifact missing | Model exists without Core ML companion | Acceleration is unavailable |
 | Blocked download | Network/proxy failure leaves a model file without a completed-download marker | Model remains Missing and Download Model remains available |
 | Known download progress | Downloader reports 42% progress | Model settings shows determinate progress at the same fraction |
@@ -75,6 +77,7 @@ confirmation, or public model marketplace behavior.
 
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers failed, canceled, and timed-out model downloads leaving the model missing and retryable, startup state when the model is missing, dictation start gating while the model is missing, plus warmup timeout recovery.
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers that Model settings renders known download progress as determinate linear progress, shows user-facing model language, timestamp and Meeting feature support, exposes Recognition explanations through help icons, and avoids redundant bottom explanatory text.
+- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` also covers Tray menu language controls, including an AppKit `NSMenu`/`NSMenuItem` `Recognition Language` submenu backed by immutable menu language options, selected-language checkmark state, and update wiring through `controller.updateTranscriptionLanguage`.
 - Automated: `VoicePenTests/Transcription/WhisperCppTranscriptionClientTests.swift` covers artifact, acceleration, empty artifact, and completed-download marker checks.
 - Automated: `VoicePenTests/Transcription/WhisperCppTranscriptionClientTests.swift` covers Whisper.cpp decoding defaults, the conservative thread cap, short-utterance single-segment behavior, timestamped segmentation behavior, benchmark configurations, and prompt-token caching.
 - Automated: `VoicePenTests/Transcription/ModelDownloadProxyConfigurationTests.swift` covers proxy configuration.
