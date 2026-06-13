@@ -65,7 +65,7 @@ nonisolated final class UserConfigStore: @unchecked Sendable {
         try ensureUserConfigExists()
     }
 
-    func saveAISettings(
+    func saveLLMAndIntentParserSettings(
         llm: LLMConfig,
         intentParser: DeveloperIntentParserConfig
     ) throws -> UserConfigLoadResult {

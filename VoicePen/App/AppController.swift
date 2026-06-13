@@ -986,12 +986,6 @@ final class AppController: ObservableObject {
         return result
     }
 
-    func updateLLMSettings(_ update: (inout LLMConfig) -> Void) throws {
-        var config = userConfigLoadResult.config
-        update(&config.llm)
-        try saveLLMAndIntentParserSettings(config)
-    }
-
     func updateDeveloperIntentParserSettings(_ update: (inout DeveloperIntentParserConfig) -> Void) throws {
         var config = userConfigLoadResult.config
         update(&config.developer.intentParser)
@@ -999,7 +993,7 @@ final class AppController: ObservableObject {
     }
 
     private func saveLLMAndIntentParserSettings(_ config: UserConfig) throws {
-        let result = try environmentSettingsStore.saveAISettings(
+        let result = try environmentSettingsStore.saveLLMAndIntentParserSettings(
             llm: config.llm,
             intentParser: config.developer.intentParser
         )
