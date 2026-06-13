@@ -61,6 +61,9 @@ struct VoicePenMainWindow: View {
             MeetingRecordingPanel(controller: controller)
         }
         .background {
+            MainWindowCloseLifecycleBridge()
+                .frame(width: 0, height: 0)
+
             ActivityBarNavigationShortcutMonitor(selectSection: { section in
                 selectedSection = section
             })
@@ -76,6 +79,81 @@ struct VoicePenMainWindow: View {
             applyNavigationRequest(request)
         }
         .frame(minWidth: 920, minHeight: 560)
+    }
+
+    private struct MainWindowCloseLifecycleBridge: NSViewRepresentable {
+        func makeNSView(context: Context) -> NSView {
+            MainWindowCloseLifecycleView(coordinator: context.coordinator)
+        }
+
+        func updateNSView(_ view: NSView, context: Context) {
+            context.coordinator.bind(to: view.window)
+        }
+
+        static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
+            coordinator.detach()
+        }
+
+        func makeCoordinator() -> Coordinator {
+            Coordinator()
+        }
+
+        final class MainWindowCloseLifecycleView: NSView {
+            private let coordinator: Coordinator
+
+            init(coordinator: Coordinator) {
+                self.coordinator = coordinator
+                super.init(frame: .zero)
+            }
+
+            @available(*, unavailable)
+            required init?(coder: NSCoder) {
+                nil
+            }
+
+            override func viewDidMoveToWindow() {
+                super.viewDidMoveToWindow()
+                coordinator.bind(to: window)
+            }
+        }
+
+        final class Coordinator {
+            private weak var observedWindow: NSWindow?
+            private var closeObserver: NSObjectProtocol?
+
+            func bind(to window: NSWindow?) {
+                guard let window else {
+                    return
+                }
+
+                guard observedWindow !== window else {
+                    return
+                }
+
+                if let closeObserver {
+                    NotificationCenter.default.removeObserver(closeObserver)
+                }
+
+                observedWindow = window
+                closeObserver = NotificationCenter.default.addObserver(
+                    forName: NSWindow.willCloseNotification,
+                    object: window,
+                    queue: .main
+                ) { _ in
+                    DispatchQueue.main.async {
+                        NSApplication.shared.setActivationPolicy(.accessory)
+                    }
+                }
+            }
+
+            func detach() {
+                if let closeObserver {
+                    NotificationCenter.default.removeObserver(closeObserver)
+                    self.closeObserver = nil
+                }
+                observedWindow = nil
+            }
+        }
     }
 
     private func applyNavigationRequest(_ request: MainWindowNavigationRequest?) {
