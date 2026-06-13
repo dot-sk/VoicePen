@@ -2,6 +2,11 @@ import SwiftUI
 
 struct VoicePenOverlayView: View {
     @ObservedObject var viewModel: OverlayViewModel
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var theme: VoicePenTheme {
+        VoicePenTheme.resolve(colorScheme)
+    }
 
     var body: some View {
         ZStack {
@@ -38,6 +43,8 @@ struct VoicePenOverlayView: View {
                 EmptyView()
             }
         }
+        .environment(\.voicePenTheme, theme)
+        .tint(theme.blue)
         .frame(width: 360, height: 128)
     }
 
@@ -52,6 +59,7 @@ struct VoicePenOverlayView: View {
 }
 
 private struct ListeningOverlayContent: View {
+    @Environment(\.voicePenTheme) private var theme
     let elapsedText: String
     let levelProvider: @Sendable () -> Double?
 
@@ -64,13 +72,14 @@ private struct ListeningOverlayContent: View {
                 .monospacedDigit()
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: true)
-                .foregroundStyle(Color(white: 0.58, opacity: 0.92))
+                .foregroundStyle(theme.textSecondary)
                 .offset(y: -8)
         }
     }
 }
 
 private struct TextStatusOverlayContent: View {
+    @Environment(\.voicePenTheme) private var theme
     let title: String
     let subtitle: String
     let progress: Double?
@@ -94,12 +103,12 @@ private struct TextStatusOverlayContent: View {
                 Text(title)
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .lineLimit(1)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(theme.textPrimary)
 
                 if showsSubtitle {
                     Text(subtitle)
                         .font(.system(size: 11, weight: .regular, design: .rounded))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(theme.textSecondary)
                         .lineLimit(1)
                 }
             }
@@ -122,14 +131,13 @@ private struct TextStatusOverlayContent: View {
         .frame(maxWidth: chipMaxWidth)
         .background {
             Capsule()
-                .fill(.black.opacity(0.16))
-                .background(.ultraThinMaterial, in: Capsule())
+                .fill(theme.glassFill(tint: theme.blue))
         }
         .overlay {
             Capsule()
-                .strokeBorder(.white.opacity(0.18), lineWidth: 0.8)
+                .strokeBorder(theme.borderStrong, lineWidth: 0.8)
         }
-        .shadow(color: .black.opacity(0.08), radius: 10, x: 0, y: 6)
+        .shadow(color: theme.cardShadow, radius: 10, x: 0, y: 6)
     }
 
     @ViewBuilder
@@ -137,14 +145,14 @@ private struct TextStatusOverlayContent: View {
         if title == "VoicePen needs attention" {
             Image(systemName: symbolName)
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.yellow)
+                .foregroundStyle(theme.yellow)
         } else if progress != nil {
             ProgressView(value: progress, total: 1.0)
                 .controlSize(.small)
         } else if title == "Inserted" || symbolName == "checkmark" {
             Image(systemName: symbolName)
                 .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(.green)
+                .foregroundStyle(theme.green)
         } else {
             ProgressView()
                 .controlSize(.small)

@@ -24,7 +24,7 @@ SWIFTLINT_CACHE := .swiftlint-cache
 PERIPHERY ?= periphery
 XCODEBUILD_FORMATTER ?= xcbeautify
 
-.PHONY: help build package appcast prepare-release publish-release format format-check lint lint-fix swiftlint swiftlint-fix dead-code install-hooks check test integration-test validate-specs run clean-derived resolve-packages
+.PHONY: help build package appcast prepare-release publish-release generate-app-icon format format-check lint lint-fix swiftlint swiftlint-fix dead-code install-hooks check test integration-test validate-specs run clean-derived resolve-packages
 
 help:
 	@printf "VoicePen commands:\n"
@@ -33,6 +33,7 @@ help:
 	@printf "  make appcast          Generate a Sparkle appcast for PACKAGE_ZIP\n"
 	@printf "  make prepare-release VERSION=1.1.0 [BUILD=42]\n"
 	@printf "  make publish-release VERSION=1.1.0\n"
+	@printf "  make generate-app-icon Generate AppIcon PNGs from the parametric source\n"
 	@printf "  make format           Format Swift source with swift-format\n"
 	@printf "  make format-check     Check Swift formatting without changing files\n"
 	@printf "  make lint             Run SwiftLint checks\n"
@@ -85,6 +86,9 @@ prepare-release:
 publish-release:
 	@test -n "$(VERSION)" || (printf "Usage: make publish-release VERSION=1.1.0\n" >&2; exit 64)
 	scripts/publish-release.sh "$(VERSION)"
+
+generate-app-icon:
+	scripts/generate-app-icon.sh
 
 format:
 	@xcrun --find swift-format >/dev/null || (printf "swift-format is required. Install Xcode 16+ or run brew install swift-format.\n" >&2; exit 127)

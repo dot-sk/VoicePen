@@ -1,5 +1,32 @@
 import SwiftUI
 
+struct TranscriptWorkspaceListModel<Entry: Identifiable & Sendable> where Entry.ID: Hashable & Sendable {
+    let entries: [Entry]
+    let entryIDs: [Entry.ID]
+    let dayGroups: [TranscriptDayGroup<Entry>]
+
+    init(
+        entries: [Entry],
+        entryIDs: [Entry.ID],
+        dayGroups: [TranscriptDayGroup<Entry>]
+    ) {
+        self.entries = entries
+        self.entryIDs = entryIDs
+        self.dayGroups = dayGroups
+    }
+
+    init(entries: [Entry], now: Date = Date(), entryDate: (Entry) -> Date) {
+        self.entries = entries
+        entryIDs = entries.map(\.id)
+        dayGroups =
+            TranscriptDayGroups(
+                entries: entries,
+                now: now,
+                date: entryDate
+            ).groups
+    }
+}
+
 struct TranscriptWorkspaceView<
     Entry: Identifiable & Sendable,
     HeaderAccessory: View,
@@ -9,10 +36,10 @@ struct TranscriptWorkspaceView<
 >: View where Entry.ID: Hashable & Sendable {
     @Binding var selectedID: Entry.ID?
     @Binding var searchText: String
+    @Environment(\.voicePenTheme) private var theme
 
-    let entries: [Entry]
+    let listModel: TranscriptWorkspaceListModel<Entry>
     let hasSourceEntries: Bool
-    let entryDate: (Entry) -> Date
     let searchPlaceholder: String
     let emptyTitle: String
     let emptySystemImage: String
@@ -26,24 +53,13 @@ struct TranscriptWorkspaceView<
     @ViewBuilder let sidebarContent: (Entry?) -> SidebarContent
 
     @FocusState private var isSearchFocused: Bool
+    @State private var isSearchPresented = false
 
     private var selectedEntry: Entry? {
         guard let selectedID else {
-            return entries.first
+            return listModel.entries.first
         }
-        return entries.first { $0.id == selectedID } ?? entries.first
-    }
-
-    private var entryIDs: [Entry.ID] {
-        entries.map(\.id)
-    }
-
-    private var dayGroups: [TranscriptDayGroup<Entry>] {
-        TranscriptDayGroups(
-            entries: entries,
-            now: Date(),
-            date: entryDate
-        ).groups
+        return listModel.entries.first { $0.id == selectedID } ?? listModel.entries.first
     }
 
     var body: some View {
@@ -72,11 +88,19 @@ struct TranscriptWorkspaceView<
                 )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(theme.background)
+        .tint(theme.blue)
         .background(searchKeyboardShortcut)
+        .modifier(
+            TranscriptWorkspaceSearchExitModifier(
+                isSearchPresented: isSearchPresented,
+                dismissSearch: dismissSearch
+            )
+        )
         .onAppear {
             ensureSelectedEntryIsVisible()
         }
-        .onChange(of: entryIDs) { _, _ in
+        .onChange(of: listModel.entryIDs) { _, _ in
             ensureSelectedEntryIsVisible()
         }
     }
@@ -84,8 +108,6 @@ struct TranscriptWorkspaceView<
     private var listPanel: some View {
         VStack(spacing: 0) {
             listHeader
-                .padding([.horizontal, .top], 16)
-                .padding(.bottom, 10)
 
             if !hasSourceEntries {
                 ContentUnavailableView(
@@ -94,7 +116,7 @@ struct TranscriptWorkspaceView<
                     description: Text(emptyDescription)
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if entries.isEmpty {
+            } else if listModel.entries.isEmpty {
                 ContentUnavailableView(
                     noMatchesTitle,
                     systemImage: noMatchesSystemImage,
@@ -104,7 +126,7 @@ struct TranscriptWorkspaceView<
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-                        ForEach(dayGroups, id: \.day) { group in
+                        ForEach(listModel.dayGroups, id: \.day) { group in
                             Section {
                                 ForEach(group.entries) { entry in
                                     rowContent(entry)
@@ -121,16 +143,27 @@ struct TranscriptWorkspaceView<
                     }
                     .padding(.vertical, 6)
                 }
-                .id(entryIDs)
+                .id(listModel.entryIDs)
                 .scrollIndicators(.automatic)
             }
         }
+        .background(theme.background)
     }
 
     private var listHeader: some View {
-        VStack(spacing: 10) {
-            searchField
-            headerAccessory()
+        Group {
+            if isSearchPresented {
+                VStack(spacing: 10) {
+                    searchField
+                    headerAccessory()
+                }
+                .padding([.horizontal, .top], 16)
+                .padding(.bottom, 10)
+            } else {
+                headerAccessory()
+                    .padding([.horizontal, .top], 16)
+                    .padding(.bottom, 10)
+            }
         }
     }
 
@@ -138,7 +171,7 @@ struct TranscriptWorkspaceView<
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 14, weight: .regular))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.textTertiary)
 
             TextField(searchPlaceholder, text: $searchText)
                 .textFieldStyle(.plain)
@@ -146,23 +179,23 @@ struct TranscriptWorkspaceView<
 
             Text("⌘F")
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.textTertiary)
         }
         .padding(.horizontal, 10)
         .frame(maxWidth: .infinity, minHeight: 34)
         .background {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color(nsColor: .textBackgroundColor))
+                .fill(theme.surfaceElevated)
         }
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color(nsColor: .separatorColor))
+                .stroke(theme.border)
         }
     }
 
     private var searchKeyboardShortcut: some View {
         Button {
-            isSearchFocused = true
+            presentSearch()
         } label: {
             EmptyView()
         }
@@ -173,43 +206,71 @@ struct TranscriptWorkspaceView<
         .accessibilityHidden(true)
     }
 
+    private func presentSearch() {
+        isSearchPresented = true
+        Task { @MainActor in
+            await Task.yield()
+            isSearchFocused = true
+        }
+    }
+
+    private func dismissSearch() {
+        guard isSearchPresented else { return }
+        searchText = ""
+        isSearchFocused = false
+        isSearchPresented = false
+    }
+
     private func ensureSelectedEntryIsVisible() {
-        guard !entries.contains(where: { $0.id == selectedID }) else { return }
-        selectedID = entries.first?.id
+        guard !listModel.entries.contains(where: { $0.id == selectedID }) else { return }
+        selectedID = listModel.entries.first?.id
+    }
+}
+
+private struct TranscriptWorkspaceSearchExitModifier: ViewModifier {
+    let isSearchPresented: Bool
+    let dismissSearch: () -> Void
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isSearchPresented {
+            content
+                .onExitCommand {
+                    dismissSearch()
+                }
+        } else {
+            content
+        }
     }
 }
 
 struct TranscriptTextWorkspace: View {
     let title: String
-    let subtitle: String
     let text: String
+    let textSnapshot: TranscriptTextSnapshot
     let selectionResetID: UUID
     let copyAction: () -> Void
     var isSecondaryText = false
     var isCopyDisabled = false
+    var showsLineNumbers = true
+    @Environment(\.voicePenTheme) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.headline)
-                    .textSelection(.enabled)
-                Text(subtitle)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
-
+        VStack(alignment: .leading, spacing: 0) {
             TranscriptTextEditor(
+                fileName: title,
                 text: text,
+                textSnapshot: textSnapshot,
                 selectionResetID: selectionResetID,
                 copyAction: copyAction,
                 isSecondaryText: isSecondaryText,
-                isCopyDisabled: isCopyDisabled
+                isCopyDisabled: isCopyDisabled,
+                showsLineNumbers: showsLineNumbers
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(20)
+        .background(theme.background)
     }
 }
 
@@ -223,28 +284,30 @@ enum TranscriptWorkspaceLayout {
 }
 
 struct TranscriptDaySectionHeader: View {
+    @Environment(\.voicePenTheme) private var theme
     let title: String
 
     var body: some View {
         Text(title)
             .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(theme.textTertiary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(.background)
+            .background(theme.background)
     }
 }
 
 struct TranscriptListRowStyle: ViewModifier {
+    @Environment(\.voicePenTheme) private var theme
     let isSelected: Bool
     @State private var isHovered = false
 
     private var backgroundColor: Color {
         if isSelected {
-            return Color.accentColor.opacity(0.16)
+            return theme.blue.opacity(theme.isDark ? 0.28 : 0.14)
         }
-        return isHovered ? Color.primary.opacity(0.055) : Color.clear
+        return isHovered ? theme.blue.opacity(theme.isDark ? 0.12 : 0.07) : Color.clear
     }
 
     func body(content: Content) -> some View {

@@ -37,15 +37,18 @@ nonisolated struct MeetingPipelineTimings: Codable, Equatable, Sendable {
     var recording: TimeInterval?
     var preprocessing: TimeInterval?
     var transcription: TimeInterval?
+    var diarization: TimeInterval?
 
     init(
         recording: TimeInterval? = nil,
         preprocessing: TimeInterval? = nil,
-        transcription: TimeInterval? = nil
+        transcription: TimeInterval? = nil,
+        diarization: TimeInterval? = nil
     ) {
         self.recording = recording
         self.preprocessing = preprocessing
         self.transcription = transcription
+        self.diarization = diarization
     }
 }
 

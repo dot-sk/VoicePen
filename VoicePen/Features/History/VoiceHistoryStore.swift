@@ -6,6 +6,7 @@ final class VoiceHistoryStore: ObservableObject {
     @Published private(set) var entries: [VoiceHistoryEntry] = []
     @Published private(set) var usageStats = VoiceTranscriptionUsageStats()
     @Published private(set) var storageStats = VoiceHistoryStorageStats()
+    @Published private(set) var transcriptTextUIStates: [VoiceHistoryEntry.ID: TranscriptTextUIState] = [:]
 
     private let databaseURL: URL
     private let textStorageLimitBytes: Int
@@ -36,9 +37,7 @@ final class VoiceHistoryStore: ObservableObject {
                 storageStats: try fetchStorageStats(from: database)
             )
         }
-        entries = result.entries
-        usageStats = VoiceTranscriptionUsageStats(entries: result.entries)
-        storageStats = result.storageStats
+        publish(result)
     }
 
     func append(_ entry: VoiceHistoryEntry) throws {
@@ -52,9 +51,7 @@ final class VoiceHistoryStore: ObservableObject {
                 storageStats: try fetchStorageStats(from: database)
             )
         }
-        entries = result.entries
-        usageStats = VoiceTranscriptionUsageStats(entries: result.entries)
-        storageStats = result.storageStats
+        publish(result)
     }
 
     func appendArchivedAudioURL(_ url: URL, for id: VoiceHistoryEntry.ID) throws {
@@ -72,9 +69,7 @@ final class VoiceHistoryStore: ObservableObject {
                 storageStats: try fetchStorageStats(from: database)
             )
         }
-        entries = result.entries
-        usageStats = VoiceTranscriptionUsageStats(entries: result.entries)
-        storageStats = result.storageStats
+        publish(result)
     }
 
     func clear() throws {
@@ -87,6 +82,7 @@ final class VoiceHistoryStore: ObservableObject {
         entries = []
         usageStats = VoiceTranscriptionUsageStats()
         storageStats = stats
+        transcriptTextUIStates = [:]
     }
 
     func delete(id: VoiceHistoryEntry.ID) throws {
@@ -100,9 +96,7 @@ final class VoiceHistoryStore: ObservableObject {
                 storageStats: try fetchStorageStats(from: database)
             )
         }
-        entries = result.entries
-        usageStats = VoiceTranscriptionUsageStats(entries: result.entries)
-        storageStats = result.storageStats
+        publish(result)
     }
 
     private func withDatabase<T>(_ body: (SQLiteConnection) throws -> T) throws -> T {
@@ -111,6 +105,44 @@ final class VoiceHistoryStore: ObservableObject {
             makeError: VoiceHistoryStoreError.sqlite
         )
         return try body(database)
+    }
+
+    private func publish(_ result: HistoryLoadResult) {
+        transcriptTextUIStates = Self.textUIStates(
+            for: result.entries,
+            previous: transcriptTextUIStates
+        )
+        entries = result.entries
+        usageStats = VoiceTranscriptionUsageStats(entries: result.entries)
+        storageStats = result.storageStats
+    }
+
+    private static func textUIStates(
+        for entries: [VoiceHistoryEntry],
+        previous: [VoiceHistoryEntry.ID: TranscriptTextUIState]
+    ) -> [VoiceHistoryEntry.ID: TranscriptTextUIState] {
+        Dictionary(
+            uniqueKeysWithValues: entries.map { entry in
+                (
+                    entry.id,
+                    TranscriptTextUIState.make(
+                        text: displayText(for: entry),
+                        previous: previous[entry.id]
+                    )
+                )
+            }
+        )
+    }
+
+    static func displayText(for entry: VoiceHistoryEntry) -> String {
+        let finalText = entry.finalText.trimmed
+        if !finalText.isEmpty {
+            return entry.finalText
+        }
+        if let errorMessage = entry.errorMessage, !errorMessage.trimmed.isEmpty {
+            return errorMessage
+        }
+        return entry.status.title
     }
 
     private func insert(_ entry: VoiceHistoryEntry, into database: SQLiteConnection) throws {

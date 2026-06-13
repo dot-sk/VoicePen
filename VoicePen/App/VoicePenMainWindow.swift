@@ -4,25 +4,23 @@ import UniformTypeIdentifiers
 
 struct VoicePenMainWindow: View {
     @ObservedObject var controller: AppController
+    @Environment(\.colorScheme) private var colorScheme
     @State private var selectedSection: VoicePenSettingsSection? = .general
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
-    private let primaryActivityBarSections: [VoicePenSettingsSection] = [
+    private let primarySidebarSections: [VoicePenSettingsSection] = [
         .general,
         .meetings,
         .history
     ]
 
-    private var settingsActivityBarSections: [VoicePenSettingsSection] {
+    private var settingsSidebarSections: [VoicePenSettingsSection] {
         var sections: [VoicePenSettingsSection] = [
             .dictionary,
-            .model,
-            .config
+            .model
         ]
         if VoicePenConfig.modesFeatureEnabled {
             sections.append(.modes)
-        }
-        if VoicePenConfig.aiFeatureEnabled {
-            sections.append(.ai)
         }
         sections.append(contentsOf: [
             .about
@@ -30,33 +28,41 @@ struct VoicePenMainWindow: View {
         return sections
     }
 
+    private var theme: VoicePenTheme {
+        VoicePenTheme.resolve(colorScheme)
+    }
+
     var body: some View {
-        HStack(spacing: 0) {
-            VoicePenActivityBar(
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            VoicePenIconSidebar(
                 selectedSection: $selectedSection,
-                primarySections: primaryActivityBarSections,
-                settingsSections: settingsActivityBarSections,
+                primarySections: primarySidebarSections,
+                settingsSections: settingsSidebarSections,
+                bottomSections: [.config],
                 systemImage: systemImage(for:)
             )
-
-            Divider()
-
+            .navigationSplitViewColumnWidth(min: 72, ideal: 72, max: 72)
+        } detail: {
             NavigationStack {
-                if let selectedSection {
-                    detailView(for: selectedSection)
-                        .navigationTitle(selectedSection.title)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    ContentUnavailableView(
-                        "Select a section",
-                        systemImage: "sidebar.left",
-                        description: Text("VoicePen settings will appear here.")
-                    )
-                    .navigationTitle("VoicePen")
+                Group {
+                    if let selectedSection {
+                        detailView(for: selectedSection)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        ContentUnavailableView(
+                            "Select a section",
+                            systemImage: "sidebar.left",
+                            description: Text("VoicePen settings will appear here.")
+                        )
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .navigationTitle(selectedSection?.title ?? "VoicePen")
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .environment(\.voicePenTheme, theme)
+        .background(theme.background)
+        .tint(theme.blue)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             MeetingRecordingPanel(controller: controller)
         }
@@ -64,7 +70,7 @@ struct VoicePenMainWindow: View {
             MainWindowCloseLifecycleBridge()
                 .frame(width: 0, height: 0)
 
-            ActivityBarNavigationShortcutMonitor(selectSection: { section in
+            SidebarNavigationShortcutMonitor(selectSection: { section in
                 selectedSection = section
             })
             .frame(width: 0, height: 0)
@@ -77,6 +83,11 @@ struct VoicePenMainWindow: View {
         }
         .onChange(of: controller.mainWindowNavigationRequest) { _, request in
             applyNavigationRequest(request)
+        }
+        .onChange(of: columnVisibility) { _, visibility in
+            if visibility != .all {
+                columnVisibility = .all
+            }
         }
         .frame(minWidth: 920, minHeight: 560)
     }
@@ -126,13 +137,13 @@ struct VoicePenMainWindow: View {
                     return
                 }
 
+                configureNativeSidebarChrome(window)
+
                 guard observedWindow !== window else {
                     return
                 }
 
-                if let closeObserver {
-                    NotificationCenter.default.removeObserver(closeObserver)
-                }
+                removeObservers()
 
                 observedWindow = window
                 closeObserver = NotificationCenter.default.addObserver(
@@ -146,12 +157,25 @@ struct VoicePenMainWindow: View {
                 }
             }
 
+            private func configureNativeSidebarChrome(_ window: NSWindow) {
+                window.titleVisibility = .hidden
+                window.titlebarAppearsTransparent = true
+                window.styleMask.insert(.fullSizeContentView)
+                window.toolbarStyle = .unifiedCompact
+                window.titlebarSeparatorStyle = .none
+                window.isMovableByWindowBackground = true
+            }
+
             func detach() {
+                removeObservers()
+                observedWindow = nil
+            }
+
+            private func removeObservers() {
                 if let closeObserver {
                     NotificationCenter.default.removeObserver(closeObserver)
                     self.closeObserver = nil
                 }
-                observedWindow = nil
             }
         }
     }
@@ -184,8 +208,6 @@ struct VoicePenMainWindow: View {
             ModelSettingsView(controller: controller, settingsStore: controller.settingsStore)
         case .modes:
             ModesSettingsView(controller: controller, settingsStore: controller.settingsStore)
-        case .ai:
-            AISettingsView(controller: controller)
         case .config:
             ConfigSettingsView(controller: controller, settingsStore: controller.settingsStore)
         case .dictionary:
@@ -226,7 +248,7 @@ struct VoicePenMainWindow: View {
     }
 }
 
-private struct ActivityBarNavigationShortcutMonitor: NSViewRepresentable {
+private struct SidebarNavigationShortcutMonitor: NSViewRepresentable {
     let selectSection: (VoicePenSettingsSection) -> Void
 
     func makeNSView(context: Context) -> NSView {
@@ -306,107 +328,155 @@ private struct ActivityBarNavigationShortcutMonitor: NSViewRepresentable {
         private static func isCommandOnlyShortcut(_ event: NSEvent) -> Bool {
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             let disallowedFlags: NSEvent.ModifierFlags = [.control, .option, .shift]
-            return flags.contains(.command) && flags.intersection(disallowedFlags).isEmpty
+            return flags.contains(.command) && flags.isDisjoint(with: disallowedFlags)
         }
     }
 }
 
-private struct VoicePenActivityBar: View {
+private struct VoicePenIconSidebar: View {
+    @Environment(\.voicePenTheme) private var theme
     @Binding var selectedSection: VoicePenSettingsSection?
+    @State private var hoveredSection: VoicePenSettingsSection?
+
+    private let verticalPadding: CGFloat = 10
 
     let primarySections: [VoicePenSettingsSection]
     let settingsSections: [VoicePenSettingsSection]
+    let bottomSections: [VoicePenSettingsSection]
     let systemImage: (VoicePenSettingsSection) -> String
 
     var body: some View {
-        VStack(spacing: 0) {
-            activityButtons(primarySections)
+        GeometryReader { proxy in
+            VStack(spacing: 0) {
+                VStack(spacing: 6) {
+                    sidebarButtons(primarySections)
 
-            activityDivider
+                    sidebarDivider
 
-            activityButtons(settingsSections)
+                    sidebarButtons(settingsSections)
+                }
+                .padding(.top, topPadding(for: proxy.safeAreaInsets.top))
 
-            Spacer(minLength: 0)
+                Spacer(minLength: 0)
+
+                VStack(spacing: 6) {
+                    sidebarDivider
+
+                    sidebarButtons(bottomSections)
+                }
+                .padding(.bottom, verticalPadding)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, 10)
         }
-        .padding(.vertical, 8)
-        .frame(width: 52)
-        .frame(maxHeight: .infinity)
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background(theme.heroBackground)
     }
 
-    private var activityDivider: some View {
-        Divider()
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+    private func topPadding(for safeAreaTopInset: CGFloat) -> CGFloat {
+        max(verticalPadding, safeAreaTopInset + verticalPadding)
+    }
+
+    private var sidebarDivider: some View {
+        Rectangle()
+            .fill(theme.border)
+            .frame(height: 1)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
     }
 
     @ViewBuilder
-    private func activityButtons(_ sections: [VoicePenSettingsSection]) -> some View {
+    private func sidebarButtons(_ sections: [VoicePenSettingsSection]) -> some View {
         ForEach(sections) { section in
-            VoicePenActivityBarButton(
+            VoicePenIconSidebarButton(
                 section: section,
                 systemImage: systemImage(section),
-                isSelected: selectedSection == section
+                isSelected: selectedSection == section,
+                isHovered: hoveredSection == section,
+                theme: theme
             ) {
                 selectedSection = section
+            }
+            .onHover { isHovered in
+                hoveredSection = isHovered ? section : nil
             }
         }
     }
 }
 
-private struct VoicePenActivityBarButton: View {
+private struct VoicePenIconSidebarButton: View {
     let section: VoicePenSettingsSection
     let systemImage: String
     let isSelected: Bool
+    let isHovered: Bool
+    let theme: VoicePenTheme
     let action: () -> Void
-
-    @State private var isHovered = false
-
-    private var backgroundColor: Color {
-        if isSelected {
-            return Color.accentColor.opacity(0.16)
-        }
-        if isHovered {
-            return Color.primary.opacity(0.08)
-        }
-        return .clear
-    }
 
     var body: some View {
         Button(action: action) {
-            ZStack(alignment: .leading) {
-                if isSelected {
-                    RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                        .fill(Color.accentColor)
-                        .frame(width: 3, height: 24)
-                }
-
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(backgroundColor)
-                    .frame(width: 36, height: 36)
-                    .padding(.leading, 8)
-
-                Image(systemName: systemImage)
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                    .frame(width: 24, height: 24)
-                    .padding(6)
-                    .frame(width: 52, height: 40)
-            }
-            .frame(width: 52, height: 40)
-            .contentShape(Rectangle())
+            Image(systemName: systemImage)
+                .font(.system(size: 20, weight: .medium))
+                .foregroundStyle(iconColor)
+                .frame(width: 24, height: 24)
+                .frame(width: 44, height: 38)
+                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
         .help(section.title)
         .accessibilityLabel(section.title)
         .accessibilityValue(isSelected ? "Selected" : "")
+        .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(backgroundFill)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(borderFill, lineWidth: isSelected || isHovered ? 1 : 0)
+        }
+    }
+
+    private var iconColor: Color {
+        if isSelected {
+            return theme.blue
+        }
+        if isHovered {
+            return theme.textPrimary
+        }
+        return theme.textSecondary
+    }
+
+    private var backgroundFill: LinearGradient {
+        if isSelected {
+            return theme.glassFill(tint: theme.blue)
+        }
+        if isHovered {
+            return theme.glassFill(tint: theme.textSecondary)
+        }
+        return LinearGradient(
+            colors: [.clear, .clear],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private var borderFill: LinearGradient {
+        if isSelected {
+            return theme.glassStroke(tint: theme.blue)
+        }
+        if isHovered {
+            return theme.glassStroke(tint: theme.textSecondary)
+        }
+        return LinearGradient(
+            colors: [.clear, .clear],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
     }
 }
 
 private struct DictionaryEditorView: View {
     @ObservedObject var controller: AppController
     @ObservedObject var dictionaryStore: DictionaryStore
+    @Environment(\.voicePenTheme) private var theme
     @State private var selectedID: String?
     @State private var isCreatingNewEntry = false
     @State private var draft = TermEntryDraft()
@@ -416,16 +486,12 @@ private struct DictionaryEditorView: View {
     @State private var reviewPreset = DictionaryReviewPromptPreset.dictionaryImprovement
     @State private var historyReviewLimit = HistoryReviewLimit.defaultValue
     @State private var pendingImportPreview: PendingDictionaryImportPreview?
+    @State private var filteredEntries: [TermEntry] = []
 
     private var selectedEntry: TermEntry? {
         guard !isCreatingNewEntry else { return nil }
         guard let selectedID else { return filteredEntries.first }
         return filteredEntries.first { $0.id == selectedID } ?? filteredEntries.first
-    }
-
-    private var filteredEntries: [TermEntry] {
-        DictionaryEntryFilter(query: searchText)
-            .filteredEntries(from: dictionaryStore.entries)
     }
 
     var body: some View {
@@ -508,6 +574,8 @@ private struct DictionaryEditorView: View {
                             }
                         }
                         .listStyle(.sidebar)
+                        .scrollContentBackground(.hidden)
+                        .background(theme.background)
                         .scrollIndicators(.automatic)
                     }
                 }
@@ -578,10 +646,13 @@ private struct DictionaryEditorView: View {
                 }
                 .formStyle(.grouped)
                 .padding(18)
+                .voicePenThemedScreen(theme)
                 .frame(minWidth: 340, idealWidth: 420)
             }
         }
+        .background(theme.background)
         .onAppear {
+            refreshFilteredEntries()
             if selectedID == nil {
                 selectedID = filteredEntries.first?.id
             }
@@ -594,6 +665,7 @@ private struct DictionaryEditorView: View {
             loadSelectedEntry()
         }
         .onChange(of: dictionaryStore.entries) { _, entries in
+            refreshFilteredEntries()
             guard !isCreatingNewEntry else { return }
             guard !entries.contains(where: { $0.id == selectedID }) else {
                 ensureSelectedEntryIsVisible()
@@ -603,6 +675,7 @@ private struct DictionaryEditorView: View {
             loadSelectedEntry()
         }
         .onChange(of: searchText) { _, _ in
+            refreshFilteredEntries()
             ensureSelectedEntryIsVisible()
         }
         .alert("Delete dictionary term?", isPresented: $showingDeleteConfirmation) {
@@ -650,6 +723,11 @@ private struct DictionaryEditorView: View {
         guard !filteredEntries.contains(where: { $0.id == selectedID }) else { return }
         selectedID = filteredEntries.first?.id
         loadSelectedEntry()
+    }
+
+    private func refreshFilteredEntries() {
+        filteredEntries = DictionaryEntryFilter(query: searchText)
+            .filteredEntries(from: dictionaryStore.entries)
     }
 
     private func createNewEntry() {
@@ -754,6 +832,7 @@ private struct DictionaryEditorView: View {
 }
 
 private struct DictionaryReviewPanel: View {
+    @Environment(\.voicePenTheme) private var theme
     @Binding var reviewPreset: DictionaryReviewPromptPreset
     @Binding var historyReviewLimit: HistoryReviewLimit
     let message: String?
@@ -854,6 +933,7 @@ private struct DictionaryReviewPanel: View {
                 .opacity(message == nil ? 0 : 1)
         }
         .padding(18)
+        .background(theme.surfaceElevated)
     }
 }
 
@@ -979,6 +1059,7 @@ private struct ImportedTermsPreview: View {
 }
 
 private struct DictionaryImportPreviewExampleView: View {
+    @Environment(\.voicePenTheme) private var theme
     let example: DictionaryImportPreviewExample
 
     var body: some View {
@@ -1002,10 +1083,10 @@ private struct DictionaryImportPreviewExampleView: View {
             }
         }
         .padding(12)
-        .background(.background)
+        .background(theme.surface)
         .overlay {
             RoundedRectangle(cornerRadius: 6)
-                .stroke(.secondary.opacity(0.22), lineWidth: 1)
+                .stroke(theme.border, lineWidth: 1)
         }
     }
 
@@ -1017,17 +1098,18 @@ private struct DictionaryImportPreviewExampleView: View {
 
             switch token.change {
             case .unchanged:
-                return partial + text.foregroundStyle(.primary)
+                return partial + text.foregroundStyle(theme.textPrimary)
             case .removed:
-                return partial + text.foregroundStyle(.red).strikethrough()
+                return partial + text.foregroundStyle(theme.red).strikethrough()
             case .inserted:
-                return partial + text.foregroundStyle(.green)
+                return partial + text.foregroundStyle(theme.green)
             }
         }
     }
 }
 
 private struct DictionaryListEditor: View {
+    @Environment(\.voicePenTheme) private var theme
     let title: String
     @Binding var text: String
 
@@ -1041,10 +1123,10 @@ private struct DictionaryListEditor: View {
                 .frame(minHeight: 58, maxHeight: 86)
                 .scrollContentBackground(.hidden)
                 .padding(8)
-                .background(.background)
+                .background(theme.surface)
                 .overlay {
                     RoundedRectangle(cornerRadius: 6)
-                        .stroke(.secondary.opacity(0.22), lineWidth: 1)
+                        .stroke(theme.border, lineWidth: 1)
                 }
         }
     }
@@ -1095,6 +1177,7 @@ private struct TermEntryDraft: Equatable {
 
 private struct MeetingRecordingPanel: View {
     @ObservedObject var controller: AppController
+    @Environment(\.voicePenTheme) private var theme
 
     var body: some View {
         if showsPanel {
@@ -1147,9 +1230,12 @@ private struct MeetingRecordingPanel: View {
             .padding(.horizontal, 18)
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity)
-            .background(.bar)
+            .foregroundStyle(theme.textSecondary)
+            .background(theme.surfaceElevated)
             .overlay(alignment: .top) {
-                Divider()
+                Rectangle()
+                    .fill(theme.border)
+                    .frame(height: 1)
             }
         }
     }
@@ -1191,11 +1277,12 @@ private struct MeetingRecordingPanel: View {
 }
 
 private struct RecordingPulseDot: View {
+    @Environment(\.voicePenTheme) private var theme
     @State private var isDimmed = false
 
     var body: some View {
         Circle()
-            .fill(.red)
+            .fill(theme.red)
             .frame(width: 8, height: 8)
             .opacity(isDimmed ? 0.35 : 1)
             .scaleEffect(isDimmed ? 0.75 : 1.1)
@@ -1227,39 +1314,31 @@ private struct RecordingPulseIcon: View {
 private struct MeetingsView: View {
     @ObservedObject var controller: AppController
     @ObservedObject var meetingHistoryStore: MeetingHistoryStore
+    @Environment(\.voicePenTheme) private var theme
     @State private var selectedID: MeetingHistoryEntry.ID?
     @State private var entryPendingDeletion: MeetingHistoryEntry?
     @State private var focusedEntry: MeetingHistoryEntry?
+    @State private var focusedTextUIState: TranscriptTextUIState?
     @State private var searchText = ""
-
-    private var filteredEntries: [MeetingHistoryEntry] {
-        MeetingHistoryFilter(query: searchText)
-            .filteredEntries(from: searchableEntries)
-    }
-
-    private var searchableEntries: [MeetingHistoryEntry] {
-        guard let focusedEntry else {
-            return meetingHistoryStore.entries
-        }
-        return meetingHistoryStore.entries.map { entry in
-            entry.id == focusedEntry.id ? focusedEntry : entry
-        }
-    }
+    @State private var listModel = TranscriptWorkspaceListModel<MeetingHistoryEntry>(
+        entries: [],
+        entryIDs: [],
+        dayGroups: []
+    )
 
     private var selectedSummaryEntry: MeetingHistoryEntry? {
         guard let selectedID else {
-            return filteredEntries.first
+            return listModel.entries.first
         }
-        return filteredEntries.first { $0.id == selectedID } ?? filteredEntries.first
+        return listModel.entries.first { $0.id == selectedID } ?? listModel.entries.first
     }
 
     var body: some View {
         TranscriptWorkspaceView(
             selectedID: $selectedID,
             searchText: $searchText,
-            entries: filteredEntries,
+            listModel: listModel,
             hasSourceEntries: !meetingHistoryStore.entries.isEmpty,
-            entryDate: \.createdAt,
             searchPlaceholder: "Search meetings",
             emptyTitle: "No meetings yet",
             emptySystemImage: "person.2.wave.2",
@@ -1279,30 +1358,40 @@ private struct MeetingsView: View {
         } centerContent: { entry in
             MeetingTranscriptWorkspace(
                 entry: focusedEntry(for: entry),
+                textUIState: textUIState(for: focusedEntry(for: entry)),
                 copyAction: { controller.copyMeetingTranscript($0) }
             )
         } sidebarContent: { entry in
             MeetingMetadataSection(
                 controller: controller,
                 entry: focusedEntry(for: entry),
+                textUIState: textUIState(for: focusedEntry(for: entry)),
                 deleteAction: { entryPendingDeletion = $0 }
             )
         }
         .onAppear {
+            refreshListModel()
             controller.cleanupExpiredMeetingRecoveryAudio()
-            selectedID = selectedID ?? filteredEntries.first?.id
+            selectedID = selectedID ?? listModel.entries.first?.id
         }
         .onChange(of: meetingHistoryStore.entries) { _, _ in
             focusedEntry = nil
+            focusedTextUIState = nil
+            refreshListModel()
         }
         .onChange(of: searchText) { _, _ in
-            if !filteredEntries.contains(where: { $0.id == focusedEntry?.id }) {
+            refreshListModel()
+            if !listModel.entries.contains(where: { $0.id == focusedEntry?.id }) {
                 focusedEntry = nil
+                focusedTextUIState = nil
+                refreshListModel()
             }
         }
         .onChange(of: selectedID) { _, newSelectedID in
             if focusedEntry?.id != newSelectedID {
                 focusedEntry = nil
+                focusedTextUIState = nil
+                refreshListModel()
             }
         }
         .task(id: selectedID) {
@@ -1384,9 +1473,9 @@ private struct MeetingsView: View {
 
     private var meetingRecordingPrimaryButtonColor: Color {
         if controller.appState.isMeetingCaptureActive {
-            return .red
+            return theme.red
         }
-        return canStartMeeting ? Color.accentColor : Color.accentColor.opacity(0.45)
+        return canStartMeeting ? theme.blue : theme.blue.opacity(0.45)
     }
 
     @discardableResult
@@ -1418,19 +1507,52 @@ private struct MeetingsView: View {
     private func loadFocusedEntry() {
         guard let selectedSummaryEntry else {
             focusedEntry = nil
+            focusedTextUIState = nil
+            refreshListModel()
             return
         }
 
         do {
-            focusedEntry = try meetingHistoryStore.loadEntry(id: selectedSummaryEntry.id) ?? selectedSummaryEntry
+            let loadedEntry = try meetingHistoryStore.loadEntry(id: selectedSummaryEntry.id) ?? selectedSummaryEntry
+            focusedEntry = loadedEntry
+            focusedTextUIState = TranscriptTextUIState.make(
+                text: MeetingHistoryStore.displayText(for: loadedEntry),
+                previous: focusedTextUIState
+            )
+            refreshListModel()
         } catch {
             focusedEntry = selectedSummaryEntry
+            focusedTextUIState = textUIState(for: selectedSummaryEntry)
+            refreshListModel()
         }
     }
 
     private func focusedEntry(for entry: MeetingHistoryEntry?) -> MeetingHistoryEntry? {
         guard let entry else { return nil }
         return focusedEntry?.id == entry.id ? focusedEntry : entry
+    }
+
+    private func textUIState(for entry: MeetingHistoryEntry?) -> TranscriptTextUIState {
+        guard let entry else { return .empty }
+        if focusedEntry?.id == entry.id, let focusedTextUIState {
+            return focusedTextUIState
+        }
+        return meetingHistoryStore.transcriptTextUIStates[entry.id] ?? .empty
+    }
+
+    private func refreshListModel() {
+        let entries = MeetingHistoryFilter(query: searchText)
+            .filteredEntries(from: searchableEntries())
+        listModel = TranscriptWorkspaceListModel(entries: entries, entryDate: \.createdAt)
+    }
+
+    private func searchableEntries() -> [MeetingHistoryEntry] {
+        guard let focusedEntry else {
+            return meetingHistoryStore.entries
+        }
+        return meetingHistoryStore.entries.map { entry in
+            entry.id == focusedEntry.id ? focusedEntry : entry
+        }
     }
 }
 
@@ -1507,7 +1629,7 @@ private struct MeetingRecordingShortcutMonitor: NSViewRepresentable {
         private static func isCommandOnlyShortcut(_ event: NSEvent) -> Bool {
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             let disallowedFlags: NSEvent.ModifierFlags = [.control, .option, .shift]
-            return flags.contains(.command) && flags.intersection(disallowedFlags).isEmpty
+            return flags.contains(.command) && flags.isDisjoint(with: disallowedFlags)
         }
     }
 }
@@ -1600,6 +1722,7 @@ private struct MeetingRowView: View {
 
 private struct MeetingTranscriptWorkspace: View {
     let entry: MeetingHistoryEntry?
+    let textUIState: TranscriptTextUIState
     let copyAction: (MeetingHistoryEntry) -> Void
 
     var body: some View {
@@ -1619,8 +1742,8 @@ private struct MeetingTranscriptWorkspace: View {
     private func transcriptWorkspace(for entry: MeetingHistoryEntry) -> some View {
         TranscriptTextWorkspace(
             title: entry.createdAt.formatted(.dateTime.year().month().day().hour().minute().second()),
-            subtitle: detailSubtitle(for: entry),
-            text: displayText(for: entry),
+            text: MeetingHistoryStore.displayText(for: entry),
+            textSnapshot: textUIState.snapshot,
             selectionResetID: entry.id,
             copyAction: {
                 copyAction(entry)
@@ -1628,21 +1751,6 @@ private struct MeetingTranscriptWorkspace: View {
             isSecondaryText: entry.transcriptText.trimmed.isEmpty,
             isCopyDisabled: entry.transcriptText.trimmed.isEmpty
         )
-    }
-
-    private func detailSubtitle(for entry: MeetingHistoryEntry) -> String {
-        "\(entry.status.title) · \(entry.createdAt.formatted(date: .abbreviated, time: .shortened)) · \(MeetingDurationFormatter.historyText(entry.duration))"
-    }
-
-    private func displayText(for entry: MeetingHistoryEntry) -> String {
-        let transcriptText = entry.transcriptText.trimmed
-        if !transcriptText.isEmpty {
-            return entry.transcriptText
-        }
-        if let errorMessage = entry.errorMessage, !errorMessage.trimmed.isEmpty {
-            return errorMessage
-        }
-        return "No transcript"
     }
 }
 
@@ -1699,7 +1807,9 @@ private struct PointingHandCursorModifier: ViewModifier {
 
 private struct MeetingMetadataSection: View {
     @ObservedObject var controller: AppController
+    @Environment(\.voicePenTheme) private var theme
     let entry: MeetingHistoryEntry?
+    let textUIState: TranscriptTextUIState
     let deleteAction: (MeetingHistoryEntry) -> Void
 
     var body: some View {
@@ -1816,7 +1926,7 @@ private struct MeetingMetadataSection: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.red)
+        .foregroundStyle(theme.red)
         .contentShape(Rectangle())
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
@@ -1843,10 +1953,11 @@ private struct MeetingMetadataSection: View {
         if let appVersionText = entry.modelMetadata?.visibleAppVersion {
             rows.append(("App version", appVersionText))
         }
-        if let timecodesStatusText = timecodesStatusText(for: entry) {
+        if let timecodesStatusText = timecodesStatusText() {
             rows.append(("Timecodes", timecodesStatusText))
         }
         rows.append(("Processing time", processingTimeText(for: entry)))
+        rows.append(contentsOf: pipelineTimingRows(for: entry))
         return rows
     }
 
@@ -1854,25 +1965,18 @@ private struct MeetingMetadataSection: View {
         entry.modelMetadata?.displayName ?? "Unknown"
     }
 
-    private func timecodesStatusText(for entry: MeetingHistoryEntry) -> String? {
-        if transcriptContainsTimecode(in: entry) {
+    private func timecodesStatusText() -> String? {
+        if textUIState.containsTimecode {
             return nil
         }
         return "Not present"
     }
 
-    private func transcriptContainsTimecode(in entry: MeetingHistoryEntry) -> Bool {
-        return entry.transcriptText
-            .split(separator: "\n")
-            .contains { line in
-                line.hasPrefix("[") && line.contains(" - ") && line.contains("]")
-            }
-    }
-
     private func processingTimeText(for entry: MeetingHistoryEntry) -> String {
         let total = [
             entry.timings?.preprocessing,
-            entry.timings?.transcription
+            entry.timings?.transcription,
+            entry.timings?.diarization
         ]
         .compactMap { $0 }
         .reduce(0, +)
@@ -1881,11 +1985,31 @@ private struct MeetingMetadataSection: View {
             return "Unknown"
         }
 
-        if total < 1 {
-            return "\(Int((total * 1_000).rounded())) ms"
+        return formatProcessingDuration(total)
+    }
+
+    private func pipelineTimingRows(for entry: MeetingHistoryEntry) -> [(label: String, value: String)] {
+        guard let timings = entry.timings else {
+            return []
         }
 
-        return String(format: "%.2f s", total)
+        return [
+            ("Preprocessing", timings.preprocessing),
+            ("ASR", timings.transcription),
+            ("Diarization", timings.diarization)
+        ]
+        .compactMap { row in
+            guard let duration = row.1 else { return nil }
+            return (row.0, formatProcessingDuration(duration))
+        }
+    }
+
+    private func formatProcessingDuration(_ duration: TimeInterval) -> String {
+        if duration < 1 {
+            return "\(Int((duration * 1_000).rounded())) ms"
+        }
+
+        return String(format: "%.2f s", duration)
     }
 
     private func speakerCountText(for entry: MeetingHistoryEntry) -> String {
@@ -1924,19 +2048,18 @@ private struct HistoryView: View {
     @State private var selectedID: VoiceHistoryEntry.ID?
     @State private var entryPendingDeletion: VoiceHistoryEntry?
     @State private var searchText = ""
-
-    private var filteredEntries: [VoiceHistoryEntry] {
-        VoiceHistoryFilter(query: searchText)
-            .filteredEntries(from: historyStore.entries)
-    }
+    @State private var listModel = TranscriptWorkspaceListModel<VoiceHistoryEntry>(
+        entries: [],
+        entryIDs: [],
+        dayGroups: []
+    )
 
     var body: some View {
         TranscriptWorkspaceView(
             selectedID: $selectedID,
             searchText: $searchText,
-            entries: filteredEntries,
+            listModel: listModel,
             hasSourceEntries: !historyStore.entries.isEmpty,
-            entryDate: \.createdAt,
             searchPlaceholder: "Search sessions",
             emptyTitle: "No voice sessions yet",
             emptySystemImage: "mic",
@@ -1959,6 +2082,7 @@ private struct HistoryView: View {
         } centerContent: { entry in
             SessionTranscriptWorkspace(
                 entry: entry,
+                textUIState: textUIState(for: entry),
                 copyAction: {
                     copyHistoryEntry($0)
                 }
@@ -1976,7 +2100,14 @@ private struct HistoryView: View {
             )
         }
         .onAppear {
-            selectedID = selectedID ?? filteredEntries.first?.id
+            refreshListModel()
+            selectedID = selectedID ?? listModel.entries.first?.id
+        }
+        .onChange(of: historyStore.entries) { _, _ in
+            refreshListModel()
+        }
+        .onChange(of: searchText) { _, _ in
+            refreshListModel()
         }
         .alert("Delete voice session?", isPresented: deleteConfirmationBinding) {
             Button("Delete", role: .destructive) {
@@ -2012,6 +2143,17 @@ private struct HistoryView: View {
     private func insertHistoryEntry(_ entry: VoiceHistoryEntry) {
         guard !entry.finalText.trimmed.isEmpty else { return }
         controller.insertText(entry.finalText)
+    }
+
+    private func textUIState(for entry: VoiceHistoryEntry?) -> TranscriptTextUIState {
+        guard let entry else { return .empty }
+        return historyStore.transcriptTextUIStates[entry.id] ?? .empty
+    }
+
+    private func refreshListModel() {
+        let entries = VoiceHistoryFilter(query: searchText)
+            .filteredEntries(from: historyStore.entries)
+        listModel = TranscriptWorkspaceListModel(entries: entries, entryDate: \.createdAt)
     }
 }
 
@@ -2128,6 +2270,7 @@ private struct HistoryRowView: View {
 
 private struct SessionTranscriptWorkspace: View {
     let entry: VoiceHistoryEntry?
+    let textUIState: TranscriptTextUIState
     let copyAction: (VoiceHistoryEntry) -> Void
 
     var body: some View {
@@ -2135,14 +2278,15 @@ private struct SessionTranscriptWorkspace: View {
             if let entry {
                 TranscriptTextWorkspace(
                     title: entry.createdAt.formatted(.dateTime.year().month().day().hour().minute().second()),
-                    subtitle: detailSubtitle(for: entry),
-                    text: displayText(for: entry),
+                    text: VoiceHistoryStore.displayText(for: entry),
+                    textSnapshot: textUIState.snapshot,
                     selectionResetID: entry.id,
                     copyAction: {
                         copyAction(entry)
                     },
                     isSecondaryText: entry.finalText.trimmed.isEmpty,
-                    isCopyDisabled: entry.finalText.trimmed.isEmpty
+                    isCopyDisabled: entry.finalText.trimmed.isEmpty,
+                    showsLineNumbers: false
                 )
             } else {
                 ContentUnavailableView(
@@ -2153,28 +2297,11 @@ private struct SessionTranscriptWorkspace: View {
             }
         }
     }
-
-    private func detailSubtitle(for entry: VoiceHistoryEntry) -> String {
-        if let duration = entry.duration {
-            return "\(entry.status.title) · \(String(format: "%.1fs", duration))"
-        }
-        return entry.status.title
-    }
-
-    private func displayText(for entry: VoiceHistoryEntry) -> String {
-        let finalText = entry.finalText.trimmed
-        if !finalText.isEmpty {
-            return entry.finalText
-        }
-        if let errorMessage = entry.errorMessage, !errorMessage.trimmed.isEmpty {
-            return errorMessage
-        }
-        return entry.status.title
-    }
 }
 
 private struct SessionMetadataSection: View {
     @ObservedObject var controller: AppController
+    @Environment(\.voicePenTheme) private var theme
     let entry: VoiceHistoryEntry?
     let insertAction: (VoiceHistoryEntry) -> Void
     let deleteAction: (VoiceHistoryEntry) -> Void
@@ -2293,7 +2420,7 @@ private struct SessionMetadataSection: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.red)
+        .foregroundStyle(theme.red)
         .contentShape(Rectangle())
         .padding(.horizontal, 16)
         .padding(.vertical, 14)

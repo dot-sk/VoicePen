@@ -31,6 +31,7 @@ struct VoicePenApp: App {
                 }
         }
         .windowResizability(.contentMinSize)
+        .windowToolbarStyle(.unifiedCompact(showsTitle: false))
         .defaultLaunchBehavior(.presented)
         .commands {
             CommandGroup(replacing: .appSettings) {
@@ -133,6 +134,7 @@ private final class VoicePenStatusItemController: NSObject, NSMenuDelegate {
 
     private func observeState() {
         observeStateChange(controller.$appState)
+        observeStateChange(controller.$dictationRuntimeState)
         observeStateChange(controller.$lastRawText)
         observeStateChange(controller.$lastFinalText)
         observeStateChange(controller.settingsStore.$hotkeyPreference)
@@ -163,10 +165,21 @@ private final class VoicePenStatusItemController: NSObject, NSMenuDelegate {
             return
         }
 
-        let image = NSImage(systemSymbolName: state.menuBarSystemImage, accessibilityDescription: "VoicePen")
-        image?.isTemplate = true
+        let image = makeTemplateStatusImage(
+            systemSymbolName: state.menuBarSystemImage,
+            accessibilityDescription: "VoicePen"
+        )
         button.image = image
         button.contentTintColor = state.usesMeetingRecordingTint ? .systemRed : nil
+    }
+
+    private func makeTemplateStatusImage(
+        systemSymbolName: String,
+        accessibilityDescription: String
+    ) -> NSImage? {
+        let image = NSImage(systemSymbolName: systemSymbolName, accessibilityDescription: accessibilityDescription)
+        image?.isTemplate = true
+        return image
     }
 
     private func rebuildMenu() {

@@ -15,13 +15,14 @@ struct CopyButton: View {
     var feedbackTrigger = 0
     let action: () -> Void
 
+    @Environment(\.voicePenTheme) private var theme
     @State private var isCopied = false
     @State private var resetTask: Task<Void, Never>?
 
     var body: some View {
         styledButton
             .disabled(isDisabled)
-            .foregroundStyle(isCopied ? .green : .primary)
+            .foregroundStyle(isCopied ? theme.green : theme.textPrimary)
             .help(isCopied ? copiedTitle : title)
             .accessibilityLabel(isCopied ? copiedTitle : title)
             .onChange(of: feedbackTrigger) { _, _ in

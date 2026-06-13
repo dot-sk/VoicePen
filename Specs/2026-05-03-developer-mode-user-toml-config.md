@@ -42,7 +42,7 @@ and automatic mode classifies the active app as terminal, developer, or plain.
 - When no feature-flag-only sections are enabled, VoicePen shall order sidebar sections as Home, Meetings, History, then a Settings block with Dictionary, Model, Settings, and About.
 - When the settings window is open, VoicePen shall show push-to-talk shortcut controls in the Settings screen.
 - When the UI shows Writing Code, VoicePen shall keep storing and reading the compatible TOML mode value `developer`.
-- When the Modes settings tab is open, VoicePen shall show a short user-facing summary of mode routing plus a note that AI settings are needed for full supported command parsing; detailed behavior for Plain, Auto, Writing Code, and Terminal shall live in separate per-mode sections, including a terminal command example.
+- When the Modes settings tab is open, VoicePen shall show a short user-facing summary of mode routing plus a note that a configured AI provider is needed for full supported command parsing; detailed behavior for Plain, Auto, Writing Code, and Terminal shall live in separate per-mode sections, including a terminal command example.
 - When the settings window is open, VoicePen shall expose TOML file path, status, reload, diagnostics, and open-file controls only in the Settings screen, with path and status grouped under a `Config file` block.
 - When the user chooses to open the config file from the Settings screen, VoicePen shall ensure `~/.voicepen/config.toml` exists and then open it with the system default editor.
 - When the user chooses to reload config from the Settings screen, VoicePen shall reread `~/.voicepen/config.toml`, refresh settings displays backed by user config, and surface config diagnostics there.
@@ -87,13 +87,13 @@ and automatic mode classifies the active app as terminal, developer, or plain.
 | Dictionary conflict | User dictionary maps `гит` differently, terminal command says `гит status` | Command still matches via TOML alias and inserts `git status --short --branch` |
 | Plain app | Unknown foreground app in auto mode | Normal dictation text is inserted |
 | Standard settings shortcut | User presses `Command + ,` | User TOML config is created if needed and opened in the default editor |
-| TOML autosave readability | Config contains `"гит"` and AI settings are changed from UI | Saved config still contains `"гит"` as UTF-8 text |
+| TOML autosave readability | Config contains `"гит"` and parser settings are changed from UI | Saved config still contains `"гит"` as UTF-8 text |
 
 ## Test Mapping
 
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers `Command + ,` being wired to opening the user TOML config.
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers settings sidebar grouping and ordering, push-to-talk controls living in Settings, and the dedicated Settings screen.
-- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers hiding Modes and AI sidebar entries behind feature flags.
+- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers hiding Modes behind its feature flag and omitting AI from the sidebar.
 - Automated: `VoicePenTests/Settings/UserConfigStoreTests.swift` covers default TOML creation, non-overwrite, env normalization, config reload, readable UTF-8 autosave, and invalid-config fallback diagnostics.
 - Automated: `VoicePenTests/DeveloperMode/ActiveAppContextClassifierTests.swift` covers terminal, developer, and plain active app classification.
 - Automated: `VoicePenTests/DeveloperMode/DeveloperModeProcessorTests.swift` covers aliases, command matching, longest triggers, filters, branch formatting, action gating, and command-like diagnostics.
@@ -102,8 +102,8 @@ and automatic mode classifies the active app as terminal, developer, or plain.
 - Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers plain dictation behavior when the Modes feature flag is disabled.
 - Automated: `VoicePenTests/History/VoiceHistoryStoreTests.swift` covers persistence of diagnostic notes.
 - Manual: open Settings and verify push-to-talk hotkey and hold-duration controls appear in the Settings screen.
-- Manual: open Settings, verify the Modes overview is short, mentions AI setup for full command parsing, and leaves detailed behavior to the per-mode explanations under the Modes tab.
-- Manual: open Settings, verify the Settings screen contains a `Config file` block with the config path and status, plus Reload Config, Open Config File, and any parse diagnostics, while Modes and AI do not show config file controls.
+- Manual: open Settings, verify the Modes overview is short, mentions configured AI provider setup for full command parsing, and leaves detailed behavior to the per-mode explanations under the Modes tab.
+- Manual: open Settings, verify the Settings screen contains a `Config file` block with the config path and status, plus Reload Config, Open Config File, and any parse diagnostics, while Modes does not show config file controls and AI is not a settings section.
 - Manual: press Reload Config in the Settings screen and verify the control briefly shows successful reload feedback without shifting neighboring controls.
 - Manual: switch between Settings sections including the Settings screen and verify the console does not log a SwiftUI warning about publishing changes from within view updates.
 - Manual: use Open Config File from the Settings screen with no existing `~/.voicepen/config.toml`, verify the default file is created and opens in the system default editor.

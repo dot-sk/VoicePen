@@ -1,7 +1,7 @@
 ---
 id: SPEC-009
 status: implemented
-updated: 2026-05-05
+updated: 2026-06-14
 tests:
   - VoicePenTests/DeveloperMode/LLMIntentParserTests.swift
   - VoicePenTests/DeveloperMode/LLMIntentPromptBuilderTests.swift
@@ -41,7 +41,7 @@ deterministic and allowlist-based.
 - When `[developer.intent_parser].enabled` is absent, the parser shall be disabled.
 - When `[developer.intent_parser].confidence_threshold` is absent, the parser shall use `0.75`.
 - When the AI feature flag is disabled, live dictation shall not call the LLM intent parser even if TOML enables it.
-- When the AI feature flag is disabled, VoicePen shall hide the AI settings section.
+- VoicePen shall not show an AI settings section for configuring the reusable provider.
 - When context is `plain`, the intent parser shall return `disabled` without calling an LLM.
 - When the parser is disabled, it shall return `disabled` without calling an LLM.
 - When live dictation finds a deterministic TOML command trigger match, VoicePen shall use that command without calling the LLM parser.
@@ -64,7 +64,7 @@ deterministic and allowlist-based.
 - The Modes settings section shall present intent parser controls inside the relevant per-mode section rather than as a global AI enable switch.
 - The Modes settings section shall display the current parser enabled state and confidence threshold from user TOML config.
 - The Modes settings section shall let the user edit and save parser enabled state and confidence threshold back to user TOML config.
-- The AI settings section shall not expose intent parser controls; it shall only connect the reusable AI provider.
+- The app UI shall not expose intent parser controls in an AI settings section.
 
 ## Examples
 
@@ -87,9 +87,8 @@ deterministic and allowlist-based.
 - Automated: `VoicePenTests/DeveloperMode/LLMIntentPromptBuilderTests.swift` covers prompt signals and registry-derived catalog insertion without snapshotting the full prompt.
 - Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers live pipeline integration, including deterministic trigger priority, gated LLM fallback, local command rendering, and provider failure fallback.
 - Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers skipping LLM parsing when the AI feature flag is disabled.
-- Automated: `VoicePenTests/Settings/UserConfigStoreTests.swift` covers intent parser config defaults, AI settings summary values for parser state, and saving parser settings through the same immediate settings persistence path used by settings UI.
-- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers that Developer command parsing controls live in Modes settings and are not exposed in AI settings.
-- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers hiding the AI settings section behind the AI feature flag.
+- Automated: `VoicePenTests/Settings/UserConfigStoreTests.swift` covers intent parser config defaults and saving parser settings through the same persistence path used by settings UI.
+- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers that Developer command parsing controls live in Modes settings and that no AI settings section is exposed.
 - Manual: keep `[developer.intent_parser].enabled = false`, dictate in developer and terminal modes, and verify live dictation behavior uses only configured triggers and normal dictation.
 - Manual: enable `[developer.intent_parser]`, use a short supported terminal command phrase that is not listed in TOML triggers, and verify it is parsed and rendered locally.
 - Manual: edit parser settings in Settings > Modes and verify the next Settings > Config reload reflects the same TOML-backed values.

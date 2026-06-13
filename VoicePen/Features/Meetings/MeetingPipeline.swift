@@ -322,6 +322,9 @@ final class MeetingPipeline {
                     enabled: meetingDiarizationEnabled,
                     backend: meetingDiarizationBackend
                 )
+                if speakerAnalysis.value.didRunDiarization {
+                    timings.diarization = speakerAnalysis.elapsed
+                }
                 logSpeakerAnalysisTiming(speakerAnalysis, enabled: meetingDiarizationEnabled)
                 let transcriptParts = self.formatProcessedChunks(
                     processedChunks,
@@ -366,6 +369,9 @@ final class MeetingPipeline {
             enabled: meetingDiarizationEnabled,
             backend: meetingDiarizationBackend
         )
+        if speakerAnalysis.value.didRunDiarization {
+            timings.diarization = speakerAnalysis.elapsed
+        }
         logSpeakerAnalysisTiming(speakerAnalysis, enabled: meetingDiarizationEnabled)
         let transcriptParts = self.formatProcessedChunks(
             processedChunks,
@@ -628,7 +634,7 @@ final class MeetingPipeline {
             return MeetingSpeakerAnalysis(result: result)
         } catch {
             AppLogger.info("Meeting diarization skipped: \(error.localizedDescription)")
-            return .empty
+            return MeetingSpeakerAnalysis(turns: [], speakerCount: nil, didRunDiarization: true)
         }
     }
 
@@ -1011,17 +1017,20 @@ private struct MeetingProcessedChunk: Sendable {
 private struct MeetingSpeakerAnalysis: Sendable {
     var turns: [SpeakerTurn]
     var speakerCount: Int?
+    var didRunDiarization: Bool
 
-    static let empty = MeetingSpeakerAnalysis(turns: [], speakerCount: nil)
+    static let empty = MeetingSpeakerAnalysis(turns: [], speakerCount: nil, didRunDiarization: false)
 
-    init(turns: [SpeakerTurn], speakerCount: Int?) {
+    init(turns: [SpeakerTurn], speakerCount: Int?, didRunDiarization: Bool = false) {
         self.turns = turns
         self.speakerCount = speakerCount
+        self.didRunDiarization = didRunDiarization
     }
 
     init(result: MeetingDiarizationResult) {
         self.turns = result.turns
         self.speakerCount = Self.detectedSpeakerCount(in: result)
+        self.didRunDiarization = true
     }
 
     private static func detectedSpeakerCount(in result: MeetingDiarizationResult) -> Int? {

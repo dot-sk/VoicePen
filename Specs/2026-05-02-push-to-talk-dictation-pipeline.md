@@ -65,6 +65,7 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 - When the custom shortcut preference is selected before a shortcut has been recorded, VoicePen shall surface that the shortcut is missing without entering a persistent fatal error state.
 - Manual double-capture guard for default-input PTT remains disabled in V1; meeting and dictation share the default input capture path when HAL supports concurrent input opens.
 - When VoicePen shows its menu bar extra menu, it shall group related commands with separators, hide dictation or text actions that are not available in the current state, omit idle status text, include the configured push-to-talk hotkey hint on visible dictation commands, and label latest-text actions as dictation actions so they are not confused with Meeting Mode transcripts.
+- When dictation runtime state changes between idle, starting, recording, and transcribing, the menu bar status icon shall refresh without waiting for the tray menu to open.
 
 ## Examples
 
@@ -91,6 +92,7 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 | Empty custom shortcut | User selects custom shortcut before recording one | VoicePen reports that the shortcut is missing and becomes active once a shortcut is recorded |
 | Menu bar extra while idle with no text | Open VoicePen menu bar extra | Shows the available dictation action with its hotkey hint, app/config actions, and quit without idle status text or disabled text actions |
 | Menu bar extra after dictation | Dictation produced text and the menu is open | Latest-text actions are labeled as dictation actions, not generic transcription actions |
+| Menu bar icon after dictation | Dictation finishes transcribing and returns to idle | The tray icon returns from waveform/recording state to the idle microphone without requiring the tray menu to open |
 
 ## Test Mapping
 
@@ -107,7 +109,7 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers reinstalling the push-to-talk hotkey when a custom shortcut is recorded after the custom preference is selected and dictation timeout recovery when processing hangs.
 - Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers DictationRuntimeState usage without `AppState.recording`/`AppState.transcribing` and validates dictation timeout error reporting when ASR concurrency with meetings is simulated.
 - Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers concurrent meeting + dictation requests sharing the same transcriber actor/client and preserving meeting state on PTT timeout/error.
-- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers menu bar extra command grouping, hiding unavailable menu actions, omitting idle status text, showing push-to-talk hotkey hints, showing the custom shortcut limitation note in the Settings screen, omitting the removed hold-duration control from Settings, and labeling latest-text actions as dictation actions.
+- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers menu bar extra command grouping, hiding unavailable menu actions, omitting idle status text, showing push-to-talk hotkey hints, refreshing the tray icon from dictation runtime-state changes, showing the custom shortcut limitation note in the Settings screen, omitting the removed hold-duration control from Settings, and labeling latest-text actions as dictation actions.
 - Manual: verify the menu bar app records while the configured hotkey is held and pastes final text into the active app when Accessibility permission is granted.
 - Manual: hold the configured push-to-talk hotkey and verify the white microphone level bar changes height without moving left or right inside the red capsule.
 - Manual: select the custom push-to-talk shortcut, record Ctrl-E, press Ctrl-E, and verify recording feedback appears immediately without restarting VoicePen.

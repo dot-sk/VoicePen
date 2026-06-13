@@ -13,20 +13,6 @@ nonisolated struct TranscriptEditorMetrics: Equatable, Sendable {
         "\(lineCount) \(lineLabel) · \(characterCount) \(characterLabel)"
     }
 
-    static func selectedCharacterCount(in text: String, ranges: [NSRange]) -> Int {
-        let textRange = NSRange(location: 0, length: (text as NSString).length)
-        return ranges.reduce(0) { total, range in
-            let boundedRange = NSIntersectionRange(textRange, range)
-            guard
-                boundedRange.length > 0,
-                let stringRange = Range(boundedRange, in: text)
-            else {
-                return total
-            }
-            return total + text[stringRange].count
-        }
-    }
-
     private var lineLabel: String {
         lineCount == 1 ? "line" : "lines"
     }

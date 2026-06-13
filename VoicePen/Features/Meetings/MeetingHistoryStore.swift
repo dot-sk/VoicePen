@@ -8,6 +8,7 @@ final class MeetingHistoryStore: ObservableObject {
 
     @Published private(set) var entries: [MeetingHistoryEntry] = []
     @Published private(set) var storageStats = VoiceHistoryStorageStats()
+    @Published private(set) var transcriptTextUIStates: [MeetingHistoryEntry.ID: TranscriptTextUIState] = [:]
 
     private let databaseURL: URL
     private let transcriptCompressionLimitBytes: Int
@@ -98,6 +99,7 @@ final class MeetingHistoryStore: ObservableObject {
         }
         entries = []
         storageStats = stats
+        transcriptTextUIStates = [:]
     }
 
     func cleanupExpiredRecoveryAudio(now: Date = Date()) throws {
@@ -124,8 +126,40 @@ final class MeetingHistoryStore: ObservableObject {
     }
 
     private func publish(_ result: MeetingHistoryLoadResult) {
+        transcriptTextUIStates = Self.textUIStates(
+            for: result.entries,
+            previous: transcriptTextUIStates
+        )
         entries = result.entries
         storageStats = result.storageStats
+    }
+
+    private static func textUIStates(
+        for entries: [MeetingHistoryEntry],
+        previous: [MeetingHistoryEntry.ID: TranscriptTextUIState]
+    ) -> [MeetingHistoryEntry.ID: TranscriptTextUIState] {
+        Dictionary(
+            uniqueKeysWithValues: entries.map { entry in
+                (
+                    entry.id,
+                    TranscriptTextUIState.make(
+                        text: displayText(for: entry),
+                        previous: previous[entry.id]
+                    )
+                )
+            }
+        )
+    }
+
+    static func displayText(for entry: MeetingHistoryEntry) -> String {
+        let transcriptText = entry.transcriptText.trimmed
+        if !transcriptText.isEmpty {
+            return entry.transcriptText
+        }
+        if let errorMessage = entry.errorMessage, !errorMessage.trimmed.isEmpty {
+            return errorMessage
+        }
+        return "No transcript"
     }
 
     private func withDatabase<T>(_ body: (SQLiteConnection) throws -> T) throws -> T {

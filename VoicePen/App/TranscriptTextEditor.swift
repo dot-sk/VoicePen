@@ -1,56 +1,56 @@
 import AppKit
+import STTextView
 import SwiftUI
 
 struct TranscriptTextEditor: View {
+    let fileName: String
     let text: String
+    let textSnapshot: TranscriptTextSnapshot
     let selectionResetID: UUID
     let copyAction: () -> Void
     var isSecondaryText = false
     var isCopyDisabled = false
-    @State private var selectedCharacterCount = 0
+    var showsLineNumbers = true
+    @Environment(\.voicePenTheme) private var theme
     @State private var copyFeedbackTrigger = 0
     @State private var isCopyButtonHovered = false
 
-    private var metrics: TranscriptEditorMetrics {
-        TranscriptEditorMetrics(text: text)
+    private let footerHeight: CGFloat = 26
+    private let footerDividerHeight: CGFloat = 1
+
+    private var footerReservedHeight: CGFloat {
+        footerHeight + footerDividerHeight
     }
 
     var body: some View {
         VStack(spacing: 0) {
             header
+                .zIndex(1)
 
             Divider()
+                .zIndex(1)
 
-            ReadOnlyTranscriptTextView(
-                text: text,
-                selectionResetID: selectionResetID,
-                foregroundColor: isSecondaryText ? .secondaryLabelColor : .labelColor,
-                copyFullTranscriptAction: copyTranscriptWithFeedback,
-                selectedCharacterCount: $selectedCharacterCount
-            )
+            ZStack(alignment: .bottom) {
+                ReadOnlyTranscriptTextView(
+                    text: text,
+                    textSnapshot: textSnapshot,
+                    selectionResetID: selectionResetID,
+                    foregroundColor: isSecondaryText ? .secondaryLabelColor : .labelColor,
+                    bottomContentInset: footerReservedHeight,
+                    copyFullTranscriptAction: copyTranscriptWithFeedback,
+                    showsLineNumbers: showsLineNumbers
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            Divider()
-
-            HStack {
-                Text(metrics.statusText)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-
-                Spacer()
-
-                Text(selectionStatusText)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                footerOverlay
             }
-            .padding(.horizontal, 10)
-            .frame(height: 26)
+            .clipped()
         }
-        .background(.background)
+        .background(theme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay {
             RoundedRectangle(cornerRadius: 6)
-                .stroke(.secondary.opacity(0.22), lineWidth: 1)
+                .stroke(theme.border, lineWidth: 1)
         }
         .background {
             TranscriptCopyShortcutMonitor(
@@ -78,7 +78,11 @@ struct TranscriptTextEditor: View {
             .padding(.vertical, 3)
             .background {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(copyButtonHoverColor)
+                    .fill(copyButtonBackgroundColor)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(theme.border, lineWidth: 1)
             }
             .onHover { isCopyButtonHovered = $0 }
             .animation(.easeOut(duration: 0.12), value: isCopyButtonHovered)
@@ -87,14 +91,108 @@ struct TranscriptTextEditor: View {
         }
         .padding(.horizontal, 10)
         .frame(height: 34)
+        .background(headerBackgroundColor)
     }
 
-    private var selectionStatusText: String {
-        "Selected: \(selectedCharacterCount) \(selectedCharacterCount == 1 ? "char" : "chars")"
+    private var footerOverlay: some View {
+        VStack(spacing: 0) {
+            Divider()
+            footer
+        }
+        .background(statusLineBackgroundColor)
+        .frame(maxWidth: .infinity, alignment: .bottom)
+        .zIndex(1)
     }
 
-    private var copyButtonHoverColor: Color {
-        isCopyButtonHovered && !isCopyDisabled ? Color.primary.opacity(0.055) : Color.clear
+    private var footer: some View {
+        HStack(spacing: 0) {
+            statusSegment(
+                "READONLY",
+                foreground: Color(nsColor: .selectedMenuItemTextColor),
+                background: theme.blue,
+                weight: .semibold,
+                showsChevron: true
+            )
+            .zIndex(1)
+
+            statusSegment(
+                fileName,
+                foreground: .primary,
+                background: theme.border.opacity(theme.isDark ? 0.50 : 0.45),
+                weight: .medium,
+                maxWidth: .infinity,
+                showsChevron: true
+            )
+            .zIndex(0)
+
+            HStack(spacing: 10) {
+                statusMetric("\(metrics.lineCount)L")
+                statusMetric("\(metrics.characterCount)C")
+            }
+            .padding(.horizontal, 10)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: footerHeight)
+        .background(statusLineBackgroundColor)
+        .textSelection(.enabled)
+    }
+
+    private var metrics: TranscriptEditorMetrics {
+        textSnapshot.metrics
+    }
+
+    private var copyButtonBackgroundColor: Color {
+        if isCopyDisabled {
+            return theme.surfaceElevated.opacity(0.6)
+        }
+
+        return isCopyButtonHovered
+            ? theme.blue.opacity(theme.isDark ? 0.20 : 0.12)
+            : theme.surfaceElevated
+    }
+
+    private var headerBackgroundColor: Color {
+        theme.surfaceElevated
+    }
+
+    private var statusLineFont: Font {
+        .system(size: 11, design: .monospaced)
+    }
+
+    private var statusLineBackgroundColor: Color {
+        theme.surfaceElevated
+    }
+
+    private func statusMetric(_ text: String) -> some View {
+        Text(text)
+            .font(statusLineFont)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func statusSegment(
+        _ text: String,
+        foreground: Color,
+        background: Color,
+        weight: Font.Weight,
+        maxWidth: CGFloat? = nil,
+        showsChevron: Bool
+    ) -> some View {
+        Text(text)
+            .font(statusLineFont.weight(weight))
+            .foregroundStyle(foreground)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .padding(.leading, 10)
+            .padding(.trailing, showsChevron ? 20 : 10)
+            .frame(maxWidth: maxWidth, alignment: .leading)
+            .frame(height: footerHeight)
+            .background {
+                StatusLineSegmentShape(chevronWidth: showsChevron ? 13 : 0)
+                    .fill(background)
+            }
+            .fixedSize(horizontal: maxWidth == nil, vertical: false)
     }
 
     private func copyTranscriptWithFeedback() {
@@ -107,85 +205,127 @@ struct TranscriptTextEditor: View {
     }
 }
 
+private struct StatusLineSegmentShape: Shape {
+    let chevronWidth: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let pointWidth = min(max(chevronWidth, 0), rect.width)
+        var path = Path()
+
+        path.move(to: rect.origin)
+        path.addLine(to: CGPoint(x: rect.maxX - pointWidth, y: rect.minY))
+        if pointWidth > 0 {
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+            path.addLine(to: CGPoint(x: rect.maxX - pointWidth, y: rect.maxY))
+        } else {
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        }
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.closeSubpath()
+
+        return path
+    }
+}
+
 private struct ReadOnlyTranscriptTextView: NSViewRepresentable {
     let text: String
+    let textSnapshot: TranscriptTextSnapshot
     let selectionResetID: UUID
     let foregroundColor: NSColor
+    let bottomContentInset: CGFloat
     let copyFullTranscriptAction: () -> Void
-    @Binding var selectedCharacterCount: Int
+    let showsLineNumbers: Bool
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
+        let scrollView = CopyableTranscriptSTTextView.scrollableTextView()
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
+        applyScrollInsets(to: scrollView)
 
-        let textView = CopyableTranscriptTextView()
+        guard let textView = scrollView.documentView as? CopyableTranscriptSTTextView else {
+            return scrollView
+        }
+
         textView.isEditable = false
         textView.isSelectable = true
-        textView.isRichText = false
-        textView.importsGraphics = false
         textView.allowsUndo = false
-        textView.drawsBackground = false
         textView.backgroundColor = .clear
-        textView.textContainerInset = NSSize(width: 12, height: 12)
-        textView.minSize = NSSize(width: 0, height: 0)
-        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
-        textView.autoresizingMask = [.width]
-        textView.textContainer?.widthTracksTextView = true
-        textView.textContainer?.containerSize = NSSize(width: scrollView.contentSize.width, height: CGFloat.greatestFiniteMagnitude)
-        textView.delegate = context.coordinator
+        textView.isVerticallyResizable = true
+        textView.showsLineNumbers = showsLineNumbers
+        textView.highlightSelectedLine = false
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticTextReplacementEnabled = false
+        textView.isAutomaticTextCompletionEnabled = false
+        textView.textContainer.lineFragmentPadding = 12
         textView.copyFullTranscriptAction = copyFullTranscriptAction
 
+        applyStyle(to: textView)
         applyText(to: textView)
-        context.coordinator.recordDisplayedTranscript(selectionResetID: selectionResetID, text: text)
-        scrollView.documentView = textView
+        context.coordinator.recordDisplayedTranscript(selectionResetID: selectionResetID, textSnapshot: textSnapshot)
         context.coordinator.resetSelection(in: textView)
-
-        let rulerView = TranscriptLineNumberRulerView(textView: textView)
-        scrollView.verticalRulerView = rulerView
-        scrollView.hasVerticalRuler = true
-        scrollView.rulersVisible = true
 
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? NSTextView else {
+        guard let textView = scrollView.documentView as? CopyableTranscriptSTTextView else {
             return
         }
 
-        textView.textColor = foregroundColor
-        textView.font = Self.editorFont
-        textView.delegate = context.coordinator
-        (textView as? CopyableTranscriptTextView)?.copyFullTranscriptAction = copyFullTranscriptAction
+        textView.backgroundColor = .clear
+        textView.copyFullTranscriptAction = copyFullTranscriptAction
+        textView.showsLineNumbers = showsLineNumbers
+        applyScrollInsets(to: scrollView)
 
+        let textDidChange = !context.coordinator.isDisplaying(textSnapshot)
         let shouldResetSelection = context.coordinator.shouldResetSelection(
             selectionResetID: selectionResetID,
-            text: text
+            textSnapshot: textSnapshot
         )
-        let textDidChange = textView.string != text
 
         if textDidChange {
             applyText(to: textView)
+        } else {
+            applyStyle(to: textView)
         }
 
         if shouldResetSelection || textDidChange {
             context.coordinator.resetSelection(in: textView)
+            context.coordinator.recordDisplayedTranscript(selectionResetID: selectionResetID, textSnapshot: textSnapshot)
         }
-
-        scrollView.verticalRulerView?.needsDisplay = true
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(selectedCharacterCount: $selectedCharacterCount)
+        Coordinator()
     }
 
-    private func applyText(to textView: NSTextView) {
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
+        CGSize(
+            width: proposal.width ?? nsView.frame.width,
+            height: proposal.height ?? nsView.frame.height
+        )
+    }
+
+    private func applyScrollInsets(to scrollView: NSScrollView) {
+        let insets = NSEdgeInsets(top: 0, left: 0, bottom: bottomContentInset, right: 0)
+        scrollView.contentInsets = insets
+        scrollView.scrollerInsets = insets
+    }
+
+    private func applyStyle(to textView: STTextView) {
+        if !textView.textColor.isEqual(foregroundColor) {
+            textView.textColor = foregroundColor
+        }
+        if !textView.font.isEqual(Self.editorFont) {
+            textView.font = Self.editorFont
+        }
+    }
+
+    private func applyText(to textView: STTextView) {
         let attributedText = NSAttributedString(
             string: text,
             attributes: [
@@ -193,19 +333,8 @@ private struct ReadOnlyTranscriptTextView: NSViewRepresentable {
                 .foregroundColor: foregroundColor
             ]
         )
-        textView.textStorage?.setAttributedString(attributedText)
-        textView.typingAttributes = [
-            .font: Self.editorFont,
-            .foregroundColor: foregroundColor
-        ]
-        invalidateRenderedText(in: textView)
-    }
-
-    private func invalidateRenderedText(in textView: NSTextView) {
-        if let layoutManager = textView.layoutManager, let textContainer = textView.textContainer {
-            layoutManager.ensureLayout(for: textContainer)
-        }
-
+        textView.attributedText = attributedText
+        textView.needsLayout = true
         textView.needsDisplay = true
         textView.enclosingScrollView?.contentView.needsDisplay = true
         textView.enclosingScrollView?.needsDisplay = true
@@ -216,62 +345,44 @@ private struct ReadOnlyTranscriptTextView: NSViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, NSTextViewDelegate {
-        @Binding private var selectedCharacterCount: Int
+    final class Coordinator {
         private var displayedSelectionResetID: UUID?
-        private var displayedText: String?
+        private(set) var displayedTextRevision: Int?
+        private var displayedTextFingerprint: Int?
 
-        init(selectedCharacterCount: Binding<Int>) {
-            _selectedCharacterCount = selectedCharacterCount
-        }
-
-        func textViewDidChangeSelection(_ notification: Notification) {
-            guard let textView = notification.object as? NSTextView else {
-                return
-            }
-            updateSelectedCharacterCount(from: textView)
-        }
-
-        func recordDisplayedTranscript(selectionResetID: UUID, text: String) {
+        func recordDisplayedTranscript(selectionResetID: UUID, textSnapshot: TranscriptTextSnapshot) {
             displayedSelectionResetID = selectionResetID
-            displayedText = text
+            displayedTextRevision = textSnapshot.revision
+            displayedTextFingerprint = textSnapshot.fingerprint
         }
 
-        func shouldResetSelection(selectionResetID: UUID, text: String) -> Bool {
-            defer {
-                recordDisplayedTranscript(selectionResetID: selectionResetID, text: text)
-            }
+        func isDisplaying(_ textSnapshot: TranscriptTextSnapshot) -> Bool {
+            displayedTextRevision == textSnapshot.revision && displayedTextFingerprint == textSnapshot.fingerprint
+        }
 
-            guard
-                let displayedSelectionResetID,
-                let displayedText
-            else {
+        func shouldResetSelection(selectionResetID: UUID, textSnapshot: TranscriptTextSnapshot) -> Bool {
+            guard let displayedSelectionResetID, let displayedTextRevision else {
                 return true
             }
 
-            return displayedSelectionResetID != selectionResetID || displayedText != text
+            if displayedSelectionResetID != selectionResetID || displayedTextRevision != textSnapshot.revision || displayedTextFingerprint != textSnapshot.fingerprint {
+                return true
+            }
+
+            return false
         }
 
-        func resetSelection(in textView: NSTextView) {
-            textView.setSelectedRange(NSRange(location: 0, length: 0))
-            selectedCharacterCount = 0
-        }
-
-        func updateSelectedCharacterCount(from textView: NSTextView) {
-            let ranges = textView.selectedRanges.map(\.rangeValue)
-            selectedCharacterCount = TranscriptEditorMetrics.selectedCharacterCount(
-                in: textView.string,
-                ranges: ranges
-            )
+        func resetSelection(in textView: STTextView) {
+            textView.textSelection = NSRange(location: 0, length: 0)
         }
     }
 }
 
-private final class CopyableTranscriptTextView: NSTextView {
+private final class CopyableTranscriptSTTextView: STTextView {
     var copyFullTranscriptAction: (() -> Void)?
 
     override func copy(_ sender: Any?) {
-        if selectedRanges.contains(where: { $0.rangeValue.length > 0 }) {
+        if textSelection.length > 0 {
             super.copy(sender)
             return
         }
@@ -368,118 +479,15 @@ private struct TranscriptCopyShortcutMonitor: NSViewRepresentable {
 
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             let disallowedFlags: NSEvent.ModifierFlags = [.control, .option, .shift]
-            return flags.contains(.command) && flags.intersection(disallowedFlags).isEmpty
+            return flags.contains(.command) && flags.isDisjoint(with: disallowedFlags)
         }
 
         private static func firstResponderHandlesOwnCopy(_ responder: NSResponder?) -> Bool {
-            responder is NSText || responder is NSTextField
-        }
-    }
-}
-
-private final class TranscriptLineNumberRulerView: NSRulerView {
-    private weak var textView: NSTextView?
-    private let textAttributes: [NSAttributedString.Key: Any] = [
-        .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular),
-        .foregroundColor: NSColor.secondaryLabelColor
-    ]
-
-    init(textView: NSTextView) {
-        self.textView = textView
-        super.init(scrollView: textView.enclosingScrollView, orientation: .verticalRuler)
-        clientView = textView
-        ruleThickness = 29
-    }
-
-    @available(*, unavailable)
-    required init(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        NSColor.clear.setFill()
-        dirtyRect.fill()
-        drawSeparator()
-        drawLineNumbers(in: dirtyRect)
-    }
-
-    override func drawHashMarksAndLabels(in rect: NSRect) {
-        drawLineNumbers(in: rect)
-    }
-
-    private func drawSeparator() {
-        let inset: CGFloat = 8
-        let startY = bounds.minY + inset
-        let endY = bounds.maxY - inset
-        guard endY > startY else {
-            return
-        }
-
-        let path = NSBezierPath()
-        path.move(to: NSPoint(x: bounds.maxX - 0.5, y: startY))
-        path.line(to: NSPoint(x: bounds.maxX - 0.5, y: endY))
-        path.lineWidth = 1
-        NSColor.separatorColor.setStroke()
-        path.stroke()
-    }
-
-    private func drawLineNumbers(in rect: NSRect) {
-        guard
-            let textView,
-            let layoutManager = textView.layoutManager,
-            let textContainer = textView.textContainer
-        else {
-            return
-        }
-
-        let visibleRect = textView.visibleRect
-        let glyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
-        guard glyphRange.length > 0 else {
-            drawLineNumber(1, atY: textView.textContainerInset.height)
-            return
-        }
-
-        var glyphIndex = glyphRange.location
-        while glyphIndex < NSMaxRange(glyphRange) {
-            var effectiveRange = NSRange(location: 0, length: 0)
-            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: &effectiveRange)
-            let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
-
-            if isStartOfLogicalLine(characterIndex, in: textView.string as NSString) {
-                let lineNumber = lineNumber(forCharacterIndex: characterIndex, in: textView.string as NSString)
-                let textPoint = NSPoint(
-                    x: 0,
-                    y: lineRect.minY + textView.textContainerOrigin.y
-                )
-                let rulerPoint = convert(textPoint, from: textView)
-                drawLineNumber(lineNumber, atY: rulerPoint.y)
+            if let textView = responder as? STTextView {
+                return textView.textSelection.length > 0
             }
 
-            let nextGlyphIndex = NSMaxRange(effectiveRange)
-            glyphIndex = nextGlyphIndex > glyphIndex ? nextGlyphIndex : glyphIndex + 1
+            return responder is NSText || responder is NSTextField
         }
-    }
-
-    private func drawLineNumber(_ lineNumber: Int, atY y: CGFloat) {
-        let lineNumberText = "\(lineNumber)" as NSString
-        let size = lineNumberText.size(withAttributes: textAttributes)
-        let x = max(4, ruleThickness - size.width - 8)
-        lineNumberText.draw(at: NSPoint(x: x, y: y), withAttributes: textAttributes)
-    }
-
-    private func isStartOfLogicalLine(_ characterIndex: Int, in text: NSString) -> Bool {
-        characterIndex == text.lineRange(for: NSRange(location: characterIndex, length: 0)).location
-    }
-
-    private func lineNumber(forCharacterIndex characterIndex: Int, in text: NSString) -> Int {
-        guard characterIndex > 0 else {
-            return 1
-        }
-
-        var lineNumber = 1
-        for index in 0..<min(characterIndex, text.length) where text.character(at: index) == 10 {
-            lineNumber += 1
-        }
-        return lineNumber
     }
 }
