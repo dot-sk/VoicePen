@@ -1,7 +1,7 @@
 ---
 id: SPEC-004
 status: implemented
-updated: 2026-06-10
+updated: 2026-06-13
 tests:
   - VoicePenTests/App/VoicePenAppCommandTests.swift
   - VoicePenTests/App/AppPathsTests.swift
@@ -11,6 +11,7 @@ tests:
   - VoicePenTests/History/VoiceHistoryStoreTests.swift
   - VoicePenTests/TranscriptWorkspace/TranscriptDayGroupsTests.swift
   - VoicePenTests/TranscriptWorkspace/TranscriptSearchFilterTests.swift
+  - VoicePenTests/TranscriptWorkspace/TranscriptTextUIStateTests.swift
   - VoicePenTests/History/VoiceHistoryFilterTests.swift
   - VoicePenTests/History/VoiceTranscriptionUsageStatsTests.swift
 ---
@@ -50,10 +51,10 @@ session-specific persistence and actions here.
 - When a voice history entry is saved after decoding, VoicePen shall store the app version used for that decoding alongside the transcription model metadata.
 - When History detail shows processing metadata, VoicePen shall omit the app version row when the saved decoding app version is unknown.
 - When About settings shows the App block, VoicePen shall group app status, privacy, local storage, and database path there.
-- When Settings shows app launch controls, VoicePen shall show the Open at login setting near the top of the Settings screen.
+- When Settings shows app launch controls, VoicePen shall show the Open at login setting and reflect the current macOS login item status.
 - When Settings shows appearance controls, VoicePen shall let the user choose System, Light, or Dark theme; System shall follow the current macOS appearance.
 - When the user changes the app theme setting, VoicePen shall persist the choice and apply it to the app immediately without restart.
-- When Settings shows system access controls, VoicePen shall show permission statuses and request/refresh actions near the top of the Settings screen rather than as a standalone activity bar section.
+- When Settings shows system access controls, VoicePen shall show permission statuses and request/refresh actions in Settings rather than as a standalone activity bar section.
 - When About settings shows local storage, VoicePen shall show one approximate database disk usage value without splitting text payload and database sizes.
 - When the Sessions UI is shown, VoicePen shall not expose a file-reveal action for the SQLite history database; users inspect sessions through the in-app list and detail pane.
 - When the Sessions UI is shown, VoicePen shall use the shared transcript workspace described in SPEC-015.
@@ -61,10 +62,14 @@ session-specific persistence and actions here.
 - When Home is ready, the readiness strip shall include the current push-to-talk shortcut hint and the Meeting recording Command-R hint.
 - When Home is not ready, busy, or in a problem state, the readiness strip shall show the current app status without also showing `Ready`.
 - When Home shows an actionable readiness problem, permission problems shall route from the readiness strip to Settings and a missing local transcription model shall route to Models; transient busy states shall not show a readiness-strip action.
+- When Home is shown, the dashboard layout shall be active and include an Activity Heatmap and weekly session activity sections.
+- When Home renders usage stats, it shall use the cached usage summary from the history store rather than recomputing stats from all history entries during view rendering.
 - When Home shows usage stats, it shall emphasize typing time avoided for the current Monday-Sunday week by converting recognized word count with the professional typing baseline.
 - When Home computes typing time avoided, it shall use recognized word count only and shall not subtract spoken audio duration.
 - When Home shows weekly usage stats, it shall show weekly recognized word count, countable session count, spoken audio duration, current active streak, active days this week, best typing-time-avoided day this week, and best streak.
+- When Home dashboard sections are reviewed, both Light and Dark themes shall be included as explicit manual checks.
 - When Home has no countable activity for the current week, the weekly value area and daily activity chart shall present a calm empty weekly state rather than an empty chart or an oversized zero-value headline.
+- When Home shows weekly activity, it shall include countable daily activity and hourly activity buckets for each of 7 local weekdays and 24 local hours.
 - When Home shows daily typing-time-avoided activity, it shall include one bucket for each Monday-Sunday day, including days with no countable activity.
 - When VoicePen shows usage milestones, the Home progress block shall identify the progress as lifetime or all-time so it does not read as part of the current-week totals.
 - When VoicePen shows usage milestones, it shall continue to use the existing progressive lifetime milestone ladder for the Home progress block.
@@ -76,13 +81,13 @@ session-specific persistence and actions here.
 - When the user copies text from a visible history detail copy action, VoicePen shall temporarily replace that copy icon with a checkmark so the completed copy action is visible.
 - Copy actions that show temporary copied feedback shall keep stable dimensions while switching between normal and copied states.
 - When Sessions is shown, VoicePen shall not expose a bulk Clear action; saved voice sessions shall be removed through per-session delete actions.
-- When a Sessions row is shown, VoicePen shall use the same compact status, timestamp, duration, and preview-text row structure as Meetings.
 - When a Sessions row has actions such as copy or delete, VoicePen shall expose them through a row context menu and accessibility actions.
 - When the history list shows a successful entry, VoicePen shall use a green checkmark without repeating a success label; non-success entries shall show a status or error reason.
 - When the user opens a Sessions entry detail, VoicePen shall show final text in the center workspace.
 - When a Sessions entry has no final text, VoicePen shall show a secondary error or status fallback and disable copy and repeat-insert actions for that entry.
 - When Sessions search runs, VoicePen shall search visible final text, status, error, date/time, duration, local transcription model, and visible VoicePen app version metadata.
 - When Sessions search runs, VoicePen shall not match raw transcript text.
+- When Sessions renders the shared transcript workspace, VoicePen shall pass precomputed text metrics, text revision with content identity, visible entry IDs, and day groups so hover, selection, and body refreshes do not rescan every visible history entry or the selected full transcript while still updating the editor when two entries have the same local revision.
 - When the user opens a history entry detail, VoicePen shall show the repeat insertion action as an icon-only retry control.
 - When the user opens a Sessions entry detail and that entry has an existing archived saved-recording audio file, VoicePen shall show a Reveal in Finder action in the right sidebar after the metadata content.
 - When a Sessions entry has no archived saved-recording audio file, or the archived file no longer exists, VoicePen shall hide the Reveal in Finder action.
@@ -113,9 +118,9 @@ session-specific persistence and actions here.
 | Unknown history app version | Older history entry has no saved decoding app version | History detail omits the App version metadata row |
 | Usage stats after text compression or eviction | Older text payloads are compressed or evicted by the budget | Total dictated duration and typing time avoided still include those retained rows |
 | About app details | Open About settings | The App block shows status, privacy, storage, and database path |
-| Launch setting | Open Settings | Open at login appears near the top of the Settings screen |
+| Launch setting | Open Settings | Open at login reflects the current macOS login item status |
 | Theme setting | User changes Settings theme from System to Light or Dark | VoicePen persists the choice and updates the app appearance immediately |
-| Permission controls | Open Settings | Permission statuses and request/refresh actions appear near the top of Settings |
+| Permission controls | Open Settings | Permission statuses and request/refresh actions are available |
 | About storage display | History has saved rows | About settings show approximate database disk usage as one value |
 | History database file | Open Sessions | No history database reveal action is shown |
 | Home ready status | App is ready | Home shows one readiness strip with the current push-to-talk hint and Meeting recording Command-R hint |
@@ -123,6 +128,7 @@ session-specific persistence and actions here.
 | Home actionable status | Permission or model setup is missing | Home readiness strip can route the user to Settings for permissions or Models for model setup |
 | Weekly typing time avoided | Current week contains completed dictations with recognized text | Home emphasizes weekly typing time avoided from recognized word count at the professional typing baseline |
 | Weekly usage summary | Current week contains countable dictations | Home shows weekly recognized word count, countable sessions, spoken audio, and daily typing-time-avoided activity buckets |
+| Weekly hourly heatmap | Current week contains countable dictations in specific hours | Home Activity Heatmap shows countable activity in the expected weekday/hour buckets, including zero entries for empty buckets |
 | Weekly empty state | Current week has no countable dictations | Home presents a weekly empty state and an empty daily activity state without implying lifetime milestone progress is weekly progress |
 | Weekly zero days | Current week has days without countable dictations | Home keeps those days visible in the Monday-Sunday activity buckets with zero typing time avoided |
 | Lightweight progress stats | History contains entries across multiple days | Home shows current streak, all-time best streak, best typing-time-avoided day this week, latest reached milestone, and next lifetime milestone |
@@ -131,7 +137,6 @@ session-specific persistence and actions here.
 | History detail copy feedback | Copy final text from the detail pane | The clicked copy icon temporarily changes from copy to checkmark |
 | Stable copy feedback | Copy action changes to copied feedback | The button keeps its existing dimensions |
 | Sessions bulk clear | Open Sessions | No bulk Clear action is exposed; individual saved sessions can still be deleted |
-| History row layout | Open Sessions with saved rows | Rows use the compact status, timestamp, duration, and preview-text structure used by Meetings |
 | History row actions | Secondary-click or use accessibility actions on a history row | Copy text and delete session are available |
 | History success status | Entry inserted successfully | Row shows a green checkmark without `Insert attempted` text |
 | History problem status | Entry is empty or failed | Row shows the status or error reason next to the status icon |
@@ -149,7 +154,7 @@ session-specific persistence and actions here.
 ## Test Mapping
 
 - Automated: `VoicePenTests/Persistence/DatabaseMigratorTests.swift` covers schema migration.
-- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers main window activity bar grouping and ordering, Home usage data wiring, Home actionable status routing, Settings launch and permission placement, About App block placement, one-value disk usage display, history processing metadata display, stable shared copy-button feedback, and Sessions row layout and context/accessibility actions.
+- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers main window activity bar grouping and ordering, Home usage data wiring, Home actionable status routing, Settings launch and permission wiring, About App data display, one-value disk usage display, history processing metadata display, and stable shared copy-button feedback.
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers that History does not expose a SQLite file-reveal action.
 - Automated: `VoicePenTests/TranscriptWorkspace/TranscriptDayGroupsTests.swift` covers shared list grouping by local calendar day while preserving entry order.
 - Automated: `VoicePenTests/Settings/AppSettingsStoreTests.swift` and `VoicePenTests/Settings/UserConfigStoreTests.swift` cover settings defaults, persistence, and normalization, including app appearance mode.
@@ -159,10 +164,10 @@ session-specific persistence and actions here.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers launch-at-login updates, synchronization with current macOS login item status, and app appearance application.
 - Automated: `VoicePenTests/History/VoiceHistoryStoreTests.swift` covers unlimited local history rows, batch text compression, text payload eviction, storage stats, ordering, deletion, clearing, persisted history metadata including app version, and archived audio associations.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers saving the app version used for decoding with voice history model metadata.
-- Automated: `VoicePenTests/TranscriptWorkspace/TranscriptSearchFilterTests.swift`, `VoicePenTests/History/VoiceHistoryFilterTests.swift`, and `VoicePenTests/History/VoiceTranscriptionUsageStatsTests.swift` cover shared filtering mechanics, Sessions search field indexing, typing-time-avoided usage stats, weekly buckets, streaks, best streak, daily word counts, best day, latest reached milestone, and next milestone.
+- Automated: `VoicePenTests/TranscriptWorkspace/TranscriptSearchFilterTests.swift`, `VoicePenTests/TranscriptWorkspace/TranscriptTextUIStateTests.swift`, `VoicePenTests/History/VoiceHistoryFilterTests.swift`, and `VoicePenTests/History/VoiceTranscriptionUsageStatsTests.swift` cover shared filtering mechanics, Sessions text UI snapshots and content identity, Sessions search field indexing, typing-time-avoided usage stats, weekly and hourly buckets, streaks, best streak, daily word counts, best day, latest reached milestone, and next milestone.
 - Manual: open Home with empty and populated history in light and dark mode; verify the readiness strip, weekly dashboard, daily activity chart, and milestone progress read as one compact dashboard.
-- Manual: open Settings and verify the Open at login control appears near the top.
-- Manual: open Settings and verify permission statuses and request/refresh actions appear near the top.
+- Manual: open Settings and verify the Open at login control reflects the current macOS login item status.
+- Manual: open Settings and verify permission statuses and request/refresh actions are available.
 - Manual: open About settings and verify the App block contains status, privacy, storage, and database path.
 - Manual: open Sessions with at least two entries, click a non-selected entry, and verify the row becomes active and the detail pane changes to that entry.
 - Manual: copy a completed Sessions row from the row context menu, and verify the clipboard receives the row text.

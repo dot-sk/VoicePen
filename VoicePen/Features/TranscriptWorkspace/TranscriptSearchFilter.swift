@@ -32,17 +32,34 @@ nonisolated enum TranscriptSearchFieldText {
             date.formatted(date: .abbreviated, time: .shortened),
             date.formatted(date: .numeric, time: .shortened),
             date.formatted(date: .complete, time: .omitted),
-            stableDateFormatter(format: "yyyy-MM-dd").string(from: date),
-            stableDateFormatter(format: "HH:mm").string(from: date)
+            stableDayText(for: date),
+            stableTimeText(for: date)
         ]
     }
 
-    private static func stableDateFormatter(format: String) -> DateFormatter {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.dateFormat = format
-        return formatter
+    private static let stableCalendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: "en_US_POSIX")
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        return calendar
+    }()
+
+    private static func stableDayText(for date: Date) -> String {
+        let components = stableCalendar.dateComponents([.year, .month, .day], from: date)
+        return String(
+            format: "%04d-%02d-%02d",
+            components.year ?? 0,
+            components.month ?? 0,
+            components.day ?? 0
+        )
+    }
+
+    private static func stableTimeText(for date: Date) -> String {
+        let components = stableCalendar.dateComponents([.hour, .minute], from: date)
+        return String(
+            format: "%02d:%02d",
+            components.hour ?? 0,
+            components.minute ?? 0
+        )
     }
 }

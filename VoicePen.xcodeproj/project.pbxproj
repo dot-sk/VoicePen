@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		111029512FDDC57200844B60 /* STTextView in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DD12FA7600000ED707B /* STTextView */; };
 		11953DB02FA5000000ED707B /* whisper in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DB12FA5000000ED707B /* whisper */; };
 		11953DB42FA5300000ED707B /* KeyboardShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DB62FA5300000ED707B /* KeyboardShortcuts */; };
 		11953DB82FA5E00000ED707B /* Alamofire in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DB72FA5E00000ED707B /* Alamofire */; };
@@ -64,6 +65,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				111029512FDDC57200844B60 /* STTextView in Frameworks */,
 				11953DB02FA5000000ED707B /* whisper in Frameworks */,
 				11953DB42FA5300000ED707B /* KeyboardShortcuts in Frameworks */,
 				11953DB82FA5E00000ED707B /* Alamofire in Frameworks */,
@@ -142,6 +144,7 @@
 				11953DCA2FA7400000ED707B /* SpeakerKit */,
 				11953DC52FA7300000ED707B /* SpeechVAD */,
 				11953DC72FA7300000ED707B /* AudioCommon */,
+				11953DD12FA7600000ED707B /* STTextView */,
 			);
 			productName = VoicePen;
 			productReference = 11953D762FA4D47A00ED707B /* VoicePen.app */;
@@ -234,6 +237,7 @@
 				11953DC02FA7200000ED707B /* XCRemoteSwiftPackageReference "Stencil" */,
 				11953DCE2FA7400000ED707B /* XCRemoteSwiftPackageReference "argmax-oss-swift" */,
 				11953DC32FA7300000ED707B /* XCRemoteSwiftPackageReference "speech-swift" */,
+				11953DD02FA7600000ED707B /* XCRemoteSwiftPackageReference "STTextView" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 11953D772FA4D47A00ED707B /* Products */;
@@ -696,6 +700,14 @@
 				version = 1.0.0;
 			};
 		};
+		11953DD02FA7600000ED707B /* XCRemoteSwiftPackageReference "STTextView" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/krzyzanowskim/STTextView";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.2.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -743,6 +755,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 11953DCE2FA7400000ED707B /* XCRemoteSwiftPackageReference "argmax-oss-swift" */;
 			productName = SpeakerKit;
+		};
+		11953DD12FA7600000ED707B /* STTextView */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 11953DD02FA7600000ED707B /* XCRemoteSwiftPackageReference "STTextView" */;
+			productName = STTextView;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
