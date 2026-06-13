@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ListeningMicrophoneIndicatorView: View {
+    @Environment(\.voicePenTheme) private var theme
     let levelProvider: @Sendable () -> Double?
 
     var body: some View {
@@ -9,9 +10,9 @@ struct ListeningMicrophoneIndicatorView: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color(nsColor: .systemPink).opacity(0.64),
-                            Color(nsColor: .systemRed).opacity(0.96),
-                            Color(nsColor: .systemPink).opacity(0.78)
+                            theme.purple.opacity(0.64),
+                            theme.red.opacity(0.96),
+                            theme.orange.opacity(0.78)
                         ],
                         startPoint: .top,
                         endPoint: .bottom
@@ -21,21 +22,21 @@ struct ListeningMicrophoneIndicatorView: View {
                 .background(.ultraThinMaterial, in: Capsule())
                 .overlay(alignment: .topLeading) {
                     Capsule()
-                        .fill(Color(nsColor: .systemPink).opacity(0.34))
+                        .fill(theme.purple.opacity(0.34))
                         .frame(width: 7, height: 28)
                         .blur(radius: 3)
                         .offset(x: 6, y: 6)
                 }
                 .overlay(alignment: .bottomTrailing) {
                     Capsule()
-                        .fill(Color(nsColor: .systemPink).opacity(0.35))
+                        .fill(theme.orange.opacity(0.35))
                         .frame(width: 12, height: 22)
                         .blur(radius: 5)
                         .offset(x: -4, y: -5)
                 }
                 .overlay {
                     Capsule()
-                        .strokeBorder(.white.opacity(0.22), lineWidth: 0.8)
+                        .strokeBorder(theme.borderStrong, lineWidth: 0.8)
                         .padding(0.5)
                 }
                 .overlay {
