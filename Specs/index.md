@@ -16,6 +16,7 @@
 - [SPEC-012 Audio Settings And Voice Processing](2026-05-05-audio-settings-voice-processing.md)
 - [SPEC-014 Main Window Activity Bar Navigation](2026-05-14-main-window-activity-bar-navigation.md)
 - [SPEC-015 Shared Transcript Workspace](2026-05-15-shared-transcript-workspace.md)
+- [SPEC-016 Main Window Close Lifecycle](2026-06-13-main-window-close-lifecycle.md)
 
 ## Templates
 

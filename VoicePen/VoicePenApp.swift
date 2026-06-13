@@ -5,6 +5,7 @@ import SwiftUI
 
 @main
 struct VoicePenApp: App {
+    @NSApplicationDelegateAdaptor(VoicePenAppDelegate.self) private var appDelegate
     private let controller: AppController
     private let statusItemController: VoicePenStatusItemController
     @StateObject private var softwareUpdateController: SoftwareUpdateController
@@ -70,8 +71,16 @@ struct VoicePenApp: App {
     }
 
     private func openVoicePenWindow() {
+        NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
         openWindow(id: "voicepen-main")
+    }
+}
+
+@MainActor
+private final class VoicePenAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
     }
 }
 
