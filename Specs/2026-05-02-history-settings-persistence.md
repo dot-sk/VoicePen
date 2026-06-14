@@ -1,7 +1,7 @@
 ---
 id: SPEC-004
 status: implemented
-updated: 2026-06-13
+updated: 2026-06-14
 tests:
   - VoicePenTests/App/VoicePenAppCommandTests.swift
   - VoicePenTests/App/AppPathsTests.swift
@@ -70,6 +70,7 @@ session-specific persistence and actions here.
 - When Home dashboard sections are reviewed, both Light and Dark themes shall be included as explicit manual checks.
 - When Home has no countable activity for the current week, the weekly value area and daily activity chart shall present a calm empty weekly state rather than an empty chart or an oversized zero-value headline.
 - When Home shows weekly activity, it shall include countable daily activity and hourly activity buckets for each of 7 local weekdays and 24 local hours.
+- When the user hovers a Home Activity Heatmap cell, VoicePen shall show that cell's weekday, hour, recognized word count, and session count without changing dashboard state.
 - When Home shows daily typing-time-avoided activity, it shall include one bucket for each Monday-Sunday day, including days with no countable activity.
 - When VoicePen shows usage milestones, the Home progress block shall identify the progress as lifetime or all-time so it does not read as part of the current-week totals.
 - When VoicePen shows usage milestones, it shall continue to use the existing progressive lifetime milestone ladder for the Home progress block.
@@ -128,7 +129,7 @@ session-specific persistence and actions here.
 | Home actionable status | Permission or model setup is missing | Home readiness strip can route the user to Settings for permissions or Models for model setup |
 | Weekly typing time avoided | Current week contains completed dictations with recognized text | Home emphasizes weekly typing time avoided from recognized word count at the professional typing baseline |
 | Weekly usage summary | Current week contains countable dictations | Home shows weekly recognized word count, countable sessions, spoken audio, and daily typing-time-avoided activity buckets |
-| Weekly hourly heatmap | Current week contains countable dictations in specific hours | Home Activity Heatmap shows countable activity in the expected weekday/hour buckets, including zero entries for empty buckets |
+| Weekly hourly heatmap | Current week contains countable dictations in specific hours | Home Activity Heatmap shows countable activity in the expected weekday/hour buckets, including zero entries for empty buckets; hovering a bucket shows that bucket's data rather than the weekly peak |
 | Weekly empty state | Current week has no countable dictations | Home presents a weekly empty state and an empty daily activity state without implying lifetime milestone progress is weekly progress |
 | Weekly zero days | Current week has days without countable dictations | Home keeps those days visible in the Monday-Sunday activity buckets with zero typing time avoided |
 | Lightweight progress stats | History contains entries across multiple days | Home shows current streak, all-time best streak, best typing-time-avoided day this week, latest reached milestone, and next lifetime milestone |
@@ -154,7 +155,7 @@ session-specific persistence and actions here.
 ## Test Mapping
 
 - Automated: `VoicePenTests/Persistence/DatabaseMigratorTests.swift` covers schema migration.
-- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers main window activity bar grouping and ordering, Home usage data wiring, Home actionable status routing, Settings launch and permission wiring, About App data display, one-value disk usage display, history processing metadata display, and stable shared copy-button feedback.
+- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers main window activity bar grouping and ordering, Home usage data wiring, Home actionable status routing, Home heatmap cell hover tooltip wiring, Settings launch and permission wiring, About App data display, one-value disk usage display, history processing metadata display, and stable shared copy-button feedback.
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers that History does not expose a SQLite file-reveal action.
 - Automated: `VoicePenTests/TranscriptWorkspace/TranscriptDayGroupsTests.swift` covers shared list grouping by local calendar day while preserving entry order.
 - Automated: `VoicePenTests/Settings/AppSettingsStoreTests.swift` and `VoicePenTests/Settings/UserConfigStoreTests.swift` cover settings defaults, persistence, and normalization, including app appearance mode.
