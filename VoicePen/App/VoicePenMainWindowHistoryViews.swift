@@ -1,8 +1,51 @@
 import SwiftUI
 
+struct SessionHistoryActions {
+    let copyText: (String) -> Void
+    let insertText: (String) -> Void
+    let deleteEntry: (VoiceHistoryEntry.ID) -> Void
+    let existingArchivedAudioURLs: (VoiceHistoryEntry) -> [URL]
+    let revealArchivedAudio: (VoiceHistoryEntry) -> Void
+
+    init(
+        copyText: @escaping (String) -> Void,
+        insertText: @escaping (String) -> Void,
+        deleteEntry: @escaping (VoiceHistoryEntry.ID) -> Void,
+        existingArchivedAudioURLs: @escaping (VoiceHistoryEntry) -> [URL],
+        revealArchivedAudio: @escaping (VoiceHistoryEntry) -> Void
+    ) {
+        self.copyText = copyText
+        self.insertText = insertText
+        self.deleteEntry = deleteEntry
+        self.existingArchivedAudioURLs = existingArchivedAudioURLs
+        self.revealArchivedAudio = revealArchivedAudio
+    }
+
+    @MainActor
+    init(controller: AppController) {
+        self.init(
+            copyText: { controller.copyToClipboard($0) },
+            insertText: { controller.insertText($0) },
+            deleteEntry: { controller.deleteHistoryEntry(id: $0) },
+            existingArchivedAudioURLs: { controller.existingArchivedAudioURLs(for: $0) },
+            revealArchivedAudio: { controller.revealArchivedAudio(for: $0) }
+        )
+    }
+
+    static let preview = SessionHistoryActions(
+        copyText: { _ in },
+        insertText: { _ in },
+        deleteEntry: { _ in },
+        existingArchivedAudioURLs: { entry in
+            entry.archivedAudioURLs.filter { FileManager.default.fileExists(atPath: $0.path) }
+        },
+        revealArchivedAudio: { _ in }
+    )
+}
+
 struct HistoryView: View {
-    @ObservedObject var controller: AppController
     @ObservedObject var historyStore: VoiceHistoryStore
+    let actions: SessionHistoryActions
     @State private var selectedID: VoiceHistoryEntry.ID?
     @State private var entryPendingDeletion: VoiceHistoryEntry?
     @State private var searchText = ""
@@ -11,6 +54,17 @@ struct HistoryView: View {
         entryIDs: [],
         dayGroups: []
     )
+
+    @MainActor
+    init(controller: AppController, historyStore: VoiceHistoryStore) {
+        self.historyStore = historyStore
+        self.actions = SessionHistoryActions(controller: controller)
+    }
+
+    init(historyStore: VoiceHistoryStore, actions: SessionHistoryActions) {
+        self.historyStore = historyStore
+        self.actions = actions
+    }
 
     var body: some View {
         TranscriptWorkspaceView(
@@ -47,8 +101,8 @@ struct HistoryView: View {
             )
         } sidebarContent: { entry in
             SessionMetadataSection(
-                controller: controller,
                 entry: entry,
+                actions: actions,
                 insertAction: {
                     insertHistoryEntry($0)
                 },
@@ -70,7 +124,7 @@ struct HistoryView: View {
         .alert("Delete voice session?", isPresented: deleteConfirmationBinding) {
             Button("Delete", role: .destructive) {
                 if let entryPendingDeletion {
-                    controller.deleteHistoryEntry(id: entryPendingDeletion.id)
+                    actions.deleteEntry(entryPendingDeletion.id)
                 }
                 entryPendingDeletion = nil
             }
@@ -95,12 +149,12 @@ struct HistoryView: View {
 
     private func copyHistoryEntry(_ entry: VoiceHistoryEntry) {
         guard !entry.finalText.trimmed.isEmpty else { return }
-        controller.copyToClipboard(entry.finalText)
+        actions.copyText(entry.finalText)
     }
 
     private func insertHistoryEntry(_ entry: VoiceHistoryEntry) {
         guard !entry.finalText.trimmed.isEmpty else { return }
-        controller.insertText(entry.finalText)
+        actions.insertText(entry.finalText)
     }
 
     private func textUIState(for entry: VoiceHistoryEntry?) -> TranscriptTextUIState {
@@ -244,7 +298,8 @@ struct SessionTranscriptWorkspace: View {
                     },
                     isSecondaryText: entry.finalText.trimmed.isEmpty,
                     isCopyDisabled: entry.finalText.trimmed.isEmpty,
-                    showsLineNumbers: false
+                    showsLineNumbers: false,
+                    contentPadding: 0
                 )
             } else {
                 ContentUnavailableView(
@@ -258,9 +313,9 @@ struct SessionTranscriptWorkspace: View {
 }
 
 struct SessionMetadataSection: View {
-    @ObservedObject var controller: AppController
     @Environment(\.voicePenTheme) private var theme
     let entry: VoiceHistoryEntry?
+    let actions: SessionHistoryActions
     let insertAction: (VoiceHistoryEntry) -> Void
     let deleteAction: (VoiceHistoryEntry) -> Void
 
@@ -339,7 +394,7 @@ struct SessionMetadataSection: View {
                 }
             }
 
-            if !controller.existingArchivedAudioURLs(for: entry).isEmpty {
+            if !actions.existingArchivedAudioURLs(entry).isEmpty {
                 TranscriptSidebarSection("Local recording") {
                     revealArchivedAudioButton(for: entry)
                 }
@@ -361,7 +416,7 @@ struct SessionMetadataSection: View {
 
     private func revealArchivedAudioButton(for entry: VoiceHistoryEntry) -> some View {
         Button {
-            controller.revealArchivedAudio(for: entry)
+            actions.revealArchivedAudio(entry)
         } label: {
             Label("Reveal in Finder", systemImage: "folder")
         }

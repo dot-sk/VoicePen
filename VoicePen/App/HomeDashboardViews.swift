@@ -9,6 +9,7 @@ struct HomeDashboardView: View {
     let performStatusAction: (VoicePenSettingsSection) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
+    @State private var activityRange: HomeActivityRange = .sevenDay
 
     private let dashboardGap: CGFloat = 16
     private let metricCardHeight: CGFloat = 132
@@ -89,29 +90,18 @@ struct HomeDashboardView: View {
     private func analyticsDashboardRow(usesCompactLayout: Bool) -> some View {
         if usesCompactLayout {
             VStack(alignment: .leading, spacing: dashboardGap) {
-                DailyTypingAvoidedChart(
-                    model: stats.dailyChartModel,
-                    theme: theme
-                )
-                .frame(height: analyticsRowHeight)
-
-                ActivityHeatmap(
-                    model: stats.activityHeatmapModel,
+                HomeActivityCard(
+                    range: $activityRange,
+                    stats: stats,
                     theme: theme
                 )
                 .frame(height: analyticsRowHeight)
             }
         } else {
             HStack(alignment: .top, spacing: dashboardGap) {
-                DailyTypingAvoidedChart(
-                    model: stats.dailyChartModel,
-                    theme: theme
-                )
-                .frame(maxWidth: .infinity)
-                .frame(height: analyticsRowHeight)
-
-                ActivityHeatmap(
-                    model: stats.activityHeatmapModel,
+                HomeActivityCard(
+                    range: $activityRange,
+                    stats: stats,
                     theme: theme
                 )
                 .frame(maxWidth: .infinity)
@@ -272,6 +262,19 @@ private enum HomeStatusLevel {
     }
 }
 
+private enum HomeActivityRange: String, CaseIterable, Identifiable {
+    case sevenDay = "7d"
+    case twelveMonth = "12m"
+
+    var id: String {
+        rawValue
+    }
+
+    var title: String {
+        rawValue
+    }
+}
+
 private enum StatsTypography {
     static let panelLabel = Font.system(size: 12, weight: .semibold, design: .default)
     static let heroLabel = Font.system(size: 16, weight: .bold, design: .default)
@@ -284,6 +287,9 @@ private enum StatsTypography {
     static let smallStrong = Font.system(size: 13, weight: .semibold, design: .default)
     static let tiny = Font.system(size: 11, weight: .medium, design: .default)
     static let axis = Font.system(size: 10, weight: .medium, design: .default)
+    static let activitySummaryLabel = Font.system(size: 13, weight: .semibold, design: .default)
+    static let activitySummaryValue = Font.system(size: 17, weight: .semibold, design: .default)
+    static let activitySummaryDetail = Font.system(size: 14, weight: .medium, design: .default)
 
     static let labelTracking: CGFloat = 0.8
     static let metricLabelTracking: CGFloat = 0.7
@@ -302,9 +308,8 @@ struct HomeDashboardStats: Equatable {
     let bestStreakDayCount: Int
     let nextMilestone: VoiceUsageMilestone?
     let weeklyDays: [VoiceDailySavedTimeStats]
-    let hourlyActivity: [HomeHourlyActivityStats]
-    fileprivate let dailyChartModel: DailyTypingAvoidedChartModel
-    fileprivate let activityHeatmapModel: ActivityHeatmapModel
+    let activity7d: VoiceSevenDayActivityStats
+    let activity12Month: VoiceTwelveMonthActivityStats
 
     init(stats: VoiceTranscriptionUsageStats) {
         week = stats.week
@@ -321,33 +326,8 @@ struct HomeDashboardStats: Equatable {
             from: stats.week.days,
             startDate: stats.week.startDate
         )
-        hourlyActivity = Self.makeHourlyActivity(from: stats.week)
-        dailyChartModel = DailyTypingAvoidedChartModel(days: weeklyDays, weekStartDate: weekStartDate)
-        activityHeatmapModel = ActivityHeatmapModel(hourlyActivity: hourlyActivity)
-    }
-
-    init(
-        week: VoiceWeeklyUsageStats,
-        weekStartDate: Date? = nil,
-        nextMilestone: VoiceUsageMilestone?,
-        currentStreakDayCount: Int,
-        bestStreakDayCount: Int,
-        hourlyActivity: [HomeHourlyActivityStats]
-    ) {
-        self.week = week
-        self.weekStartDate = weekStartDate ?? week.startDate
-        weekWordCount = week.wordCount
-        weekSessionCount = week.sessionCount
-        weekAudioDuration = week.audioDuration
-        weekEstimatedTimeSavedDuration = week.estimatedTimeSavedDuration
-        weekActiveDayCount = week.activeDayCount
-        self.currentStreakDayCount = currentStreakDayCount
-        self.bestStreakDayCount = bestStreakDayCount
-        self.nextMilestone = nextMilestone
-        weeklyDays = Self.completeWeek(from: week.days, startDate: self.weekStartDate)
-        self.hourlyActivity = hourlyActivity
-        dailyChartModel = DailyTypingAvoidedChartModel(days: weeklyDays, weekStartDate: self.weekStartDate)
-        activityHeatmapModel = ActivityHeatmapModel(hourlyActivity: hourlyActivity)
+        activity7d = stats.activityWeek
+        activity12Month = stats.activity12Month
     }
 
     var hasWeekActivity: Bool {
@@ -375,6 +355,15 @@ struct HomeDashboardStats: Equatable {
         return "Mon-Sun - \(dateRange)"
     }
 
+    var activity7dRangeLabel: String {
+        let end = Calendar.current.date(byAdding: .day, value: 6, to: activity7d.startDate) ?? activity7d.startDate
+        return HomeDashboardDateRangeFormatter.weekRangeText(from: activity7d.startDate, to: end)
+    }
+
+    var activity12mRangeLabel: String {
+        return HomeDashboardDateRangeFormatter.monthRangeText(from: activity12Month.startDate, to: activity12Month.endDate)
+    }
+
     var weekTotalSavedTime: TimeInterval {
         weekEstimatedTimeSavedDuration
     }
@@ -386,10 +375,6 @@ struct HomeDashboardStats: Equatable {
             }
             return $0.estimatedTimeSavedDuration < $1.estimatedTimeSavedDuration
         }
-    }
-
-    static func makeHourlyActivity(from week: VoiceWeeklyUsageStats) -> [HomeHourlyActivityStats] {
-        HomeHourlyActivityStats.fillMatrix(from: week.hourlyActivity.map(HomeHourlyActivityStats.init(from:)))
     }
 
     private static func completeWeek(
@@ -415,72 +400,6 @@ struct HomeDashboardStats: Equatable {
                 estimatedSeconds: 0
             )
         }
-    }
-}
-
-struct HomeHourlyActivityStats: Identifiable, Equatable {
-    let weekdayIndex: Int
-    let hour: Int
-    let sessionCount: Int
-    let wordCount: Int
-    let audioDuration: TimeInterval
-
-    var id: Int { weekdayIndex * 24 + hour }
-
-    init(
-        weekdayIndex: Int,
-        hour: Int,
-        sessionCount: Int,
-        wordCount: Int,
-        audioDuration: TimeInterval
-    ) {
-        self.weekdayIndex = weekdayIndex
-        self.hour = hour
-        self.sessionCount = sessionCount
-        self.wordCount = wordCount
-        self.audioDuration = audioDuration
-    }
-
-    init(from source: VoiceHourlyActivityStats) {
-        weekdayIndex = source.weekdayIndex
-        hour = source.hour
-        sessionCount = source.sessionCount
-        wordCount = source.wordCount
-        audioDuration = source.audioDuration
-    }
-
-    func voiceHourlyActivity() -> VoiceHourlyActivityStats {
-        VoiceHourlyActivityStats(
-            weekdayIndex: weekdayIndex,
-            hour: hour,
-            sessionCount: sessionCount,
-            wordCount: wordCount,
-            audioDuration: audioDuration
-        )
-    }
-
-    static func fillMatrix(from source: [HomeHourlyActivityStats]) -> [HomeHourlyActivityStats] {
-        var byHour: [Int: HomeHourlyActivityStats] = [:]
-        source.forEach { bucket in
-            byHour[bucket.id] = bucket
-        }
-
-        return (0..<7).flatMap { weekday in
-            (0..<24).compactMap { hour in
-                byHour[weekday * 24 + hour]
-                    ?? HomeHourlyActivityStats(
-                        weekdayIndex: weekday,
-                        hour: hour,
-                        sessionCount: 0,
-                        wordCount: 0,
-                        audioDuration: 0
-                    )
-            }
-        }
-    }
-
-    static func zeroMatrix() -> [HomeHourlyActivityStats] {
-        fillMatrix(from: [])
     }
 }
 
@@ -742,474 +661,790 @@ private struct MetricMiniSegments: Equatable {
     }
 }
 
-private struct DailyTypingAvoidedChart: View {
-    let model: DailyTypingAvoidedChartModel
+private struct HomeActivityCard: View {
+    @Binding var range: HomeActivityRange
+    let stats: HomeDashboardStats
     let theme: StatsTheme
 
-    private let chartHeight: CGFloat = 166
-    private let weekdayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-
-    init(model: DailyTypingAvoidedChartModel, theme: StatsTheme) {
-        self.model = model
-        self.theme = theme
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            chartHeader
-            chartBody
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .statsCard(theme: theme, emphasized: true)
-    }
-
-    private var chartHeader: some View {
-        HStack {
-            Text("Daily typing avoided")
-                .font(StatsTypography.panelLabel)
-                .tracking(StatsTypography.labelTracking)
-                .foregroundStyle(theme.textPrimary)
-                .textCase(.uppercase)
-            Spacer()
-            if let bestDayLabel = model.bestDayLabel {
-                Text("Best: \(bestDayLabel)")
-                    .font(StatsTypography.small)
-                    .foregroundStyle(theme.textSecondary)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
-                    .liquidGlassCapsule(theme: theme, tint: theme.blue)
-            }
-        }
-    }
-
-    private var chartBody: some View {
-        HStack(alignment: .top, spacing: 12) {
-            yAxisLabelColumn
-
-            VStack(spacing: 8) {
-                plotArea
-                    .frame(height: chartHeight)
-                    .accessibilityHidden(true)
-
-                xAxisLabelsAndValues
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Daily typing avoided chart")
-        .accessibilityValue(
-            model.hasNoWeekActivity
-                ? "No recorded sessions this week"
-                : "Peak: \(model.bestDayLabel ?? "none") · Total \(HomeDashboardFormatting.savedTime(model.totalWeekSavedTime))"
-        )
-    }
-
-    private var yAxisLabelColumn: some View {
-        ZStack(alignment: .topTrailing) {
-            ForEach(model.yAxisValues.indices, id: \.self) { index in
-                Text(model.yAxisValues[index].formatted(.number.precision(.fractionLength(0))))
-                    .font(StatsTypography.tiny)
-                    .foregroundStyle(theme.textTertiary)
-                    .frame(width: 34, alignment: .trailing)
-                    .offset(y: yAxisLabelOffset(for: index))
-            }
-        }
-        .frame(width: 34, height: chartHeight, alignment: .topTrailing)
-    }
-
-    private var plotArea: some View {
-        ZStack(alignment: .bottom) {
-            gridLines
-
-            HStack(alignment: .bottom, spacing: 0) {
-                ForEach(model.orderedDays) { day in
-                    let isBest = day.weekdayIndex == model.bestDayIndex
-                    VStack {
-                        Spacer(minLength: 0)
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: isBest
-                                        ? (theme.isDark ? [theme.purple, theme.blue] : [theme.blue, theme.purple.opacity(0.68)])
-                                        : [theme.blue.opacity(theme.isDark ? 1.0 : 0.82), theme.blue.opacity(theme.isDark ? 0.42 : 0.28)],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                            )
-                            .frame(
-                                width: 28,
-                                height: max(day.estimatedTimeSavedDuration > 0 ? 8 : 0, barHeight(for: day)),
-                                alignment: .bottom
-                            )
-                            .shadow(
-                                color: isBest ? theme.purple.opacity(theme.isDark ? 0.38 : 0.07) : .clear,
-                                radius: theme.isDark ? 12 : 7,
-                                x: 0,
-                                y: theme.isDark ? 4 : 2
-                            )
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-        }
-    }
-
-    private var gridLines: some View {
-        ZStack(alignment: .top) {
-            ForEach(0...5, id: \.self) { index in
-                Rectangle()
-                    .fill(theme.gridLine)
-                    .frame(height: 1)
-                    .offset(y: gridLineOffset(for: index))
-            }
-        }
-        .frame(height: chartHeight, alignment: .top)
-        .frame(maxWidth: .infinity, alignment: .top)
-    }
-
-    private var xAxisLabelsAndValues: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 0) {
-                ForEach(model.orderedDays) { day in
-                    Text(dayLabel(for: day.weekdayIndex))
-                        .font(StatsTypography.smallStrong)
-                        .foregroundStyle(day.weekdayIndex == model.bestDayIndex ? theme.textPrimary : theme.textSecondary)
-                        .frame(maxWidth: .infinity)
-                }
-            }
-
-            HStack(spacing: 0) {
-                ForEach(model.orderedDays) { day in
-                    VStack(spacing: 3) {
-                        Image(systemName: day.isActive ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 11, weight: .semibold, design: .default))
-                            .foregroundStyle(day.isActive ? theme.green : theme.textTertiary)
-                        Text(HomeDashboardFormatting.savedMinutes(day.estimatedTimeSavedDuration))
-                            .font(StatsTypography.axis)
-                            .foregroundStyle(day.isActive ? theme.textSecondary : theme.textTertiary)
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-            }
-        }
-    }
-
-    private func barHeight(for day: VoiceDailySavedTimeStats) -> CGFloat {
-        let raw = day.estimatedTimeSavedDuration / 60
-        guard model.maxYAxisValue > 0 else { return 0 }
-        return CGFloat(raw / model.maxYAxisValue) * chartHeight
-    }
-
-    private func dayLabel(for index: Int) -> String {
-        let offset = ((index % weekdayLabels.count) + weekdayLabels.count) % weekdayLabels.count
-        return weekdayLabels[offset]
-    }
-
-    private func gridLineOffset(for index: Int) -> CGFloat {
-        CGFloat(index) / 5 * (chartHeight - 1)
-    }
-
-    private func yAxisLabelOffset(for index: Int) -> CGFloat {
-        guard model.yAxisValues.count > 1 else { return 0 }
-        let labelHeight: CGFloat = 13
-        let rawOffset = CGFloat(index) / CGFloat(model.yAxisValues.count - 1) * chartHeight
-        return min(max(0, rawOffset - (labelHeight / 2)), chartHeight - labelHeight)
-    }
-}
-
-private struct DailyTypingAvoidedChartModel: Equatable {
-    private static let weekdayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-
-    let orderedDays: [VoiceDailySavedTimeStats]
-    let maxYAxisValue: Double
-    let yAxisValues: [Double]
-    let hasNoWeekActivity: Bool
-    let bestDayIndex: Int?
-    let bestDayLabel: String?
-    let totalWeekSavedTime: TimeInterval
-
-    init(days: [VoiceDailySavedTimeStats], weekStartDate: Date) {
-        var byWeekday: [Int: VoiceDailySavedTimeStats] = [:]
-        byWeekday.reserveCapacity(days.count)
-
-        for day in days {
-            byWeekday[day.weekdayIndex] = day
-        }
-
-        let calendar = Calendar.current
-        orderedDays = (0..<7).map { weekday in
-            if let day = byWeekday[weekday] {
-                return day
-            }
-
-            return HomeDashboardStats.makeWeeklyDay(
-                date: calendar.date(byAdding: .day, value: weekday, to: weekStartDate) ?? weekStartDate,
-                weekdayIndex: weekday,
-                words: 0,
-                sessions: 0,
-                audio: 0,
-                estimatedSeconds: 0
-            )
-        }
-
-        let maxMinutes = max(1, orderedDays.map { $0.estimatedTimeSavedDuration / 60 }.max() ?? 0)
-        let resolvedMaxYAxisValue = (maxMinutes / 10).rounded(.up) * 10
-        maxYAxisValue = resolvedMaxYAxisValue
-        yAxisValues = (0...5).map { Double(5 - $0) * (resolvedMaxYAxisValue / 5) }
-        hasNoWeekActivity = orderedDays.allSatisfy { $0.estimatedTimeSavedDuration == 0 }
-        totalWeekSavedTime = orderedDays.reduce(into: TimeInterval(0)) { $0 += $1.estimatedTimeSavedDuration }
-
-        let bestDay =
-            orderedDays
-            .filter { $0.estimatedTimeSavedDuration > 0 }
-            .max {
-                if $0.estimatedTimeSavedDuration == $1.estimatedTimeSavedDuration {
-                    return $0.date < $1.date
-                }
-                return $0.estimatedTimeSavedDuration < $1.estimatedTimeSavedDuration
-            }
-
-        bestDayIndex = bestDay?.weekdayIndex
-        bestDayLabel = bestDay.map {
-            Self.dayLabel(for: $0.weekdayIndex) + " (\(HomeDashboardFormatting.savedMinutes($0.estimatedTimeSavedDuration)))"
-        }
-    }
-
-    private static func dayLabel(for index: Int) -> String {
-        let offset = ((index % weekdayLabels.count) + weekdayLabels.count) % weekdayLabels.count
-        return weekdayLabels[offset]
-    }
-}
-
-private struct ActivityHeatmap: View {
-    let model: ActivityHeatmapModel
-    let theme: StatsTheme
-
-    private let dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    private let hourTickPositions: Set<Int> = [0, 4, 8, 12, 16, 20, 23]
-
-    init(model: ActivityHeatmapModel, theme: StatsTheme) {
-        self.model = model
-        self.theme = theme
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("Activity Heatmap")
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center, spacing: 12) {
+                Text("Activity")
                     .font(StatsTypography.panelLabel)
                     .tracking(StatsTypography.labelTracking)
                     .foregroundStyle(theme.textPrimary)
                     .textCase(.uppercase)
-                Spacer()
-                Text("Words")
-                    .font(StatsTypography.tiny)
-                    .tracking(StatsTypography.smallTracking)
-                    .foregroundStyle(theme.textSecondary)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
-                    .background(theme.surfaceElevated, in: Capsule())
+
+                Spacer(minLength: 16)
+
+                HStack(alignment: .center, spacing: 14) {
+                    Text(rangeLabel)
+                        .font(StatsTypography.small)
+                        .foregroundStyle(theme.textTertiary.opacity(0.78))
+                        .lineLimit(1)
+                        .monospacedDigit()
+                        .frame(minWidth: 120, alignment: .trailing)
+                        .padding(.top, 1)
+
+                    ActivityRangeSegmentedControl(
+                        selection: $range,
+                        theme: theme
+                    )
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
 
-            ActivityHeatmapGrid(
-                model: model,
-                theme: theme,
-                dayLabels: dayLabels,
-                hourTickPositions: hourTickPositions
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            Divider()
+                .overlay(theme.gridLine)
 
-            HStack(spacing: 7) {
-                Text("Less")
-                    .font(StatsTypography.tiny)
-                    .foregroundStyle(theme.textTertiary)
-                ForEach([0.0, 0.18, 0.42, 0.68, 1.0], id: \.self) { value in
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(theme.heatmapColor(value: value))
-                        .frame(width: 18, height: 8)
-                }
-                Text("More")
-                    .font(StatsTypography.tiny)
-                    .foregroundStyle(theme.textTertiary)
+            switch range {
+            case .sevenDay:
+                SevenDayActivityMode(model: stats.activity7d, theme: theme)
+            case .twelveMonth:
+                TwelveMonthActivityMode(model: stats.activity12Month, theme: theme)
             }
         }
         .padding(16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .statsCard(theme: theme, emphasized: true)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Activity heatmap by day and hour")
-        .accessibilityValue(model.summary)
     }
 
+    private var rangeLabel: String {
+        switch range {
+        case .sevenDay:
+            stats.activity7dRangeLabel
+        case .twelveMonth:
+            stats.activity12mRangeLabel
+        }
+    }
 }
 
-private struct ActivityHeatmapGrid: View {
-    let model: ActivityHeatmapModel
+private struct ActivityRangeSegmentedControl: View {
+    @Binding var selection: HomeActivityRange
     let theme: StatsTheme
-    let dayLabels: [String]
-    let hourTickPositions: Set<Int>
 
-    private let dayLabelWidth: CGFloat = 34
-    private let hourLabelHeight: CGFloat = 14
-    private let cellGap: CGFloat = 4
-    private let hourCount = 24
-    private let weekdayCount = 7
-    private let minimumCellSize: CGFloat = 10
+    private let ranges: [HomeActivityRange] = [.sevenDay, .twelveMonth]
+    private let segmentWidth: CGFloat = 48
+    private let segmentHeight: CGFloat = 26
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(ranges.indices, id: \.self) { index in
+                let range = ranges[index]
+                Button {
+                    selection = range
+                } label: {
+                    Text(range.title)
+                        .font(StatsTypography.smallStrong)
+                        .foregroundStyle(selection == range ? Color.white : theme.textSecondary)
+                        .monospacedDigit()
+                        .frame(width: segmentWidth, height: segmentHeight)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .background {
+                    if selection == range {
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(theme.blue)
+                    }
+                }
+                .overlay(alignment: .trailing) {
+                    if index < ranges.count - 1 {
+                        Rectangle()
+                            .fill(theme.gridLine.opacity(selection == range ? 0 : 0.72))
+                            .frame(width: 1, height: 14)
+                    }
+                }
+                .accessibilityLabel(range.title)
+                .accessibilityAddTraits(selection == range ? .isSelected : [])
+            }
+        }
+        .padding(2)
+        .background {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(theme.glassFill(tint: theme.blue))
+                .opacity(theme.isDark ? 0.42 : 0.56)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .stroke(theme.glassStroke(tint: theme.blue), lineWidth: 1)
+                .opacity(theme.isDark ? 0.42 : 0.52)
+        }
+        .fixedSize()
+    }
+}
+
+private struct SevenDayActivityMode: View {
+    let model: VoiceSevenDayActivityStats
+    let theme: StatsTheme
+
+    private let weekdayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    private let labeledHours = [0, 4, 8, 12, 16, 20, 24]
+
+    private func day(for index: Int) -> VoiceDailySavedTimeStats {
+        guard index < model.days.count else {
+            let fallbackDate =
+                Calendar.current.date(
+                    byAdding: .day,
+                    value: index,
+                    to: Calendar.current.startOfDay(for: model.startDate)
+                ) ?? model.startDate
+            return VoiceDailySavedTimeStats(
+                date: fallbackDate,
+                weekdayIndex: index,
+                wordCount: 0,
+                sessionCount: 0,
+                audioDuration: 0,
+                estimatedTimeSavedDuration: 0
+            )
+        }
+        return model.days[index]
+    }
+
+    private func hourBucket(dayIndex: Int, hour: Int) -> VoiceHourlyActivityStats {
+        let index = (dayIndex * 24) + hour
+        guard model.hourlyActivity.indices.contains(index) else {
+            return VoiceHourlyActivityStats(
+                weekdayIndex: dayIndex,
+                hour: hour,
+                sessionCount: 0,
+                wordCount: 0,
+                audioDuration: 0
+            )
+        }
+        return model.hourlyActivity[index]
+    }
+
+    var body: some View {
+        ActivityModeContentLayout(
+            theme: theme,
+            chartTopPadding: ActivityCardLayout.sevenDayChartTopPadding,
+            insights: [
+                ActivitySummaryItem(
+                    title: "Total",
+                    value: "\(HomeDashboardFormatting.cardCount(model.totalWordCount)) words"
+                ),
+                ActivitySummaryItem(
+                    title: "Best day",
+                    value: bestDayValue,
+                    detail: bestDayDetail
+                ),
+                ActivitySummaryItem(
+                    title: "Peak",
+                    value: peakValue,
+                    detail: peakDetail
+                )
+            ]
+        ) {
+            GeometryReader { proxy in
+                let metrics = SevenDayGridMetrics(width: proxy.size.width)
+                let intensity = ActivityIntensity(for: theme)
+
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: metrics.labelToGridSpacing) {
+                        Color.clear
+                            .frame(width: metrics.dayLabelWidth)
+
+                        SevenDayHourAxis(
+                            labeledHours: labeledHours,
+                            metrics: metrics,
+                            theme: theme
+                        )
+                    }
+                    .frame(height: metrics.hourAxisHeight, alignment: .topLeading)
+
+                    HStack(alignment: .top, spacing: metrics.labelToGridSpacing) {
+                        VStack(alignment: .leading, spacing: metrics.rowSpacing) {
+                            ForEach(0..<weekdayLabels.count, id: \.self) { dayIndex in
+                                Text(weekdayLabels[dayIndex])
+                                    .font(StatsTypography.axis)
+                                    .foregroundStyle(theme.textTertiary)
+                                    .frame(width: metrics.dayLabelWidth, height: metrics.cellSize, alignment: .leading)
+                            }
+                        }
+
+                        VStack(spacing: metrics.rowSpacing) {
+                            ForEach(0..<weekdayLabels.count, id: \.self) { dayIndex in
+                                let day = day(for: dayIndex)
+
+                                HStack(spacing: metrics.cellSpacing) {
+                                    ForEach(0..<24, id: \.self) { hour in
+                                        let bucket = hourBucket(dayIndex: dayIndex, hour: hour)
+                                        RoundedRectangle(cornerRadius: metrics.cellCornerRadius, style: .continuous)
+                                            .fill(
+                                                intensity.color(
+                                                    value: bucket.wordCount,
+                                                    maxValue: model.maxHourlyWordCount
+                                                )
+                                            )
+                                            .overlay {
+                                                RoundedRectangle(cornerRadius: metrics.cellCornerRadius, style: .continuous)
+                                                    .stroke(intensity.borderColor, lineWidth: 1)
+                                            }
+                                            .frame(width: metrics.cellWidth, height: metrics.cellSize)
+                                            .help(tooltip(day: day, hour: hour, wordCount: bucket.wordCount))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(.top, ActivityCardLayout.axisToGridSpacing)
+
+                    ActivityLegend(theme: theme)
+                        .frame(height: ActivityCardLayout.legendHeight, alignment: .leading)
+                        .padding(.top, ActivityCardLayout.gridToLegendSpacing)
+                        .padding(.leading, metrics.gridLeading)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+        }
+    }
+
+    private func tooltip(day: VoiceDailySavedTimeStats, hour: Int, wordCount: Int) -> String {
+        "\(weekdayLabel(for: day.date)) \(String(format: "%02d", hour)):00 · \(HomeDashboardFormatting.cardCount(wordCount)) words"
+    }
+
+    private func weekdayLabel(for date: Date) -> String {
+        let components = Calendar.current.dateComponents([.weekday], from: date)
+        let weekday = components.weekday ?? 2
+        let index = ((weekday + 5) % 7 + 7) % 7
+        return weekdayLabels[index]
+    }
+
+    private func peakRange(from startHour: Int) -> String {
+        let endHour = min(startHour + 4, 24)
+        return "\(String(format: "%02d", startHour)):00 - \(String(format: "%02d", endHour)):00"
+    }
+
+    private var bestDayValue: String {
+        guard let bestDay = model.bestDay else { return "None" }
+        return weekdayLabel(for: bestDay.date)
+    }
+
+    private var bestDayDetail: String? {
+        guard let bestDay = model.bestDay else { return nil }
+        return "\(HomeDashboardFormatting.cardCount(bestDay.wordCount)) words"
+    }
+
+    private var peakValue: String {
+        guard let startHour = model.peakWindowStartHour else { return "None" }
+        return peakRange(from: startHour)
+    }
+
+    private var peakDetail: String? {
+        guard model.peakWindowStartHour != nil else { return nil }
+        return "\(HomeDashboardFormatting.cardCount(model.peakWindowWordCount)) words"
+    }
+}
+
+private struct TwelveMonthActivityMode: View {
+    let model: VoiceTwelveMonthActivityStats
+    let theme: StatsTheme
+
+    private let dayTooltipFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "MMM d, yyyy"
+        return formatter
+    }()
+
+    var body: some View {
+        ActivityModeContentLayout(
+            theme: theme,
+            chartTopPadding: ActivityCardLayout.twelveMonthChartTopPadding,
+            insights: [
+                ActivitySummaryItem(
+                    title: "Total",
+                    value: "\(HomeDashboardFormatting.cardCount(model.totalWordCount)) words"
+                ),
+                ActivitySummaryItem(
+                    title: "Best day",
+                    value: bestDayValue,
+                    detail: bestDayDetail
+                ),
+                ActivitySummaryItem(
+                    title: "Active",
+                    value: "\(HomeDashboardFormatting.cardCount(model.activeDayCount)) days",
+                    detail: "\(HomeDashboardFormatting.cardCount(model.activeMonthCount)) months"
+                )
+            ]
+        ) {
+            VStack(alignment: .leading, spacing: 0) {
+                ActivityContributionGrid(
+                    days: model.days,
+                    maxWordCount: model.maxDailyWordCount,
+                    theme: theme,
+                    maximumCellSize: ActivityCardLayout.cellSize12m,
+                    minimumCellSize: ActivityCardLayout.minimumCellSize12m,
+                    cellSpacing: ActivityCardLayout.cellGap12m,
+                    labelWidth: ActivityCardLayout.axisLabelWidth,
+                    labelToGridSpacing: ActivityCardLayout.labelToGridSpacing,
+                    cornerRadius: ActivityCardLayout.cellCornerRadius12m,
+                    tooltipFormatter: dayTooltipFormatter
+                )
+                .frame(height: ActivityCardLayout.twelveMonthGridHeight, alignment: .topLeading)
+
+                ActivityLegend(theme: theme)
+                    .frame(height: ActivityCardLayout.legendHeight, alignment: .leading)
+                    .padding(.top, ActivityCardLayout.gridToLegendSpacing)
+                    .padding(.leading, ActivityCardLayout.legendLeading)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+
+    private var bestDayValue: String {
+        guard let bestDay = model.bestDay else { return "None" }
+        return dayTooltipFormatter.string(from: bestDay.date)
+    }
+
+    private var bestDayDetail: String? {
+        guard let bestDay = model.bestDay else { return nil }
+        return "\(HomeDashboardFormatting.cardCount(bestDay.wordCount)) words"
+    }
+}
+
+private enum ActivityCardLayout {
+    static let axisLabelWidth: CGFloat = 48
+    static let contentRowHeight: CGFloat = 244
+    static let legendHeight: CGFloat = 12
+    static let chartToInsightSpacing: CGFloat = 10
+    static let insightCardGap: CGFloat = 10
+    static let insightRowHeight: CGFloat = 72
+    static let sevenDayChartTopPadding: CGFloat = 0
+    static let twelveMonthChartTopPadding: CGFloat = 0
+    static let axisToGridSpacing: CGFloat = 12
+    static let monthToGridSpacing: CGFloat = 12
+    static let gridToLegendSpacing: CGFloat = 18
+    static let labelToGridSpacing: CGFloat = 8
+    static let cellSize7d: CGFloat = 12
+    static let cellGap7d: CGFloat = 3
+    static let cellCornerRadius7d: CGFloat = 3
+    static let cellSize12m: CGFloat = 12
+    static let minimumCellSize12m: CGFloat = 6
+    static let cellGap12m: CGFloat = 3
+    static let cellCornerRadius12m: CGFloat = 3
+    static let twelveMonthGridHeight: CGFloat = 14 + monthToGridSpacing + (cellSize12m * 7) + (cellGap12m * 6)
+    static let legendLeading: CGFloat = axisLabelWidth + labelToGridSpacing
+}
+
+private struct SevenDayGridMetrics {
+    let dayLabelWidth: CGFloat = ActivityCardLayout.axisLabelWidth
+    let cellSpacing: CGFloat = ActivityCardLayout.cellGap7d
+    let rowSpacing: CGFloat = ActivityCardLayout.cellGap7d
+    let labelToGridSpacing: CGFloat = ActivityCardLayout.labelToGridSpacing
+    let cellWidth: CGFloat
+    let cellSize: CGFloat
+    let hourAxisHeight: CGFloat = 14
+    let cellCornerRadius: CGFloat = ActivityCardLayout.cellCornerRadius7d
+
+    init(width: CGFloat) {
+        let gridGapsWidth = cellSpacing * 23
+        let reservedWidth = dayLabelWidth + labelToGridSpacing + gridGapsWidth
+        cellWidth = max(10, (width - reservedWidth) / 24)
+        cellSize = min(ActivityCardLayout.cellSize7d, cellWidth)
+    }
+
+    var gridWidth: CGFloat {
+        (cellWidth * 24) + (cellSpacing * 23)
+    }
+
+    var gridRowsHeight: CGFloat {
+        (cellSize * 7) + (rowSpacing * 6)
+    }
+
+    var gridLeading: CGFloat {
+        dayLabelWidth + labelToGridSpacing
+    }
+}
+
+private struct SevenDayHourAxis: View {
+    let labeledHours: [Int]
+    let metrics: SevenDayGridMetrics
+    let theme: StatsTheme
+
+    var body: some View {
+        HStack(spacing: metrics.cellSpacing) {
+            ForEach(0..<24, id: \.self) { hour in
+                if labeledHours.contains(hour) {
+                    Text(String(format: "%02d", hour))
+                        .font(StatsTypography.axis)
+                        .foregroundStyle(theme.textTertiary)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .frame(width: metrics.cellWidth, alignment: .leading)
+                } else {
+                    Color.clear
+                        .frame(width: metrics.cellWidth, height: 1)
+                }
+            }
+        }
+        .frame(width: metrics.gridWidth, height: metrics.hourAxisHeight, alignment: .leading)
+        .overlay(alignment: .trailing) {
+            if labeledHours.contains(24) {
+                Text("24")
+                    .font(StatsTypography.axis)
+                    .foregroundStyle(theme.textTertiary)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+        }
+    }
+}
+
+private struct ActivityContributionGrid: View {
+    let days: [VoiceDailySavedTimeStats]
+    let maxWordCount: Int
+    let theme: StatsTheme
+    let maximumCellSize: CGFloat
+    let minimumCellSize: CGFloat
+    let cellSpacing: CGFloat
+    let labelWidth: CGFloat
+    let labelToGridSpacing: CGFloat
+    let cornerRadius: CGFloat
+    let tooltipFormatter: DateFormatter
+
+    private let weekdayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+    private let monthFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "MMM"
+        return formatter
+    }()
 
     var body: some View {
         GeometryReader { proxy in
-            let cellSize = cellSize(for: proxy.size)
+            let cells = contributionCells
+            let columnCount = max(1, cells.count / 7)
+            let topLabelHeight: CGFloat = 14
+            let availableWidth = max(0, proxy.size.width - labelWidth - labelToGridSpacing)
+            let availableCellWidth = (availableWidth - (cellSpacing * CGFloat(max(0, columnCount - 1)))) / CGFloat(columnCount)
+            let cellWidth = max(minimumCellSize, availableCellWidth)
+            let cellHeight = min(maximumCellSize, max(minimumCellSize, availableCellWidth))
+            let gridWidth = (CGFloat(columnCount) * cellWidth) + (CGFloat(max(0, columnCount - 1)) * cellSpacing)
+            let markers = monthMarkers(cells: cells)
+            let intensity = ActivityIntensity(for: theme)
 
-            VStack(alignment: .leading, spacing: cellGap) {
-                HStack(spacing: cellGap) {
+            VStack(alignment: .leading, spacing: ActivityCardLayout.monthToGridSpacing) {
+                HStack(spacing: labelToGridSpacing) {
                     Color.clear
-                        .frame(width: dayLabelWidth, height: hourLabelHeight)
-                        .accessibilityHidden(true)
+                        .frame(width: labelWidth)
 
-                    ForEach(0..<hourCount, id: \.self) { hour in
-                        Text(label(for: hour))
-                            .font(StatsTypography.axis)
-                            .foregroundStyle(hourTickPositions.contains(hour) ? theme.textTertiary : .clear)
-                            .frame(width: cellSize, height: hourLabelHeight)
-                    }
-                }
-
-                ForEach(dayLabels.indices, id: \.self) { weekday in
-                    HStack(alignment: .center, spacing: cellGap) {
-                        Text(dayLabels[weekday])
-                            .font(StatsTypography.tiny)
-                            .tracking(StatsTypography.smallTracking)
-                            .foregroundStyle(theme.textSecondary)
-                            .frame(width: dayLabelWidth, alignment: .leading)
-
-                        ForEach(0..<hourCount, id: \.self) { hour in
-                            let current = model.cell(weekday: weekday, hour: hour)
-                            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                .fill(theme.heatmapColor(value: current.value))
-                                .frame(width: cellSize, height: cellSize)
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                        .stroke(theme.heatmapCellBorder, lineWidth: 0.6)
-                                }
-                                .help(current.hoverSummary)
+                    HStack(spacing: cellSpacing) {
+                        ForEach(0..<columnCount, id: \.self) { column in
+                            if let marker = markers.first(where: { $0.column == column }) {
+                                Text(marker.label)
+                                    .font(StatsTypography.axis)
+                                    .foregroundStyle(theme.textTertiary)
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
+                                    .frame(width: cellWidth, alignment: .leading)
+                            } else {
+                                Color.clear
+                                    .frame(width: cellWidth, height: 1)
+                            }
                         }
                     }
+                    .frame(width: gridWidth, height: topLabelHeight, alignment: .leading)
+                }
+
+                HStack(alignment: .top, spacing: labelToGridSpacing) {
+                    VStack(alignment: .leading, spacing: cellSpacing) {
+                        ForEach(weekdayLabels, id: \.self) { label in
+                            Text(label)
+                                .font(StatsTypography.axis)
+                                .foregroundStyle(theme.textTertiary)
+                                .frame(width: labelWidth, height: cellHeight, alignment: .leading)
+                        }
+                    }
+
+                    HStack(alignment: .top, spacing: cellSpacing) {
+                        ForEach(0..<columnCount, id: \.self) { column in
+                            VStack(spacing: cellSpacing) {
+                                ForEach(0..<7, id: \.self) { row in
+                                    let index = (column * 7) + row
+                                    if cells.indices.contains(index), let day = cells[index] {
+                                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                                            .fill(intensity.color(value: day.wordCount, maxValue: maxWordCount))
+                                            .overlay {
+                                                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                                                    .stroke(intensity.borderColor, lineWidth: 1)
+                                            }
+                                            .frame(width: cellWidth, height: cellHeight)
+                                            .help("\(tooltipFormatter.string(from: day.date)) · \(HomeDashboardFormatting.cardCount(day.wordCount)) words")
+                                    } else {
+                                        Color.clear
+                                            .frame(width: cellWidth, height: cellHeight)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .frame(width: gridWidth, alignment: .leading)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
 
-    private func cellSize(for size: CGSize) -> CGFloat {
-        let horizontalGaps = cellGap * CGFloat(hourCount)
-        let verticalGaps = cellGap * CGFloat(weekdayCount)
-        let availableCellWidth = (size.width - dayLabelWidth - horizontalGaps) / CGFloat(hourCount)
-        let availableCellHeight = (size.height - hourLabelHeight - verticalGaps) / CGFloat(weekdayCount)
-        return max(minimumCellSize, floor(min(availableCellWidth, availableCellHeight)))
-    }
+    private var contributionCells: [VoiceDailySavedTimeStats?] {
+        guard let firstDay = days.first else { return Array(repeating: nil, count: 7) }
 
-    private func label(for hour: Int) -> String {
-        String(format: "%02d", hour)
-    }
-}
+        var items: [VoiceDailySavedTimeStats?] = Array(repeating: nil, count: firstDay.weekdayIndex)
+        items.append(contentsOf: days)
 
-private struct ActivityHeatmapModel: Equatable {
-    private static let dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-
-    let cells: [HeatmapCell]
-    let summary: String
-
-    init(hourlyActivity: [HomeHourlyActivityStats]) {
-        let maxHeatmapValue = max(1, hourlyActivity.map(\.wordCount).max() ?? 1)
-        var bucketsByID: [Int: HomeHourlyActivityStats] = [:]
-        bucketsByID.reserveCapacity(hourlyActivity.count)
-
-        for bucket in hourlyActivity {
-            bucketsByID[bucket.id] = bucket
+        let remainder = items.count % 7
+        if remainder != 0 {
+            items.append(contentsOf: Array(repeating: nil, count: 7 - remainder))
         }
 
-        cells = (0..<7).flatMap { weekday in
-            (0..<24).map { hour in
-                let bucket = bucketsByID[(weekday * 24) + hour]
-                let wordCount = bucket?.wordCount ?? 0
-                return HeatmapCell(
-                    dayIndex: weekday,
-                    hour: hour,
-                    value: Double(wordCount) / Double(maxHeatmapValue),
-                    sessionCount: bucket?.sessionCount ?? 0,
-                    wordCount: wordCount,
-                    hoverSummary: Self.hoverSummary(
-                        weekday: weekday,
-                        hour: hour,
-                        sessionCount: bucket?.sessionCount ?? 0,
-                        wordCount: wordCount
+        return items
+    }
+
+    private func monthMarkers(cells: [VoiceDailySavedTimeStats?]) -> [ContributionMonthMarker] {
+        var markers: [ContributionMonthMarker] = []
+        var previousMonthKey: Int?
+        let calendar = Calendar.current
+
+        for index in cells.indices {
+            guard let day = cells[index] else { continue }
+            let components = calendar.dateComponents([.year, .month], from: day.date)
+            let month = components.month ?? 0
+            let year = components.year ?? 0
+            let key = (year * 12) + month
+
+            if key != previousMonthKey {
+                markers.append(
+                    ContributionMonthMarker(
+                        column: index / 7,
+                        label: monthFormatter.string(from: day.date)
                     )
                 )
+                previousMonthKey = key
             }
         }
 
-        if let busiestSlot = hourlyActivity.max(by: {
-            if $0.wordCount == $1.wordCount {
-                return ($0.weekdayIndex, $0.hour) < ($1.weekdayIndex, $1.hour)
-            }
-            return $0.wordCount < $1.wordCount
-        }), busiestSlot.wordCount > 0 {
-            summary =
-                "Peak at \(Self.dayLabels[busiestSlot.weekdayIndex]) \(Self.hourLabelText(for: busiestSlot.hour)) · "
-                + "\(busiestSlot.wordCount) words"
-        } else {
-            summary = "No weekly activity yet"
-        }
-    }
-
-    func cell(weekday: Int, hour: Int) -> HeatmapCell {
-        let index = (weekday * 24) + hour
-        guard cells.indices.contains(index) else {
-            return HeatmapCell(
-                dayIndex: weekday,
-                hour: hour,
-                value: 0,
-                sessionCount: 0,
-                wordCount: 0,
-                hoverSummary: Self.hoverSummary(
-                    weekday: weekday,
-                    hour: hour,
-                    sessionCount: 0,
-                    wordCount: 0
-                )
-            )
-        }
-        return cells[index]
-    }
-
-    private static func hourLabelText(for hour: Int) -> String {
-        "\(hour):00"
-    }
-
-    private static func hoverSummary(
-        weekday: Int,
-        hour: Int,
-        sessionCount: Int,
-        wordCount: Int
-    ) -> String {
-        let dayIndex = ((weekday % dayLabels.count) + dayLabels.count) % dayLabels.count
-        return "\(dayLabels[dayIndex]) \(hourLabelText(for: hour)) · "
-            + "\(wordCount.formatted()) \(HomeDashboardFormatting.plural("word", count: wordCount)) · "
-            + "\(sessionCount.formatted()) \(HomeDashboardFormatting.plural("session", count: sessionCount))"
+        return markers
     }
 }
 
-private struct HeatmapCell: Identifiable, Equatable {
-    let dayIndex: Int
-    let hour: Int
-    let value: Double
-    let sessionCount: Int
-    let wordCount: Int
-    let hoverSummary: String
+private struct ContributionMonthMarker: Identifiable {
+    let column: Int
+    let label: String
 
-    var id: Int { dayIndex * 24 + hour }
+    var id: String {
+        "\(column)-\(label)"
+    }
+}
+
+private struct ActivitySummaryItem: Identifiable {
+    let id = UUID()
+    let title: String
+    let value: String
+    let detail: String?
+
+    init(title: String, value: String, detail: String? = nil) {
+        self.title = title
+        self.value = value
+        self.detail = detail
+    }
+}
+
+private struct ActivityModeContentLayout<Chart: View>: View {
+    let theme: StatsTheme
+    let chartTopPadding: CGFloat
+    let items: [ActivitySummaryItem]
+    let chart: Chart
+
+    init(
+        theme: StatsTheme,
+        chartTopPadding: CGFloat,
+        insights: [ActivitySummaryItem],
+        @ViewBuilder chart: () -> Chart
+    ) {
+        self.theme = theme
+        self.chartTopPadding = chartTopPadding
+        items = insights
+        self.chart = chart()
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let chartHeight = max(
+                0,
+                ActivityCardLayout.contentRowHeight
+                    - chartTopPadding
+                    - ActivityCardLayout.chartToInsightSpacing
+                    - ActivityCardLayout.insightRowHeight
+            )
+
+            VStack(alignment: .leading, spacing: ActivityCardLayout.chartToInsightSpacing) {
+                chart
+                    .frame(width: proxy.size.width, height: chartHeight, alignment: .topLeading)
+                    .padding(.top, chartTopPadding)
+
+                ActivityInsightRow(items: items, theme: theme)
+                    .frame(width: proxy.size.width, height: ActivityCardLayout.insightRowHeight, alignment: .top)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .frame(height: ActivityCardLayout.contentRowHeight)
+    }
+}
+
+private struct ActivityInsightRow: View {
+    let items: [ActivitySummaryItem]
+    let theme: StatsTheme
+
+    var body: some View {
+        HStack(alignment: .top, spacing: ActivityCardLayout.insightCardGap) {
+            ForEach(items.indices, id: \.self) { index in
+                ActivityInsightBlock(item: items[index], theme: theme)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(maxHeight: .infinity)
+    }
+}
+
+private struct ActivityInsightBlock: View {
+    let item: ActivitySummaryItem
+    let theme: StatsTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(item.title)
+                .font(StatsTypography.activitySummaryLabel)
+                .foregroundStyle(theme.textTertiary.opacity(0.92))
+                .textCase(.uppercase)
+
+            Text(item.value)
+                .font(StatsTypography.activitySummaryValue)
+                .foregroundStyle(theme.textPrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.74)
+                .monospacedDigit()
+
+            if let detail = item.detail {
+                Text(detail)
+                    .font(StatsTypography.activitySummaryDetail)
+                    .foregroundStyle(theme.textSecondary.opacity(0.82))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.76)
+                    .monospacedDigit()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(theme.glassFill(tint: theme.blue))
+                .opacity(theme.isDark ? 0.40 : 0.58)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(theme.glassStroke(tint: theme.blue), lineWidth: 1)
+                .opacity(theme.isDark ? 0.36 : 0.48)
+        }
+        .overlay(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.white.opacity(theme.isDark ? 0.05 : 0.30), lineWidth: 1)
+        }
+    }
+}
+
+private struct ActivityLegend: View {
+    let theme: StatsTheme
+
+    var body: some View {
+        let intensity = ActivityIntensity(for: theme)
+
+        HStack(spacing: 5) {
+            Text("Less")
+                .font(StatsTypography.axis)
+                .foregroundStyle(theme.textTertiary)
+
+            ForEach(1...5, id: \.self) { level in
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(intensity.color(level: level))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .stroke(intensity.borderColor, lineWidth: 1)
+                    }
+                    .frame(width: 14, height: 10)
+            }
+
+            Text("More")
+                .font(StatsTypography.axis)
+                .foregroundStyle(theme.textTertiary)
+        }
+    }
+}
+
+private struct ActivityIntensity {
+    let theme: StatsTheme
+
+    init(for theme: StatsTheme) {
+        self.theme = theme
+    }
+
+    func normalizedValue(_ value: Int, maxValue: Int) -> Double {
+        guard maxValue > 0 else { return 0 }
+        guard value > 0 else { return 0 }
+        return max(0, min(1, Double(value) / Double(maxValue)))
+    }
+
+    func color(value: Int, maxValue: Int) -> Color {
+        color(level: level(value: value, maxValue: maxValue))
+    }
+
+    func color(level: Int) -> Color {
+        let boundedLevel = max(0, min(5, level))
+        if boundedLevel == 0 {
+            return theme.isDark
+                ? Color.white.opacity(0.045)
+                : Color(red: 0.935, green: 0.945, blue: 0.958)
+        }
+
+        if theme.isDark {
+            switch boundedLevel {
+            case 1:
+                return Color(red: 0.15, green: 0.22, blue: 0.40)
+            case 2:
+                return Color(red: 0.16, green: 0.27, blue: 0.52)
+            case 3:
+                return Color(red: 0.22, green: 0.36, blue: 0.72)
+            case 4:
+                return theme.blue.opacity(0.84)
+            default:
+                return Color(red: 0.54, green: 0.56, blue: 1.00)
+            }
+        }
+
+        switch boundedLevel {
+        case 1:
+            return Color(red: 0.75, green: 0.82, blue: 0.99)
+        case 2:
+            return Color(red: 0.66, green: 0.74, blue: 0.98)
+        case 3:
+            return Color(red: 0.50, green: 0.61, blue: 0.96)
+        case 4:
+            return theme.blue.opacity(0.86)
+        default:
+            return theme.blue
+        }
+    }
+
+    var borderColor: Color {
+        theme.isDark ? Color.white.opacity(0.055) : Color.white.opacity(0.78)
+    }
+
+    private func level(value: Int, maxValue: Int) -> Int {
+        guard value > 0, maxValue > 0 else { return 0 }
+        let ratio = normalizedValue(value, maxValue: maxValue)
+        return max(1, min(5, Int((ratio * 5).rounded(.up))))
+    }
 }
 
 private struct MilestoneCard: View {
@@ -1533,102 +1768,136 @@ private extension HomeDashboardStats {
 
     static var previewPopulated: HomeDashboardStats {
         let calendar = Calendar.current
-        let start = calendar.dateInterval(of: .weekOfYear, for: Date())?.start ?? calendar.startOfDay(for: Date())
-        let dailyWords = [120, 240, 40, 0, 190, 55, 35]
-        let dailySessions = [1, 3, 1, 0, 2, 1, 1]
-        let dailyAudio = [40, 92, 20, 0, 70, 25, 25]
-        let dailySavedMinutes = [120, 200, 35, 0, 165, 45, 38]
-        let daily = (0..<7).map {
-            Self.makeWeeklyDay(
-                date: calendar.date(byAdding: .day, value: $0, to: start) ?? start,
-                weekdayIndex: $0,
-                words: dailyWords[$0],
-                sessions: dailySessions[$0],
-                audio: Double(dailyAudio[$0]),
-                estimatedSeconds: Double(dailySavedMinutes[$0]) * 60
-            )
-        }
+        let now = calendar.startOfDay(for: Date())
+        var entries: [VoiceHistoryEntry] = []
+        let weeklyWordsByDay: [Int] = [120, 95, 0, 40, 190, 55, 35]
 
-        let heatmapWordsByHour: [[Int: Int]] = [
-            [9: 35, 10: 45, 11: 40],
-            [9: 65, 10: 90, 11: 85],
-            [14: 22, 15: 18],
-            [:],
-            [13: 54, 14: 72, 15: 64],
-            [16: 30, 17: 25],
-            [11: 18, 12: 17]
-        ]
-
-        let heatmap: [HomeHourlyActivityStats] = heatmapWordsByHour.enumerated().flatMap { weekday, wordsByHour in
-            wordsByHour.map { hour, wordCount in
-                return HomeHourlyActivityStats(
-                    weekdayIndex: weekday,
-                    hour: hour,
-                    sessionCount: max(1, Int((Double(wordCount) / 80.0).rounded(.up))),
-                    wordCount: wordCount,
-                    audioDuration: 0
+        for dayOffset in 0..<7 {
+            if weeklyWordsByDay[dayOffset] > 0 {
+                entries.append(
+                    sampleHistoryEntry(
+                        createdAt: calendar.date(byAdding: .day, value: -dayOffset, to: now) ?? now,
+                        duration: 18 + Double(dayOffset),
+                        recognizedWordCount: weeklyWordsByDay[dayOffset]
+                    )
                 )
             }
         }
-        let filledHeatmap = HomeHourlyActivityStats.fillMatrix(from: heatmap)
 
-        return HomeDashboardStats(
-            week: VoiceWeeklyUsageStats(
-                startDate: start,
-                days: daily,
-                hourlyActivity: filledHeatmap.map { $0.voiceHourlyActivity() },
-                wordCount: 680,
-                sessionCount: 8,
-                audioDuration: 235,
-                estimatedTimeSavedDuration: (680.0 / VoiceTranscriptionUsageStats.manualTypingWordsPerMinute) * 60
-            ),
-            weekStartDate: start,
-            nextMilestone: VoiceUsageMilestone(
-                title: "1,000 words",
-                currentValue: 680,
-                targetValue: 1_000,
-                unit: "words"
-            ),
-            currentStreakDayCount: 4,
-            bestStreakDayCount: 6,
-            hourlyActivity: filledHeatmap
-        )
-    }
-
-    static var previewEmpty: HomeDashboardStats {
-        let calendar = Calendar.current
-        let start = calendar.dateInterval(of: .weekOfYear, for: Date())?.start ?? calendar.startOfDay(for: Date())
-        let emptyWeek: [VoiceDailySavedTimeStats] = (0..<7).map {
-            Self.makeWeeklyDay(
-                date: calendar.date(byAdding: .day, value: $0, to: start) ?? start,
-                weekdayIndex: $0,
-                words: 0,
-                sessions: 0,
-                audio: 0,
-                estimatedSeconds: 0
+        for dayOffset in stride(from: 0, through: 29, by: 4) {
+            if dayOffset == 0 { continue }
+            entries.append(
+                sampleHistoryEntry(
+                    createdAt: calendar.date(byAdding: .day, value: -dayOffset, to: now) ?? now,
+                    duration: 40,
+                    recognizedWordCount: 70 + dayOffset
+                )
             )
         }
 
+        for monthOffset in stride(from: -11, through: 0, by: 1) {
+            let monthDate = calendar.date(byAdding: .month, value: monthOffset, to: now) ?? now
+            entries.append(
+                sampleHistoryEntry(
+                    createdAt: monthDate,
+                    duration: 24,
+                    recognizedWordCount: 500 + (monthOffset * -10),
+                    status: .insertAttempted
+                )
+            )
+        }
+
+        return HomeDashboardStats(stats: VoiceTranscriptionUsageStats(entries: entries, now: Date(), calendar: calendar))
+    }
+
+    static var previewEmpty: HomeDashboardStats {
+        return HomeDashboardStats(stats: .init())
+    }
+
+    static var previewActivityLayout: HomeDashboardStats {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: "en_US_POSIX")
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
+
+        let now = calendar.date(from: DateComponents(year: 2026, month: 6, day: 14, hour: 12)) ?? Date()
+        var entries: [VoiceHistoryEntry] = []
+
+        func date(_ year: Int, _ month: Int, _ day: Int, _ hour: Int) -> Date {
+            calendar.date(from: DateComponents(year: year, month: month, day: day, hour: hour)) ?? now
+        }
+
+        let weeklyActivity: [(Date, Int)] = [
+            (date(2026, 6, 8, 9), 180),
+            (date(2026, 6, 9, 13), 520),
+            (date(2026, 6, 9, 14), 470),
+            (date(2026, 6, 9, 15), 640),
+            (date(2026, 6, 9, 16), 201),
+            (date(2026, 6, 10, 0), 260),
+            (date(2026, 6, 10, 12), 420),
+            (date(2026, 6, 10, 14), 390),
+            (date(2026, 6, 10, 15), 371),
+            (date(2026, 6, 12, 20), 3)
+        ]
+
+        entries.append(
+            contentsOf: weeklyActivity.map { createdAt, wordCount in
+                sampleHistoryEntry(
+                    createdAt: createdAt,
+                    duration: 24,
+                    recognizedWordCount: wordCount
+                )
+            }
+        )
+
+        let monthlyActivity: [(Date, Int)] = [
+            (date(2025, 7, 8, 10), 120),
+            (date(2025, 8, 12, 11), 90),
+            (date(2025, 9, 16, 12), 150),
+            (date(2025, 10, 20, 13), 80),
+            (date(2025, 11, 24, 14), 110),
+            (date(2025, 12, 28, 15), 170),
+            (date(2026, 1, 6, 10), 130),
+            (date(2026, 2, 10, 11), 95),
+            (date(2026, 3, 9, 12), 160),
+            (date(2026, 4, 13, 13), 140),
+            (date(2026, 5, 18, 14), 220)
+        ]
+
+        entries.append(
+            contentsOf: monthlyActivity.map { createdAt, wordCount in
+                sampleHistoryEntry(
+                    createdAt: createdAt,
+                    duration: 18,
+                    recognizedWordCount: wordCount
+                )
+            }
+        )
+
         return HomeDashboardStats(
-            week: VoiceWeeklyUsageStats(
-                startDate: start,
-                days: emptyWeek,
-                hourlyActivity: HomeHourlyActivityStats.zeroMatrix().map { $0.voiceHourlyActivity() },
-                wordCount: 0,
-                sessionCount: 0,
-                audioDuration: 0,
-                estimatedTimeSavedDuration: 0
-            ),
-            weekStartDate: start,
-            nextMilestone: VoiceUsageMilestone(
-                title: "First dictation",
-                currentValue: 0,
-                targetValue: 1,
-                unit: "session"
-            ),
-            currentStreakDayCount: 0,
-            bestStreakDayCount: 0,
-            hourlyActivity: HomeHourlyActivityStats.zeroMatrix()
+            stats: VoiceTranscriptionUsageStats(
+                entries: entries,
+                now: now,
+                calendar: calendar
+            )
+        )
+    }
+
+    private static func sampleHistoryEntry(
+        createdAt: Date,
+        duration: TimeInterval,
+        recognizedWordCount: Int,
+        status: VoiceHistoryStatus = .insertAttempted
+    ) -> VoiceHistoryEntry {
+        VoiceHistoryEntry(
+            id: UUID(),
+            createdAt: createdAt,
+            duration: duration,
+            rawText: "",
+            finalText: "preview",
+            status: status,
+            errorMessage: nil,
+            timings: nil,
+            recognizedWordCount: recognizedWordCount
         )
     }
 
@@ -1655,6 +1924,44 @@ private struct HomeDashboardStatsPreviewHost: View {
         )
         .environment(\.colorScheme, colorScheme)
     }
+}
+
+private struct HomeActivityCardPreviewHost: View {
+    let initialRange: HomeActivityRange
+    let colorScheme: ColorScheme
+    @State private var range: HomeActivityRange
+
+    init(initialRange: HomeActivityRange, colorScheme: ColorScheme) {
+        self.initialRange = initialRange
+        self.colorScheme = colorScheme
+        _range = State(initialValue: initialRange)
+    }
+
+    var body: some View {
+        let theme = StatsTheme.resolve(colorScheme)
+
+        HomeActivityCard(
+            range: $range,
+            stats: .previewActivityLayout,
+            theme: theme
+        )
+        .frame(width: 1_020, height: 320)
+        .padding(24)
+        .background(theme.background)
+        .environment(\.colorScheme, colorScheme)
+    }
+}
+
+#Preview("Activity Card - 7d") {
+    HomeActivityCardPreviewHost(initialRange: .sevenDay, colorScheme: .dark)
+}
+
+#Preview("Activity Card - 12m") {
+    HomeActivityCardPreviewHost(initialRange: .twelveMonth, colorScheme: .dark)
+}
+
+#Preview("Activity Card - 7d Light") {
+    HomeActivityCardPreviewHost(initialRange: .sevenDay, colorScheme: .light)
 }
 
 #Preview("Home Dashboard - Populated (Light)") {

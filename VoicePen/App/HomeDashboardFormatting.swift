@@ -1,15 +1,30 @@
 import Foundation
 
 enum HomeDashboardDateRangeFormatter {
-    private static let formatter: DateFormatter = {
+    private static let monthDayFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "MMM d"
         return formatter
     }()
 
+    private static let monthFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "MMM yyyy"
+        return formatter
+    }()
+
     static func weekRangeText(from start: Date, to end: Date) -> String {
-        "\(formatter.string(from: start)) - \(formatter.string(from: end))"
+        "\(monthDayFormatter.string(from: start)) - \(monthDayFormatter.string(from: end))"
+    }
+
+    static func monthDayRangeText(from start: Date, to end: Date) -> String {
+        "\(monthDayFormatter.string(from: start)) - \(monthDayFormatter.string(from: end))"
+    }
+
+    static func monthRangeText(from start: Date, to end: Date) -> String {
+        "\(monthFormatter.string(from: start)) - \(monthFormatter.string(from: end))"
     }
 }
 

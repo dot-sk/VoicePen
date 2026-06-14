@@ -62,7 +62,7 @@ session-specific persistence and actions here.
 - When Home is ready, the readiness strip shall include the current push-to-talk shortcut hint and the Meeting recording Command-R hint.
 - When Home is not ready, busy, or in a problem state, the readiness strip shall show the current app status without also showing `Ready`.
 - When Home shows an actionable readiness problem, permission problems shall route from the readiness strip to Settings and a missing local transcription model shall route to Models; transient busy states shall not show a readiness-strip action.
-- When Home is shown, the dashboard layout shall be active and include an Activity Heatmap and weekly session activity sections.
+- When Home is shown, the dashboard layout shall be active and include one unified Activity block in the middle row.
 - When Home renders usage stats, it shall use the cached usage summary from the history store rather than recomputing stats from all history entries during view rendering.
 - When Home shows usage stats, it shall emphasize typing time avoided for the current Monday-Sunday week by converting recognized word count with the professional typing baseline.
 - When Home computes typing time avoided, it shall use recognized word count only and shall not subtract spoken audio duration.
@@ -70,8 +70,12 @@ session-specific persistence and actions here.
 - When Home dashboard sections are reviewed, both Light and Dark themes shall be included as explicit manual checks.
 - When Home has no countable activity for the current week, the weekly value area and daily activity chart shall present a calm empty weekly state rather than an empty chart or an oversized zero-value headline.
 - When Home shows weekly activity, it shall include countable daily activity and hourly activity buckets for each of 7 local weekdays and 24 local hours.
-- When the user hovers a Home Activity Heatmap cell, VoicePen shall show that cell's weekday, hour, recognized word count, and session count without changing dashboard state.
-- When Home shows daily typing-time-avoided activity, it shall include one bucket for each Monday-Sunday day, including days with no countable activity.
+- When the user hovers a Home unified Activity cell, VoicePen shall show that cell's weekday, hour, and words without changing dashboard state.
+- When Home shows unified Activity, it shall include one row for each Monday-Sunday day, including days with no countable activity.
+- When Home shows unified Activity, the week mode shall default to the current Monday-Sunday local calendar week and show only words as the metric.
+- When Home shows unified Activity, the 12-month mode shall cover the current calendar month plus prior 11 calendar months and expose daily buckets through today for the yearly contribution grid.
+- Activity counts used in unified Activity shall require status-countable + positive usage word count and must ignore failed, zero-duration, and zero-word entries.
+- Activity data for the visible 7-day and 12-month modes shall be computed from already-aggregated daily/monthly/hourly structures without rescanning all entries in SwiftUI views.
 - When VoicePen shows usage milestones, the Home progress block shall identify the progress as lifetime or all-time so it does not read as part of the current-week totals.
 - When VoicePen shows usage milestones, it shall continue to use the existing progressive lifetime milestone ladder for the Home progress block.
 - When VoicePen shows usage stats, it shall also compute lightweight progress signals: active streak, words dictated today, best dictation day, best streak, the latest reached milestone, and the next milestone.
@@ -129,9 +133,11 @@ session-specific persistence and actions here.
 | Home actionable status | Permission or model setup is missing | Home readiness strip can route the user to Settings for permissions or Models for model setup |
 | Weekly typing time avoided | Current week contains completed dictations with recognized text | Home emphasizes weekly typing time avoided from recognized word count at the professional typing baseline |
 | Weekly usage summary | Current week contains countable dictations | Home shows weekly recognized word count, countable sessions, spoken audio, and daily typing-time-avoided activity buckets |
-| Weekly hourly heatmap | Current week contains countable dictations in specific hours | Home Activity Heatmap shows countable activity in the expected weekday/hour buckets, including zero entries for empty buckets; hovering a bucket shows that bucket's data rather than the weekly peak |
+| Unified Activity 7d | Current week contains countable dictations in specific hours | Home Activity 7d mode shows expected weekday/hour buckets and word counts, including future-visible weekdays and zero entries, with peak calculated over 4-hour windows |
+| Unified Activity 12m | Current year has day-level and month-level activity | Home Activity 12m mode exposes daily buckets from the first visible month through today, plus 12 calendar months, active months, best month (latest on tie), and total words |
 | Weekly empty state | Current week has no countable dictations | Home presents a weekly empty state and an empty daily activity state without implying lifetime milestone progress is weekly progress |
-| Weekly zero days | Current week has days without countable dictations | Home keeps those days visible in the Monday-Sunday activity buckets with zero typing time avoided |
+| Activity empty ranges | Activity ranges contain no countable words | Home shows zero totals with nil best/peak values and zero intensity levels in visible 7d and 12m modes |
+| Activity tie-breakers | Multiple best candidates exist at equal values | Home Activity picks the latest day/month for best summaries and earliest window for 7d peak |
 | Lightweight progress stats | History contains entries across multiple days | Home shows current streak, all-time best streak, best typing-time-avoided day this week, latest reached milestone, and next lifetime milestone |
 | Single high-volume day | One day contains thousands of dictated words | Early volume and daily-record milestones may unlock, but longer streak and elite lifetime milestones remain locked |
 | History selection | Click an older visible history row | Row becomes active and the detail pane shows that row |
@@ -155,7 +161,7 @@ session-specific persistence and actions here.
 ## Test Mapping
 
 - Automated: `VoicePenTests/Persistence/DatabaseMigratorTests.swift` covers schema migration.
-- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers main window activity bar grouping and ordering, Home usage data wiring, Home actionable status routing, Home heatmap cell hover tooltip wiring, Settings launch and permission wiring, About App data display, one-value disk usage display, history processing metadata display, and stable shared copy-button feedback.
+- Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers main window activity bar grouping and ordering, Home usage data wiring, Home actionable status wiring, Home activity-card summary wiring, Settings launch and permission wiring, About App data display, one-value disk usage display, history processing metadata display, and stable shared copy-button feedback.
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers that History does not expose a SQLite file-reveal action.
 - Automated: `VoicePenTests/TranscriptWorkspace/TranscriptDayGroupsTests.swift` covers shared list grouping by local calendar day while preserving entry order.
 - Automated: `VoicePenTests/Settings/AppSettingsStoreTests.swift` and `VoicePenTests/Settings/UserConfigStoreTests.swift` cover settings defaults, persistence, and normalization, including app appearance mode.
@@ -165,8 +171,8 @@ session-specific persistence and actions here.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers launch-at-login updates, synchronization with current macOS login item status, and app appearance application.
 - Automated: `VoicePenTests/History/VoiceHistoryStoreTests.swift` covers unlimited local history rows, batch text compression, text payload eviction, storage stats, ordering, deletion, clearing, persisted history metadata including app version, and archived audio associations.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers saving the app version used for decoding with voice history model metadata.
-- Automated: `VoicePenTests/TranscriptWorkspace/TranscriptSearchFilterTests.swift`, `VoicePenTests/TranscriptWorkspace/TranscriptTextUIStateTests.swift`, `VoicePenTests/History/VoiceHistoryFilterTests.swift`, and `VoicePenTests/History/VoiceTranscriptionUsageStatsTests.swift` cover shared filtering mechanics, Sessions text UI snapshots and content identity, Sessions search field indexing, typing-time-avoided usage stats, weekly and hourly buckets, streaks, best streak, daily word counts, best day, latest reached milestone, and next milestone.
-- Manual: open Home with empty and populated history in light and dark mode; verify the readiness strip, weekly dashboard, daily activity chart, and milestone progress read as one compact dashboard.
+- Automated: `VoicePenTests/History/VoiceTranscriptionUsageStatsTests.swift` covers activity range aggregation for 7d/30d/12m data models, including 12m daily buckets, empty ranges, tie-breakers, streak cap semantics, and recognized-word fallback behavior.
+- Manual: open Home with empty and populated history in light and dark mode; verify the readiness strip, unified Activity card, Next Milestone placement, and that no sessions list or second activity chart is shown.
 - Manual: open Settings and verify the Open at login control reflects the current macOS login item status.
 - Manual: open Settings and verify permission statuses and request/refresh actions are available.
 - Manual: open About settings and verify the App block contains status, privacy, storage, and database path.

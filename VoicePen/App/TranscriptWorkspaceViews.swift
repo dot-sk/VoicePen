@@ -56,6 +56,7 @@ struct TranscriptWorkspaceView<
 
     @FocusState private var isSearchFocused: Bool
     @State private var isSearchPresented = false
+    @State private var isSidebarPresented = false
 
     private var selectedEntry: Entry? {
         guard let selectedID else {
@@ -74,20 +75,9 @@ struct TranscriptWorkspaceView<
                     maxHeight: .infinity
                 )
 
-            Divider()
+            centerPanel
 
-            centerContent(selectedEntry)
-                .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
-
-            Divider()
-
-            sidebarContent(selectedEntry)
-                .frame(
-                    minWidth: TranscriptWorkspaceLayout.sidebarMinWidth,
-                    idealWidth: TranscriptWorkspaceLayout.sidebarIdealWidth,
-                    maxWidth: TranscriptWorkspaceLayout.sidebarMaxWidth,
-                    maxHeight: .infinity
-                )
+            rightSidebarContainer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(theme.background)
@@ -105,6 +95,31 @@ struct TranscriptWorkspaceView<
         .onChange(of: listModel.entryIDs) { _, _ in
             ensureSelectedEntryIsVisible()
         }
+    }
+
+    private var centerPanel: some View {
+        centerContent(selectedEntry)
+            .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+            .overlay {
+                Rectangle()
+                    .stroke(theme.border, lineWidth: 1)
+            }
+    }
+
+    private var rightSidebarContainer: some View {
+        ZStack(alignment: .topTrailing) {
+            if isSidebarPresented {
+                sidebarPanel
+                    .transition(.opacity)
+            } else {
+                collapsedSidebarRail
+                    .transition(.opacity)
+            }
+        }
+        .frame(width: currentSidebarWidth)
+        .frame(maxHeight: .infinity)
+        .clipped()
+        .animation(sidebarPresentationAnimation, value: isSidebarPresented)
     }
 
     private var listPanel: some View {
@@ -150,6 +165,62 @@ struct TranscriptWorkspaceView<
             }
         }
         .background(theme.background)
+    }
+
+    private var sidebarPanel: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Spacer()
+
+                sidebarToggleButton(
+                    systemImage: "sidebar.right",
+                    accessibilityLabel: "Hide Details Sidebar",
+                    help: "Hide Details Sidebar"
+                )
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 36)
+
+            sidebarContent(selectedEntry)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(theme.background)
+    }
+
+    private var collapsedSidebarRail: some View {
+        VStack {
+            sidebarToggleButton(
+                systemImage: "sidebar.right",
+                accessibilityLabel: "Show Details Sidebar",
+                help: "Show Details Sidebar"
+            )
+            .padding(.top, 8)
+
+            Spacer()
+        }
+        .frame(width: TranscriptWorkspaceLayout.collapsedSidebarWidth)
+        .frame(maxHeight: .infinity)
+        .background(theme.background)
+    }
+
+    private func sidebarToggleButton(
+        systemImage: String,
+        accessibilityLabel: String,
+        help: String
+    ) -> some View {
+        Button {
+            toggleSidebar()
+        } label: {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(theme.textSecondary)
+        .help(help)
+        .accessibilityLabel(accessibilityLabel)
     }
 
     private var listHeader: some View {
@@ -219,6 +290,16 @@ struct TranscriptWorkspaceView<
         accessibilityReduceMotion ? .easeOut(duration: 0.12) : .smooth(duration: 0.16)
     }
 
+    private var currentSidebarWidth: CGFloat {
+        isSidebarPresented
+            ? TranscriptWorkspaceLayout.sidebarExpandedWidth
+            : TranscriptWorkspaceLayout.collapsedSidebarWidth
+    }
+
+    private var sidebarPresentationAnimation: Animation? {
+        accessibilityReduceMotion ? nil : .smooth(duration: 0.18)
+    }
+
     private var hasVisibleHeaderContent: Bool {
         isSearchPresented || showsHeaderAccessory
     }
@@ -248,6 +329,12 @@ struct TranscriptWorkspaceView<
         Task { @MainActor in
             await Task.yield()
             isSearchFocused = true
+        }
+    }
+
+    private func toggleSidebar() {
+        withAnimation(sidebarPresentationAnimation) {
+            isSidebarPresented.toggle()
         }
     }
 
@@ -283,6 +370,7 @@ struct TranscriptTextWorkspace: View {
     var isSecondaryText = false
     var isCopyDisabled = false
     var showsLineNumbers = true
+    var contentPadding: CGFloat = 20
     @Environment(\.voicePenTheme) private var theme
 
     var body: some View {
@@ -295,11 +383,12 @@ struct TranscriptTextWorkspace: View {
                 copyAction: copyAction,
                 isSecondaryText: isSecondaryText,
                 isCopyDisabled: isCopyDisabled,
-                showsLineNumbers: showsLineNumbers
+                showsLineNumbers: showsLineNumbers,
+                showsBorder: false
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(20)
+        .padding(contentPadding)
         .background(theme.background)
     }
 }
@@ -308,9 +397,8 @@ enum TranscriptWorkspaceLayout {
     static let listMinWidth: CGFloat = 214
     static let listDefaultWidth: CGFloat = 248
     static let listMaxWidth: CGFloat = 294
-    static let sidebarMinWidth: CGFloat = 225
-    static let sidebarIdealWidth: CGFloat = 265
-    static let sidebarMaxWidth: CGFloat = 305
+    static let sidebarExpandedWidth: CGFloat = 265
+    static let collapsedSidebarWidth: CGFloat = 38
 }
 
 struct TranscriptDaySectionHeader: View {
@@ -375,6 +463,7 @@ struct TranscriptSidebarSection<Content: View>: View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title)
                 .font(.subheadline.weight(.semibold))
+
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
