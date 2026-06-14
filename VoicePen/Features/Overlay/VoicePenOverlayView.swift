@@ -21,7 +21,8 @@ struct VoicePenOverlayView: View {
                     subtitle: "Working locally",
                     progress: progress,
                     symbolName: "text.cursor",
-                    cancelAction: viewModel.onCancelTranscription
+                    cancelAction: viewModel.onCancelTranscription,
+                    backgroundStyle: .solid
                 )
             case let .done(message):
                 TextStatusOverlayContent(
@@ -85,6 +86,28 @@ private struct TextStatusOverlayContent: View {
     let progress: Double?
     let symbolName: String
     let cancelAction: (() -> Void)?
+    let backgroundStyle: BackgroundStyle
+
+    init(
+        title: String,
+        subtitle: String,
+        progress: Double?,
+        symbolName: String,
+        cancelAction: (() -> Void)?,
+        backgroundStyle: BackgroundStyle = .glass
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.progress = progress
+        self.symbolName = symbolName
+        self.cancelAction = cancelAction
+        self.backgroundStyle = backgroundStyle
+    }
+
+    enum BackgroundStyle {
+        case glass
+        case solid
+    }
 
     private var showsSubtitle: Bool {
         title == "VoicePen needs attention"
@@ -130,8 +153,7 @@ private struct TextStatusOverlayContent: View {
         .padding(.vertical, showsSubtitle ? 9 : 8)
         .frame(maxWidth: chipMaxWidth)
         .background {
-            Capsule()
-                .fill(theme.glassFill(tint: theme.blue))
+            backgroundCapsule
         }
         .overlay {
             Capsule()
@@ -156,6 +178,18 @@ private struct TextStatusOverlayContent: View {
         } else {
             ProgressView()
                 .controlSize(.small)
+        }
+    }
+
+    @ViewBuilder
+    private var backgroundCapsule: some View {
+        switch backgroundStyle {
+        case .glass:
+            Capsule()
+                .fill(theme.glassFill(tint: theme.blue))
+        case .solid:
+            Capsule()
+                .fill(theme.surfaceElevated)
         }
     }
 }
