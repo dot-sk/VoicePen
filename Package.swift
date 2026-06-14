@@ -38,7 +38,10 @@ let package = Package(
                 "VoicePenApp.swift",
                 "App/HomeDashboardFormatting.swift",
                 "App/HomeDashboardViews.swift",
+                "App/VoicePenMainWindowHistoryPreviews.swift",
                 "App/VoicePenMainWindowHistoryViews.swift",
+                "App/VoicePenMainWindowMeetingPreviews.swift",
+                "App/VoicePenMainWindowMeetingViews.swift",
                 "App/VoicePenMainWindow.swift",
                 "App/SettingsViews.swift",
                 "Assets.xcassets"

@@ -11,6 +11,7 @@ struct TranscriptTextEditor: View {
     var isSecondaryText = false
     var isCopyDisabled = false
     var showsLineNumbers = true
+    var showsBorder = true
     @Environment(\.voicePenTheme) private var theme
     @State private var copyFeedbackTrigger = 0
     @State private var isCopyButtonHovered = false
@@ -49,8 +50,10 @@ struct TranscriptTextEditor: View {
         .background(theme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay {
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(theme.border, lineWidth: 1)
+            if showsBorder {
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(theme.border, lineWidth: 1)
+            }
         }
         .background {
             TranscriptCopyShortcutMonitor(
