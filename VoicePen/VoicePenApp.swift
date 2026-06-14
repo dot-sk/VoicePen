@@ -90,7 +90,7 @@ private final class VoicePenStatusItemController: NSObject, NSMenuDelegate {
     private let controller: AppController
     private let statusItem: NSStatusItem
     private let menu: NSMenu
-    private var state: VoicePenStatusMenuState
+    private var state: VoicePenStatusMenuModel
     private var cancellables: Set<AnyCancellable> = []
     private var openMainWindow: () -> Void = {}
     private var checkForUpdates: () -> Void = {}
@@ -99,7 +99,7 @@ private final class VoicePenStatusItemController: NSObject, NSMenuDelegate {
         self.controller = controller
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         self.menu = NSMenu(title: "VoicePen")
-        self.state = VoicePenStatusMenuState(controller: controller)
+        self.state = Self.makeStatusMenuModel(controller: controller)
 
         super.init()
 
@@ -152,12 +152,34 @@ private final class VoicePenStatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func refreshState() {
-        let nextState = VoicePenStatusMenuState(controller: controller)
+        let nextState = Self.makeStatusMenuModel(controller: controller)
         guard nextState != state else {
             return
         }
         state = nextState
         updateStatusItemIcon()
+    }
+
+    private static func makeStatusMenuModel(controller: AppController) -> VoicePenStatusMenuModel {
+        VoicePenStatusMenuModel(
+            appState: controller.appState.menuStatusAppState,
+            showsStartDictation: controller.canStartDictation,
+            showsStopDictation: controller.isDictationRecording,
+            showsCancelTranscription: controller.canCancelDictationTranscription,
+            showsStartMeetingRecording: controller.canStartMeetingRecording,
+            showsStopMeetingRecording: controller.appState.isMeetingCaptureActive,
+            hasLatestTranscriptionText: controller.hasLatestTranscriptionText,
+            pushToTalkHotkeyHint: controller.settingsStore.hotkeyPreference.menuBarHint(),
+            selectedTranscriptionLanguageCode: controller.settingsStore.transcriptionLanguage,
+            languageOptions: availableLanguageOptions,
+            isDictationStarting: controller.isDictationStarting,
+            isDictationRecording: controller.isDictationRecording,
+            isDictationTranscribing: controller.isDictationTranscribing
+        )
+    }
+
+    private static let availableLanguageOptions = AppSettingsStore.supportedLanguages.map {
+        VoicePenMenuLanguageOption(code: $0.code, name: $0.name)
     }
 
     private func updateStatusItemIcon() {
@@ -316,91 +338,31 @@ private final class VoicePenStatusItemController: NSObject, NSMenuDelegate {
     }
 }
 
-private struct VoicePenStatusMenuState: Equatable {
-    private static let availableLanguageOptions = AppSettingsStore.supportedLanguages.map {
-        VoicePenMenuLanguageOption(code: $0.code, name: $0.name)
-    }
-
-    let showsStartDictation: Bool
-    let showsStopDictation: Bool
-    let showsCancelTranscription: Bool
-    let showsStartMeetingRecording: Bool
-    let showsStopMeetingRecording: Bool
-    let hasLatestTranscriptionText: Bool
-    let pushToTalkHotkeyHint: String
-    let selectedTranscriptionLanguageCode: String
-    let languageOptions: [VoicePenMenuLanguageOption]
-    let menuBarSystemImage: String
-    let usesMeetingRecordingTint: Bool
-
-    init(controller: AppController) {
-        let appState = controller.appState
-        self.showsStartDictation = controller.canStartDictation
-        self.showsStopDictation = controller.isDictationRecording
-        self.showsCancelTranscription = controller.canCancelDictationTranscription
-        self.showsStartMeetingRecording = controller.canStartMeetingRecording
-        self.showsStopMeetingRecording = appState.isMeetingCaptureActive
-        self.hasLatestTranscriptionText = controller.hasLatestTranscriptionText
-        self.pushToTalkHotkeyHint = controller.settingsStore.hotkeyPreference.menuBarHint()
-        self.selectedTranscriptionLanguageCode = controller.settingsStore.transcriptionLanguage
-        self.languageOptions = Self.availableLanguageOptions
-        self.menuBarSystemImage = Self.menuBarSystemImage(
-            appState: appState,
-            isDictationStarting: controller.isDictationStarting,
-            isDictationRecording: controller.isDictationRecording,
-            isDictationTranscribing: controller.isDictationTranscribing
-        )
-        self.usesMeetingRecordingTint = appState == .meetingRecording
-    }
-
-    var showsDictationCommands: Bool {
-        showsStartDictation || showsStopDictation || showsCancelTranscription
-    }
-
-    var showsMeetingCommands: Bool {
-        showsStartMeetingRecording || showsStopMeetingRecording
-    }
-
-    private static func menuBarSystemImage(
-        appState: AppState,
-        isDictationStarting: Bool,
-        isDictationRecording: Bool,
-        isDictationTranscribing: Bool
-    ) -> String {
-        if appState == .meetingRecording || isDictationStarting || isDictationRecording {
-            "record.circle.fill"
-        } else if isDictationTranscribing {
-            "waveform"
-        } else if showsProcessingIcon(for: appState) {
-            "waveform"
-        } else if showsWarningIcon(for: appState) {
-            "exclamationmark.triangle.fill"
-        } else {
-            "mic.fill"
+private extension AppState {
+    var menuStatusAppState: VoicePenMenuStatusAppState {
+        switch self {
+        case .starting:
+            .starting
+        case .ready:
+            .ready
+        case .meetingRecording:
+            .meetingRecording
+        case .meetingProcessing:
+            .meetingProcessing
+        case let .downloadingModel(progress):
+            .downloadingModel(progress: progress)
+        case let .preparingModel(message):
+            .preparingModel(message)
+        case .missingMicrophonePermission:
+            .missingMicrophonePermission
+        case .missingAccessibilityPermission:
+            .missingAccessibilityPermission
+        case .missingSystemAudioPermission:
+            .missingSystemAudioPermission
+        case .missingModel:
+            .missingModel
+        case let .error(message):
+            .error(message)
         }
     }
-
-    private static func showsProcessingIcon(for appState: AppState) -> Bool {
-        switch appState {
-        case .meetingProcessing, .downloadingModel, .preparingModel:
-            return true
-        default:
-            return false
-        }
-    }
-
-    private static func showsWarningIcon(for appState: AppState) -> Bool {
-        switch appState {
-        case .missingMicrophonePermission, .missingAccessibilityPermission,
-            .missingSystemAudioPermission, .missingModel, .error:
-            return true
-        default:
-            return false
-        }
-    }
-}
-
-private struct VoicePenMenuLanguageOption: Equatable {
-    let code: String
-    let name: String
 }

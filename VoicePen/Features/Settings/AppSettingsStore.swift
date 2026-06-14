@@ -132,143 +132,126 @@ final class AppSettingsStore: ObservableObject {
 
     func updateTranscriptionLanguage(_ language: String) throws {
         let normalizedLanguage = Self.normalizeLanguage(language)
-        try withDatabase { database in
-            try DatabaseMigrator.migrate(database)
-            try setValue(normalizedLanguage, forKey: Self.languageKey, in: database)
-        }
-        transcriptionLanguage = normalizedLanguage
+        try persistAndApply(
+            normalizedLanguage,
+            forKey: Self.languageKey
+        ) { transcriptionLanguage = normalizedLanguage }
     }
 
     func updateSelectedModelId(_ modelId: String) throws {
         let normalizedModelId = Self.normalizeModelId(modelId, fallback: selectedModelId)
-        try withDatabase { database in
-            try DatabaseMigrator.migrate(database)
-            try setValue(normalizedModelId, forKey: Self.selectedModelKey, in: database)
-        }
-        selectedModelId = normalizedModelId
+        try persistAndApply(
+            normalizedModelId,
+            forKey: Self.selectedModelKey
+        ) { selectedModelId = normalizedModelId }
     }
 
     func updateSpeechPreprocessingMode(_ mode: SpeechPreprocessingMode) throws {
-        try withDatabase { database in
-            try DatabaseMigrator.migrate(database)
-            try setValue(mode.rawValue, forKey: Self.speechPreprocessingKey, in: database)
-        }
-        speechPreprocessingMode = mode
+        try persistAndApply(
+            mode.rawValue,
+            forKey: Self.speechPreprocessingKey
+        ) { speechPreprocessingMode = mode }
     }
 
     func updateHotkeyPreference(_ preference: HotkeyPreference) throws {
-        try withDatabase { database in
-            try DatabaseMigrator.migrate(database)
-            try setValue(preference.rawValue, forKey: Self.hotkeyPreferenceKey, in: database)
-        }
-        hotkeyPreference = preference
+        try persistAndApply(
+            preference.rawValue,
+            forKey: Self.hotkeyPreferenceKey
+        ) { hotkeyPreference = preference }
     }
 
     func updateBoostDictationInputGain(_ isEnabled: Bool) throws {
-        try withDatabase { database in
-            try DatabaseMigrator.migrate(database)
-            try setValue(String(isEnabled), forKey: Self.boostDictationInputGainKey, in: database)
-        }
-        boostDictationInputGain = isEnabled
+        try persistAndApply(
+            String(isEnabled),
+            forKey: Self.boostDictationInputGainKey
+        ) { boostDictationInputGain = isEnabled }
     }
 
     func updateMeetingVoiceLevelingEnabled(_ isEnabled: Bool) throws {
-        try withDatabase { database in
-            try DatabaseMigrator.migrate(database)
-            try setValue(String(isEnabled), forKey: Self.meetingVoiceLevelingEnabledKey, in: database)
-        }
-        meetingVoiceLevelingEnabled = isEnabled
+        try persistAndApply(
+            String(isEnabled),
+            forKey: Self.meetingVoiceLevelingEnabledKey
+        ) { meetingVoiceLevelingEnabled = isEnabled }
     }
 
     func updateSaveDictationAudioEnabled(_ isEnabled: Bool) throws {
-        try withDatabase { database in
-            try DatabaseMigrator.migrate(database)
-            try setValue(String(isEnabled), forKey: Self.saveDictationAudioEnabledKey, in: database)
-        }
-        saveDictationAudioEnabled = isEnabled
+        try persistAndApply(
+            String(isEnabled),
+            forKey: Self.saveDictationAudioEnabledKey
+        ) { saveDictationAudioEnabled = isEnabled }
     }
 
     func updateSaveMeetingAudioEnabled(_ isEnabled: Bool) throws {
-        try withDatabase { database in
-            try DatabaseMigrator.migrate(database)
-            try setValue(String(isEnabled), forKey: Self.saveMeetingAudioEnabledKey, in: database)
-        }
-        saveMeetingAudioEnabled = isEnabled
+        try persistAndApply(
+            String(isEnabled),
+            forKey: Self.saveMeetingAudioEnabledKey
+        ) { saveMeetingAudioEnabled = isEnabled }
     }
 
     func updateSavedAudioStorageLimitGB(_ limit: Int) throws {
         let normalizedLimit = Self.normalizeSavedAudioStorageLimitGB(String(limit))
-        try withDatabase { database in
-            try DatabaseMigrator.migrate(database)
-            try setValue(String(normalizedLimit), forKey: Self.savedAudioStorageLimitGBKey, in: database)
-        }
-        savedAudioStorageLimitGB = normalizedLimit
+        try persistAndApply(
+            String(normalizedLimit),
+            forKey: Self.savedAudioStorageLimitGBKey
+        ) { savedAudioStorageLimitGB = normalizedLimit }
     }
 
     func updateMeetingTranscriptTimecodesEnabled(_ isEnabled: Bool) throws {
-        try withDatabase { database in
-            try DatabaseMigrator.migrate(database)
-            try setValue(String(isEnabled), forKey: Self.meetingTranscriptTimecodesEnabledKey, in: database)
-        }
-        meetingTranscriptTimecodesEnabled = isEnabled
+        try persistAndApply(
+            String(isEnabled),
+            forKey: Self.meetingTranscriptTimecodesEnabledKey
+        ) { meetingTranscriptTimecodesEnabled = isEnabled }
     }
 
     func updateMeetingDiarizationEnabled(_ isEnabled: Bool) throws {
-        try withDatabase { database in
-            try DatabaseMigrator.migrate(database)
-            try setValue(String(isEnabled), forKey: Self.meetingDiarizationEnabledKey, in: database)
-        }
-        meetingDiarizationEnabled = isEnabled
+        try persistAndApply(
+            String(isEnabled),
+            forKey: Self.meetingDiarizationEnabledKey
+        ) { meetingDiarizationEnabled = isEnabled }
     }
 
     func updateMeetingSystemAudioSourceMode(_ mode: MeetingSystemAudioSourceMode) throws {
-        try withDatabase { database in
-            try DatabaseMigrator.migrate(database)
-            try setValue(mode.rawValue, forKey: Self.meetingSystemAudioSourceModeKey, in: database)
-        }
-        meetingSystemAudioSourceMode = mode
+        try persistAndApply(
+            mode.rawValue,
+            forKey: Self.meetingSystemAudioSourceModeKey
+        ) { meetingSystemAudioSourceMode = mode }
     }
 
     func updateMeetingAudioAppSelections(_ selections: [MeetingAudioAppSelection]) throws {
         let normalizedSelections = Self.normalizeMeetingAudioAppSelections(selections)
         let encodedSelections = try Self.encodeMeetingAudioAppSelections(normalizedSelections)
-        try withDatabase { database in
-            try DatabaseMigrator.migrate(database)
-            try setValue(encodedSelections, forKey: Self.meetingAudioAppSelectionsKey, in: database)
-        }
-        meetingAudioAppSelections = normalizedSelections
+        try persistAndApply(
+            encodedSelections,
+            forKey: Self.meetingAudioAppSelectionsKey
+        ) { meetingAudioAppSelections = normalizedSelections }
     }
 
     func updateOpenAtLogin(_ isEnabled: Bool) throws {
-        try withDatabase { database in
-            try DatabaseMigrator.migrate(database)
-            try setValue(String(isEnabled), forKey: Self.openAtLoginKey, in: database)
-        }
-        openAtLogin = isEnabled
+        try persistAndApply(
+            String(isEnabled),
+            forKey: Self.openAtLoginKey
+        ) { openAtLogin = isEnabled }
     }
 
     func updateAppAppearanceMode(_ mode: AppAppearanceMode) throws {
-        try withDatabase { database in
-            try DatabaseMigrator.migrate(database)
-            try setValue(mode.rawValue, forKey: Self.appAppearanceModeKey, in: database)
-        }
-        appAppearanceMode = mode
+        try persistAndApply(
+            mode.rawValue,
+            forKey: Self.appAppearanceModeKey
+        ) { appAppearanceMode = mode }
     }
 
     func updateDeveloperModeOverride(_ mode: DeveloperMode) throws {
-        try withDatabase { database in
-            try DatabaseMigrator.migrate(database)
-            try setValue(mode.rawValue, forKey: Self.developerModeOverrideKey, in: database)
-        }
-        developerModeOverride = mode
+        try persistAndApply(
+            mode.rawValue,
+            forKey: Self.developerModeOverrideKey
+        ) { developerModeOverride = mode }
     }
 
     func updateMeetingRecordingConsentAcknowledged(_ isAcknowledged: Bool) throws {
-        try withDatabase { database in
-            try DatabaseMigrator.migrate(database)
-            try setValue(String(isAcknowledged), forKey: Self.meetingConsentKey, in: database)
-        }
-        hasAcknowledgedMeetingRecordingConsent = isAcknowledged
+        try persistAndApply(
+            String(isAcknowledged),
+            forKey: Self.meetingConsentKey
+        ) { hasAcknowledgedMeetingRecordingConsent = isAcknowledged }
     }
 
     private func withDatabase<T>(_ body: (SQLiteConnection) throws -> T) throws -> T {
@@ -278,6 +261,14 @@ final class AppSettingsStore: ObservableObject {
             makeError: AppSettingsStoreError.sqlite
         )
         return try body(database)
+    }
+
+    private func persistAndApply(_ value: String, forKey key: String, apply: () -> Void) throws {
+        try withDatabase { database in
+            try DatabaseMigrator.migrate(database)
+            try setValue(value, forKey: key, in: database)
+        }
+        apply()
     }
 
     private func fetchValue(forKey key: String, from database: SQLiteConnection) throws -> String? {

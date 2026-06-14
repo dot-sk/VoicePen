@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated protocol ModelWarmupClient: AnyObject {
+@preconcurrency protocol ModelWarmupClient: AnyObject {
     func warmUp(model: ModelManifestModel, language: String) async throws
 }
 

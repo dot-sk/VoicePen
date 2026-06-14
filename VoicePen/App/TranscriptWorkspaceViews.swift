@@ -36,6 +36,7 @@ struct TranscriptWorkspaceView<
 >: View where Entry.ID: Hashable & Sendable {
     @Binding var selectedID: Entry.ID?
     @Binding var searchText: String
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Environment(\.voicePenTheme) private var theme
 
     let listModel: TranscriptWorkspaceListModel<Entry>
@@ -47,6 +48,7 @@ struct TranscriptWorkspaceView<
     let noMatchesTitle: String
     let noMatchesSystemImage: String
     let noMatchesDescription: String
+    let showsHeaderAccessory: Bool = true
     @ViewBuilder let headerAccessory: () -> HeaderAccessory
     @ViewBuilder let rowContent: (Entry) -> RowContent
     @ViewBuilder let centerContent: (Entry?) -> CenterContent
@@ -151,20 +153,19 @@ struct TranscriptWorkspaceView<
     }
 
     private var listHeader: some View {
-        Group {
+        VStack(spacing: 10) {
             if isSearchPresented {
-                VStack(spacing: 10) {
-                    searchField
-                    headerAccessory()
-                }
-                .padding([.horizontal, .top], 16)
-                .padding(.bottom, 10)
-            } else {
+                searchField
+                    .transition(searchFieldTransition)
+            }
+
+            if showsHeaderAccessory {
                 headerAccessory()
-                    .padding([.horizontal, .top], 16)
-                    .padding(.bottom, 10)
             }
         }
+        .padding(.horizontal, hasVisibleHeaderContent ? 16 : 0)
+        .padding(.top, hasVisibleHeaderContent ? 16 : 0)
+        .padding(.bottom, hasVisibleHeaderContent ? 10 : 0)
     }
 
     private var searchField: some View {
@@ -206,19 +207,48 @@ struct TranscriptWorkspaceView<
         .accessibilityHidden(true)
     }
 
-    private func presentSearch() {
-        isSearchPresented = true
-        Task { @MainActor in
-            await Task.yield()
-            isSearchFocused = true
+    private var searchFieldTransition: AnyTransition {
+        if accessibilityReduceMotion {
+            return .opacity
         }
+
+        return .move(edge: .top).combined(with: .opacity)
+    }
+
+    private var searchPresentationAnimation: Animation? {
+        accessibilityReduceMotion ? .easeOut(duration: 0.12) : .smooth(duration: 0.16)
+    }
+
+    private var hasVisibleHeaderContent: Bool {
+        isSearchPresented || showsHeaderAccessory
+    }
+
+    private func presentSearch() {
+        guard !isSearchPresented else {
+            focusSearchField()
+            return
+        }
+
+        withAnimation(searchPresentationAnimation) {
+            isSearchPresented = true
+        }
+        focusSearchField()
     }
 
     private func dismissSearch() {
         guard isSearchPresented else { return }
         searchText = ""
         isSearchFocused = false
-        isSearchPresented = false
+        withAnimation(searchPresentationAnimation) {
+            isSearchPresented = false
+        }
+    }
+
+    private func focusSearchField() {
+        Task { @MainActor in
+            await Task.yield()
+            isSearchFocused = true
+        }
     }
 
     private func ensureSelectedEntryIsVisible() {

@@ -184,6 +184,12 @@ exact chrome copy, or source snapshots. Verify important visual changes with
 manual UI review or screenshots. Only test exact visual/status tokens when that
 exact token is itself a product contract.
 
+Do not validate production Swift/App behavior by reading source files as text with
+`String(contentsOf:)`, source slices, regex matching, or substring checks on
+`VoicePen/**/*.swift` in unit tests. Use direct behavior tests instead.
+Allowed exception: generated/serialized artifacts or repository configuration files
+where the file contents are the contract under test.
+
 Follow `Docs/testing.md` for local test layering and async test style. Prefer
 task handles, explicit async checkpoints, continuations, clocks, or schedulers
 over polling sleeps in unit tests.
