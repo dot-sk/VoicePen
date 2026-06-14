@@ -1,7 +1,7 @@
 ---
 id: SPEC-016
 status: implemented
-updated: 2026-06-13
+updated: 2026-06-15
 tests:
   - VoicePenTests/App/VoicePenAppCommandTests.swift
 ---
@@ -28,6 +28,7 @@ available again and the Dock icon should reappear.
 - When the main window closes, `applicationShouldTerminateAfterLastWindowClosed(_:)` shall return `false`.
 - When the user closes the main window with the standard close action, VoicePen shall keep the process alive and switch the app to `.accessory` activation policy.
 - When the user opens VoicePen from tray or command entry points, VoicePen shall set activation policy to `.regular` before activating/opening the main window.
+- VoicePen shall create its AppKit `NSStatusItem` only after AppKit reports application launch completion, so status menu startup does not depend on pre-launch WindowServer connection timing.
 - Existing tray menu actions for `Open VoicePen Window`, `Check for Updates...`, and `Quit` shall continue to use their existing handlers.
 - When `Quit` is selected from the tray, VoicePen shall still terminate.
 
@@ -42,6 +43,7 @@ available again and the Dock icon should reappear.
 ## Test Mapping
 
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` checks App delegate wiring, window open/close activation policy handling, close-lifecycle bridge, and tray Open/Quit command handlers.
+- Manual: launch the packaged app and verify the status item appears after launch without crashing before the main window opens.
 
 ## Notes
 

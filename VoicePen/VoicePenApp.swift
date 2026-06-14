@@ -13,9 +13,13 @@ struct VoicePenApp: App {
 
     init() {
         let controller = AppController.live()
+        let statusItemController = VoicePenStatusItemController(controller: controller)
         self.controller = controller
-        self.statusItemController = VoicePenStatusItemController(controller: controller)
+        self.statusItemController = statusItemController
         _softwareUpdateController = StateObject(wrappedValue: SoftwareUpdateController())
+        appDelegate.installStatusItemWhenReady {
+            statusItemController.installStatusItemIfNeeded()
+        }
 
         if !Self.isRunningTests {
             controller.start()
@@ -80,6 +84,22 @@ struct VoicePenApp: App {
 
 @MainActor
 private final class VoicePenAppDelegate: NSObject, NSApplicationDelegate {
+    private var installStatusItem: (@MainActor () -> Void)?
+    private var didFinishLaunching = false
+
+    func installStatusItemWhenReady(_ install: @escaping @MainActor () -> Void) {
+        installStatusItem = install
+
+        if didFinishLaunching {
+            install()
+        }
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        didFinishLaunching = true
+        installStatusItem?()
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }
@@ -88,23 +108,31 @@ private final class VoicePenAppDelegate: NSObject, NSApplicationDelegate {
 @MainActor
 private final class VoicePenStatusItemController: NSObject, NSMenuDelegate {
     private let controller: AppController
-    private let statusItem: NSStatusItem
     private let menu: NSMenu
     private var state: VoicePenStatusMenuModel
+    private var statusItem: NSStatusItem?
     private var cancellables: Set<AnyCancellable> = []
     private var openMainWindow: () -> Void = {}
     private var checkForUpdates: () -> Void = {}
 
     init(controller: AppController) {
         self.controller = controller
-        self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         self.menu = NSMenu(title: "VoicePen")
         self.state = Self.makeStatusMenuModel(controller: controller)
 
         super.init()
 
-        configureStatusItem()
         observeState()
+    }
+
+    func installStatusItemIfNeeded() {
+        guard statusItem == nil else {
+            return
+        }
+
+        let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        self.statusItem = statusItem
+        configureStatusItem(statusItem)
         updateStatusItemIcon()
     }
 
@@ -121,7 +149,7 @@ private final class VoicePenStatusItemController: NSObject, NSMenuDelegate {
         rebuildMenu()
     }
 
-    private func configureStatusItem() {
+    private func configureStatusItem(_ statusItem: NSStatusItem) {
         menu.autoenablesItems = false
         menu.delegate = self
         statusItem.isVisible = true
@@ -183,7 +211,7 @@ private final class VoicePenStatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func updateStatusItemIcon() {
-        guard let button = statusItem.button else {
+        guard let button = statusItem?.button else {
             return
         }
 
