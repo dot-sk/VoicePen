@@ -73,8 +73,6 @@ enum DictationRuntimeState: Equatable {
 
 @MainActor
 final class AppController: ObservableObject {
-    private static let meetingDiarizationModelId = "meeting-diarization"
-
     @Published var appState: AppState = .starting
     @Published var lastRawText: String = ""
     @Published var lastFinalText: String = ""
@@ -123,12 +121,6 @@ final class AppController: ObservableObject {
     let settingsStore: AppSettingsStore
 
     private var didStart = false
-    private var activeModelDownloadID: UUID?
-    private var activeMeetingDiarizationModelDownloadID: UUID?
-    private var modelDownloadTask: Task<Void, Never>?
-    private var meetingDiarizationModelDownloadTask: Task<Void, Never>?
-    private var modelWarmupTask: Task<Void, Never>?
-    private var meetingDiarizationModelWarmupTask: Task<Void, Never>?
     private var transcriptionTask: Task<Void, Never>?
     private var transcriptionTimeoutTask: Task<Void, Never>?
     private var recordingStartTask: Task<Void, Never>?
@@ -140,10 +132,12 @@ final class AppController: ObservableObject {
     private var didHandleCurrentTranscriptionCancellation = false
     private var isWaitingForCustomShortcut = false
     private var accessibilityPermissionPollingTask: Task<Void, Never>?
-    private var appActivationObserver: NSObjectProtocol?
-    private var workspaceWakeObserver: NSObjectProtocol?
     private var defaultInputDeviceObservation: DefaultAudioInputDeviceObservation?
-    private var lastLifecycleModelWarmupDate: Date?
+    private var appActivationObserver: AnyCancellable?
+    private var workspaceWakeObserver: AnyCancellable?
+    private lazy var modelRuntimeStore: AppModelRuntimeStore = {
+        AppModelRuntimeStore(environment: modelRuntimeStoreEnvironment)
+    }()
 
     private static let microphonePermissionRequiredMessage = "Microphone permission is required to record dictation audio locally."
     private static let accessibilityPermissionRequiredMessage = "Text insertion permission is required so VoicePen can paste text into the active app."
@@ -438,17 +432,92 @@ final class AppController: ObservableObject {
         }
     }
 
+    private var modelRuntimeStoreEnvironment: AppModelRuntimeStore.Environment {
+        let modelManifest = modelManifest
+        let settingsStore = settingsStore
+        let modelDownloader = modelDownloader
+        let modelWarmupClient = modelWarmupClient
+        let meetingDiarizationModelManager = meetingDiarizationModelManager
+        let paths = paths
+        let modelDownloadTimeout = modelDownloadTimeout
+        let modelWarmupTimeout = modelWarmupTimeout
+
+        return AppModelRuntimeStore.Environment(
+            selectedModel: { [settingsStore, modelManifest] in
+                modelManifest.compatibleModels.first { $0.id == settingsStore.selectedModelId }
+                    ?? modelManifest.recommendedModel
+            },
+            transcriptionLanguage: { [settingsStore] in
+                TranscriptionLanguageResolver.resolve(settingsStore.transcriptionLanguage)
+            },
+            modelDownloader: { modelDownloader },
+            modelWarmupClient: { modelWarmupClient },
+            meetingDiarizationModelManager: { meetingDiarizationModelManager },
+            isModelInstalled: { [weak self] in self?.isModelInstalled ?? false },
+            isMeetingDiarizationModelInstalled: { [weak self] in self?.isMeetingDiarizationModelInstalled ?? false },
+            isMeetingDiarizationEnabled: { [settingsStore] in settingsStore.meetingDiarizationEnabled },
+            canStartDictationRuntime: { [weak self] in self?.dictationRuntimeState == .idle },
+            canScheduleLifecycleModelWarmup: { [weak self] in
+                guard let self else { return false }
+                let isDownloadingModelState: Bool
+                switch appState {
+                case .downloadingModel, .preparingModel:
+                    isDownloadingModelState = true
+                default:
+                    isDownloadingModelState = false
+                }
+                return appState != .meetingRecording && appState != .meetingProcessing && dictationRuntimeState == .idle && !isDownloadingModelState
+            },
+            canDeleteModelFiles: { [weak self] in
+                guard let self else { return false }
+                let isDownloadingModelState: Bool
+                switch appState {
+                case .downloadingModel, .preparingModel:
+                    isDownloadingModelState = true
+                default:
+                    isDownloadingModelState = false
+                }
+                return !isDownloadingModelState && appState != .meetingRecording && appState != .meetingProcessing && dictationRuntimeState == .idle
+            },
+            canDeleteMeetingDiarizationModelFiles: { [weak self] in
+                guard let self else { return false }
+                let isDownloadingModelState: Bool
+                switch appState {
+                case .downloadingModel, .preparingModel:
+                    isDownloadingModelState = true
+                default:
+                    isDownloadingModelState = false
+                }
+                return !isDownloadingModelState && appState != .meetingRecording && appState != .meetingProcessing && dictationRuntimeState == .idle
+            },
+            userModelDirectory: { [weak self, paths] in
+                self?.userModelDirectory ?? paths.userModelDirectory
+            },
+            meetingDiarizationModelDirectory: { [meetingDiarizationModelManager, paths] in
+                meetingDiarizationModelManager?.modelDirectory ?? paths.diarizationModelsDirectory
+            },
+            modelDownloadTimeout: { modelDownloadTimeout },
+            modelWarmupTimeout: { modelWarmupTimeout },
+            lifecycleWarmupCooldown: { VoicePenConfig.modelWarmupLifecycleCooldown },
+            setAppState: { [weak self] in self?.appState = $0 },
+            setModelRuntimeState: { [weak self] in self?.modelRuntimeState = $0 },
+            setMeetingDiarizationModelRuntimeState: { [weak self] in self?.meetingDiarizationModelRuntimeState = $0 },
+            setModelDownloadProgress: { [weak self] in self?.modelDownloadProgress = $0 },
+            setMeetingDiarizationModelDownloadProgress: { [weak self] in
+                self?.meetingDiarizationModelDownloadProgress = $0
+            },
+            setErrorMessage: { [weak self] in self?.errorMessage = $0 },
+            showOverlay: { [weak self] in self?.overlay.show($0) },
+            hideOverlayAfter: { [weak self] in self?.overlay.hide(after: $0) },
+            updateStateAfterModelChange: { [weak self] in self?.updateStateAfterModelChange() },
+            updateStateAfterIncompleteModelDownload: { [weak self] in self?.updateStateAfterIncompleteModelDownload() },
+            setError: { [weak self] in self?.setError($0) }
+        )
+    }
+
     deinit {
         recordingPrepareTask?.cancel()
         defaultInputDeviceObservation?.cancel()
-        MainActor.assumeIsolated {
-            if let appActivationObserver {
-                NotificationCenter.default.removeObserver(appActivationObserver)
-            }
-            if let workspaceWakeObserver {
-                NSWorkspace.shared.notificationCenter.removeObserver(workspaceWakeObserver)
-            }
-        }
     }
 
     static func live() -> AppController {
@@ -612,14 +681,14 @@ final class AppController: ObservableObject {
         case .downloadingModel:
             return true
         case .preparingModel:
-            return activeModelDownloadID != nil
+            return modelRuntimeStore.isDownloadingModel
         default:
             return false
         }
     }
 
     var isDownloadingMeetingDiarizationModel: Bool {
-        activeMeetingDiarizationModelDownloadID != nil
+        modelRuntimeStore.isDownloadingMeetingDiarizationModel
     }
 
     var isMeetingDiarizationModelInstalled: Bool {
@@ -668,8 +737,8 @@ final class AppController: ObservableObject {
             try syncOpenAtLoginState()
             refreshCurrentMicrophone()
             startDefaultInputDeviceObservation()
-            modelWarmup = scheduleModelWarmupIfInstalled()
-            meetingDiarizationModelWarmup = scheduleMeetingDiarizationModelWarmupIfNeeded()
+            modelWarmup = modelRuntimeStore.scheduleModelWarmupIfInstalled()
+            meetingDiarizationModelWarmup = modelRuntimeStore.scheduleMeetingDiarizationModelWarmupIfNeeded()
         } catch {
             setError(error)
             return .empty
@@ -679,31 +748,27 @@ final class AppController: ObservableObject {
             await requestStartupPermissions()
         }
 
-        appActivationObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didBecomeActiveNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            guard let controller = self else { return }
-            Task { @MainActor [controller] in
-                controller.refreshPermissionState()
-                controller.refreshOpenAtLoginState()
-                controller.scheduleLifecycleModelWarmupIfPossible()
-                controller.schedulePrepareRecordingIfPossible()
+        appActivationObserver = NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification, object: nil)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let controller = self else { return }
+                Task { @MainActor [controller] in
+                    controller.refreshPermissionState()
+                    controller.refreshOpenAtLoginState()
+                    controller.scheduleLifecycleModelWarmupIfPossible()
+                    controller.schedulePrepareRecordingIfPossible()
+                }
             }
-        }
 
-        workspaceWakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            guard let controller = self else { return }
-            Task { @MainActor [controller] in
-                controller.scheduleLifecycleModelWarmupIfPossible()
-                controller.invalidatePreparedRecordingAndPrepareIfPossible()
+        workspaceWakeObserver = NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification, object: nil)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let controller = self else { return }
+                Task { @MainActor [controller] in
+                    controller.scheduleLifecycleModelWarmupIfPossible()
+                    controller.invalidatePreparedRecordingAndPrepareIfPossible()
+                }
             }
-        }
 
         return AppControllerStartTasks(
             permissions: permissions,
@@ -759,24 +824,7 @@ final class AppController: ObservableObject {
     }
 
     private func scheduleLifecycleModelWarmupIfPossible() {
-        guard modelWarmupTask == nil,
-            appState != .meetingRecording,
-            appState != .meetingProcessing,
-            dictationRuntimeState == .idle,
-            !isDownloadingModel
-        else {
-            return
-        }
-
-        let now = Date()
-        if let lastLifecycleModelWarmupDate,
-            now.timeIntervalSince(lastLifecycleModelWarmupDate) < VoicePenConfig.modelWarmupLifecycleCooldown
-        {
-            return
-        }
-
-        guard scheduleModelWarmupIfInstalled() != nil else { return }
-        lastLifecycleModelWarmupDate = now
+        modelRuntimeStore.scheduleLifecycleModelWarmupIfPossible()
     }
 
     private func requestStartupPermissions() async {
@@ -1305,270 +1353,35 @@ final class AppController: ObservableObject {
 
     @discardableResult
     func downloadModel() -> Task<Void, Never>? {
-        guard !isDownloadingModel,
-            dictationRuntimeState == .idle
-        else { return nil }
-
-        let downloadID = UUID()
-        activeModelDownloadID = downloadID
-        modelDownloadProgress = nil
-        appState = .downloadingModel(progress: nil)
-        errorMessage = nil
-        overlay.show(.transcribing(stage: .loadingModel, progress: nil))
-        let model = selectedModel
-        let modelDownloader = self.modelDownloader
-        let modelDownloadTimeout = self.modelDownloadTimeout
-
-        let task = Task {
-            do {
-                let modelURL = try await AsyncOperationTimeout.run(
-                    timeout: modelDownloadTimeout,
-                    timeoutError: { ModelDownloadError.downloadTimedOut(model.id) },
-                    operation: {
-                        try await modelDownloader.downloadModel(model) { [weak self] event in
-                            Task { @MainActor [weak self] in
-                                guard self?.activeModelDownloadID == downloadID else { return }
-                                self?.handleModelDownloadEvent(event)
-                            }
-                        }
-                    }
-                )
-
-                guard activeModelDownloadID == downloadID else { return }
-                clearActiveModelDownload()
-                AppLogger.info("Downloaded model to \(modelURL.path)")
-                overlay.show(.done(message: "Model ready"))
-                overlay.hide(after: 1.0)
-
-                updateStateAfterModelChange()
-                scheduleModelWarmupIfInstalled()
-            } catch is CancellationError {
-                guard activeModelDownloadID == downloadID else { return }
-                clearActiveModelDownload()
-                overlay.show(.done(message: "Download canceled"))
-                overlay.hide(after: 1.0)
-                updateStateAfterModelChange()
-            } catch {
-                guard activeModelDownloadID == downloadID else { return }
-                clearActiveModelDownload()
-                setError(error)
-            }
-        }
-        modelDownloadTask = task
-        return task
+        modelRuntimeStore.downloadModel()
     }
 
     @discardableResult
     func cancelModelDownload() -> Task<Void, Never>? {
-        guard isDownloadingModel else { return nil }
-
-        let task = modelDownloadTask
-        clearActiveModelDownload()
-        task?.cancel()
-        overlay.show(.done(message: "Download canceled"))
-        overlay.hide(after: 1.0)
-        updateStateAfterIncompleteModelDownload()
-
-        let cleanupTask = Task { [weak self] in
-            guard let self else { return }
-            updateStateAfterIncompleteModelDownload()
-        }
-        return cleanupTask
+        modelRuntimeStore.cancelModelDownload()
     }
 
     @discardableResult
     func downloadMeetingDiarizationModel() -> Task<Void, Never>? {
-        guard !isDownloadingMeetingDiarizationModel,
-            let meetingDiarizationModelManager
-        else {
-            return nil
-        }
-
-        let downloadID = UUID()
-        activeMeetingDiarizationModelDownloadID = downloadID
-        meetingDiarizationModelDownloadProgress = nil
-        meetingDiarizationModelRuntimeState = .notLoaded
-        errorMessage = nil
-        AppLogger.info("Starting meeting diarization model download to \(meetingDiarizationModelManager.modelDirectory.path)")
-        let modelDownloadTimeout = self.modelDownloadTimeout
-
-        let task = Task {
-            do {
-                try await AsyncOperationTimeout.run(
-                    timeout: modelDownloadTimeout,
-                    timeoutError: { ModelDownloadError.downloadTimedOut(Self.meetingDiarizationModelId) },
-                    operation: {
-                        try await meetingDiarizationModelManager.download { [weak self] event in
-                            Task { @MainActor [weak self] in
-                                guard self?.activeMeetingDiarizationModelDownloadID == downloadID else { return }
-                                self?.handleMeetingDiarizationModelDownloadEvent(event)
-                            }
-                        }
-                    }
-                )
-                guard activeMeetingDiarizationModelDownloadID == downloadID else { return }
-                clearActiveMeetingDiarizationModelDownload()
-                meetingDiarizationModelRuntimeState = .ready(modelId: Self.meetingDiarizationModelId)
-                AppLogger.info("Downloaded meeting diarization model to \(meetingDiarizationModelManager.modelDirectory.path)")
-                if settingsStore.meetingDiarizationEnabled {
-                    await scheduleMeetingDiarizationModelWarmupIfNeeded()?.value
-                }
-            } catch is CancellationError {
-                guard activeMeetingDiarizationModelDownloadID == downloadID else { return }
-                clearActiveMeetingDiarizationModelDownload()
-                meetingDiarizationModelRuntimeState = .notLoaded
-                AppLogger.info("Meeting diarization model download canceled")
-            } catch {
-                guard activeMeetingDiarizationModelDownloadID == downloadID else { return }
-                clearActiveMeetingDiarizationModelDownload()
-                meetingDiarizationModelRuntimeState = .failed(
-                    modelId: Self.meetingDiarizationModelId,
-                    message: error.localizedDescription
-                )
-                AppLogger.error("Meeting diarization model download failed: \(error.localizedDescription)")
-                setError(error)
-            }
-        }
-        meetingDiarizationModelDownloadTask = task
-        return task
+        modelRuntimeStore.downloadMeetingDiarizationModel()
     }
 
     @discardableResult
     func warmUpMeetingDiarizationModel() -> Task<Void, Never>? {
-        guard let meetingDiarizationModelManager else { return nil }
-        guard isMeetingDiarizationModelInstalled else {
-            meetingDiarizationModelRuntimeState = .notLoaded
-            AppLogger.info(
-                "Meeting diarization model warmup skipped because model files are missing at \(meetingDiarizationModelDirectory.path)"
-            )
-            return nil
-        }
-        meetingDiarizationModelWarmupTask?.cancel()
-        meetingDiarizationModelRuntimeState = .warming(modelId: Self.meetingDiarizationModelId)
-        let task = Task {
-            do {
-                AppLogger.info("Warming up meeting diarization model")
-                try await meetingDiarizationModelManager.warmUp()
-                guard !Task.isCancelled else { return }
-                meetingDiarizationModelRuntimeState = .ready(modelId: Self.meetingDiarizationModelId)
-                AppLogger.info("Meeting diarization model warmup completed")
-            } catch is CancellationError {
-                meetingDiarizationModelRuntimeState = .notLoaded
-                AppLogger.info("Meeting diarization model warmup canceled")
-            } catch {
-                meetingDiarizationModelRuntimeState = .failed(
-                    modelId: Self.meetingDiarizationModelId,
-                    message: error.localizedDescription
-                )
-                AppLogger.error("Meeting diarization model warmup failed: \(error.localizedDescription)")
-                setError(error)
-            }
-            meetingDiarizationModelWarmupTask = nil
-        }
-        meetingDiarizationModelWarmupTask = task
-        return task
+        modelRuntimeStore.warmUpMeetingDiarizationModel()
     }
 
     @discardableResult
     func cancelMeetingDiarizationModelDownload() -> Task<Void, Never>? {
-        guard isDownloadingMeetingDiarizationModel else { return nil }
-        let task = meetingDiarizationModelDownloadTask
-        clearActiveMeetingDiarizationModelDownload()
-        task?.cancel()
-        meetingDiarizationModelRuntimeState = .notLoaded
-        return Task {}
+        modelRuntimeStore.cancelMeetingDiarizationModelDownload()
     }
 
     func deleteMeetingDiarizationModelFiles() {
-        guard !isDownloadingMeetingDiarizationModel,
-            appState != .meetingRecording,
-            appState != .meetingProcessing,
-            dictationRuntimeState == .idle,
-            let meetingDiarizationModelManager
-        else { return }
-
-        Task {
-            do {
-                try await meetingDiarizationModelManager.deleteDownloadedModelFiles()
-                meetingDiarizationModelDownloadProgress = nil
-                meetingDiarizationModelRuntimeState = .notLoaded
-            } catch {
-                setError(error)
-            }
-        }
-    }
-
-    private func handleModelDownloadEvent(_ event: ModelDownloadEvent) {
-        switch event {
-        case let .downloadingArtifact(_, progress):
-            modelDownloadProgress = progress
-            appState = .downloadingModel(progress: progress)
-        case let .extractingArtifact(name):
-            modelDownloadProgress = nil
-            appState = .preparingModel("Extracting \(name)")
-        case .validating:
-            modelDownloadProgress = nil
-            appState = .preparingModel("Validating model")
-        case .completed:
-            modelDownloadProgress = nil
-            appState = .preparingModel("Model ready")
-        }
-    }
-
-    private func handleMeetingDiarizationModelDownloadEvent(_ event: ModelDownloadEvent) {
-        switch event {
-        case let .downloadingArtifact(name, progress):
-            meetingDiarizationModelDownloadProgress = progress
-            if let progress {
-                AppLogger.debug("Meeting diarization download: \(name) \(Int((progress * 100).rounded()))%")
-            } else {
-                AppLogger.info("Meeting diarization download: \(name)")
-            }
-        case let .extractingArtifact(name):
-            meetingDiarizationModelDownloadProgress = nil
-            AppLogger.info("Meeting diarization download extracting: \(name)")
-        case .validating:
-            meetingDiarizationModelDownloadProgress = nil
-            AppLogger.info("Meeting diarization download validating")
-        case .completed:
-            meetingDiarizationModelDownloadProgress = nil
-            AppLogger.info("Meeting diarization download completed")
-        }
-    }
-
-    private func clearActiveModelDownload() {
-        activeModelDownloadID = nil
-        modelDownloadTask = nil
-        modelDownloadProgress = nil
-    }
-
-    private func clearActiveMeetingDiarizationModelDownload() {
-        activeMeetingDiarizationModelDownloadID = nil
-        meetingDiarizationModelDownloadTask = nil
-        meetingDiarizationModelDownloadProgress = nil
+        modelRuntimeStore.deleteMeetingDiarizationModelFiles()
     }
 
     func deleteDownloadedModelFiles() {
-        guard !isDownloadingModel,
-            appState != .meetingRecording,
-            appState != .meetingProcessing, dictationRuntimeState == .idle
-        else { return }
-
-        do {
-            let modelDirectory = userModelDirectory
-            if FileManager.default.fileExists(atPath: modelDirectory.path) {
-                try FileManager.default.removeItem(at: modelDirectory)
-            }
-
-            modelDownloadProgress = nil
-            errorMessage = nil
-            overlay.show(.done(message: "Model removed"))
-            overlay.hide(after: 1.0)
-
-            updateStateAfterModelChange()
-        } catch {
-            setError(error)
-        }
+        modelRuntimeStore.deleteDownloadedModelFiles()
     }
 
     func reloadDictionary() throws {
@@ -1685,7 +1498,7 @@ final class AppController: ObservableObject {
                 throw TranscriptionError.unsupportedModel(modelId)
             }
             try settingsStore.updateSelectedModelId(modelId)
-            scheduleModelWarmupIfInstalled()
+            _ = modelRuntimeStore.scheduleModelWarmupIfInstalled()
         } catch {
             setError(error)
         }
@@ -1693,106 +1506,16 @@ final class AppController: ObservableObject {
 
     @discardableResult
     private func scheduleModelWarmupIfInstalled() -> Task<Void, Never>? {
-        guard dictationRuntimeState == .idle else { return nil }
-
-        guard isModelInstalled, let modelWarmupClient else {
-            modelRuntimeState = .notLoaded
-            return nil
-        }
-
-        let model = selectedModel
-        let language = TranscriptionLanguageResolver.resolve(settingsStore.transcriptionLanguage)
-        let modelWarmupTimeout = self.modelWarmupTimeout
-        let warmupJob = AppModelWarmupJob(
-            client: modelWarmupClient,
-            model: model,
-            language: language,
-            timeout: modelWarmupTimeout
-        )
-        let stateSink = ModelWarmupStateSink(controller: self)
-        modelWarmupTask?.cancel()
-        modelRuntimeState = .warming(modelId: model.id)
-        let task = Task.detached(priority: .utility) { [stateSink, warmupJob] in
-            do {
-                AppLogger.info("Warming up model \(warmupJob.model.id)")
-                try await AsyncOperationTimeout.run(
-                    timeout: warmupJob.timeout,
-                    timeoutError: { TranscriptionError.modelWarmupTimedOut },
-                    operation: {
-                        try await warmupJob.client.warmUp(
-                            model: warmupJob.model,
-                            language: warmupJob.language
-                        )
-                    }
-                )
-                guard !Task.isCancelled else { return }
-                await stateSink.markReady(modelId: warmupJob.model.id)
-                AppLogger.info("Model warmup completed for \(warmupJob.model.id)")
-            } catch is CancellationError {
-                AppLogger.info("Model warmup canceled for \(warmupJob.model.id)")
-            } catch {
-                guard !Task.isCancelled else { return }
-                await stateSink.markFailed(modelId: warmupJob.model.id, message: error.localizedDescription)
-                AppLogger.error("Model warmup failed for \(warmupJob.model.id): \(error.localizedDescription)")
-            }
-
-            await stateSink.clearWarmupTask()
-        }
-        modelWarmupTask = task
-        return task
+        modelRuntimeStore.scheduleModelWarmupIfInstalled()
     }
 
     private func cancelModelWarmup() {
-        guard modelWarmupTask != nil else { return }
-        AppLogger.info("Canceling model warmup because recording started")
-        modelWarmupTask?.cancel()
-        modelWarmupTask = nil
-    }
-
-    nonisolated private final class ModelWarmupStateSink: @unchecked Sendable {
-        weak var controller: AppController?
-
-        init(controller: AppController) {
-            self.controller = controller
-        }
-
-        @MainActor
-        func markReady(modelId: String) {
-            controller?.modelRuntimeState = .ready(modelId: modelId)
-        }
-
-        @MainActor
-        func markFailed(modelId: String, message: String) {
-            controller?.modelRuntimeState = .failed(modelId: modelId, message: message)
-        }
-
-        @MainActor
-        func clearWarmupTask() {
-            controller?.modelWarmupTask = nil
-        }
+        modelRuntimeStore.cancelModelWarmup()
     }
 
     @discardableResult
     private func scheduleMeetingDiarizationModelWarmupIfNeeded() -> Task<Void, Never>? {
-        guard settingsStore.meetingDiarizationEnabled else {
-            meetingDiarizationModelRuntimeState = .notLoaded
-            AppLogger.info("Meeting diarization model warmup skipped because diarization is disabled")
-            return nil
-        }
-        guard meetingDiarizationModelManager != nil else {
-            meetingDiarizationModelRuntimeState = .notLoaded
-            AppLogger.info("Meeting diarization model warmup skipped because no model manager is configured")
-            return nil
-        }
-        guard isMeetingDiarizationModelInstalled else {
-            meetingDiarizationModelRuntimeState = .notLoaded
-            AppLogger.info(
-                "Meeting diarization model warmup skipped because model files are missing at \(meetingDiarizationModelDirectory.path)"
-            )
-            return nil
-        }
-        AppLogger.info("Scheduling meeting diarization model warmup from \(meetingDiarizationModelDirectory.path)")
-        return warmUpMeetingDiarizationModel()
+        modelRuntimeStore.scheduleMeetingDiarizationModelWarmupIfNeeded()
     }
 
     func updateSpeechPreprocessingMode(_ mode: SpeechPreprocessingMode) {
@@ -1864,10 +1587,9 @@ final class AppController: ObservableObject {
         do {
             try settingsStore.updateMeetingDiarizationEnabled(isEnabled)
             if isEnabled {
-                return scheduleMeetingDiarizationModelWarmupIfNeeded()
+                return modelRuntimeStore.scheduleMeetingDiarizationModelWarmupIfNeeded()
             } else {
-                meetingDiarizationModelWarmupTask?.cancel()
-                meetingDiarizationModelWarmupTask = nil
+                modelRuntimeStore.cancelMeetingDiarizationModelWarmup()
                 meetingDiarizationModelRuntimeState = .notLoaded
             }
         } catch {
@@ -2234,13 +1956,6 @@ final class AppController: ObservableObject {
         errorMessage = nil
         appState = .missingModel
     }
-}
-
-nonisolated private struct AppModelWarmupJob: @unchecked Sendable {
-    let client: ModelWarmupClient
-    let model: ModelManifestModel
-    let language: String
-    let timeout: Duration
 }
 
 nonisolated enum AppControllerDictionaryImportError: LocalizedError, Equatable, Sendable {

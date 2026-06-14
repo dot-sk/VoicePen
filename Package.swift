@@ -36,7 +36,9 @@ let package = Package(
             path: "VoicePen",
             exclude: [
                 "VoicePenApp.swift",
+                "App/HomeDashboardFormatting.swift",
                 "App/HomeDashboardViews.swift",
+                "App/VoicePenMainWindowHistoryViews.swift",
                 "App/VoicePenMainWindow.swift",
                 "App/SettingsViews.swift",
                 "Assets.xcassets"

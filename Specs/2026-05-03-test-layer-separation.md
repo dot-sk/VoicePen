@@ -4,6 +4,8 @@ status: implemented
 updated: 2026-05-07
 tests:
   - VoicePenTests/App/AppControllerTests.swift
+  - VoicePenTests/App/VoicePenStatusMenuModelTests.swift
+  - VoicePenTests/Meetings/MeetingDurationFormatterTests.swift
   - VoicePenIntegrationTests/VoicePenIntegrationHostTests.swift
 ---
 
@@ -54,6 +56,18 @@ available through an explicit command.
   through the app target.
 - Hosted integration tests shall remain able to launch `VoicePen.app` for
   behavior that depends on the macOS app runtime.
+- Unit tests shall not validate production Swift/App behavior via source-string
+  assertions (`sourceFile`, `sourceSlice`, regex, substring checks) against
+  `VoicePen/**/*.swift`. Shared presentation/format logic must be moved to
+  testable core types and covered with direct unit tests.
+
+## Additional Acceptance Criteria
+
+- Production Swift implementation contracts for status menu behavior are covered
+  through direct model tests of `VoicePenStatusMenuModel` (visibility, command
+  ordering, language options, icon state, tint flag).
+- Production Swift formatting for meeting duration is covered through direct unit
+  tests of `MeetingDurationFormatter`.
 
 ## Examples
 
@@ -75,6 +89,11 @@ available through an explicit command.
 
 - Automated: `make test` verifies spec validation and the non-hosted unit test
   target.
+- Automated: `VoicePenTests/App/VoicePenStatusMenuModelTests.swift` validates
+  status menu visibility, command ordering, language selection state, and icon
+  state/tint without source-string checks.
+- Automated: `VoicePenTests/Meetings/MeetingDurationFormatterTests.swift` validates
+  `MeetingDurationFormatter.historyText` formatting behavior.
 - Automated: `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk make
   test` verifies the default test command does not inherit an incompatible SDK
   from Git hook environments.
