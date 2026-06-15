@@ -43,6 +43,9 @@ let package = Package(
                 "App/VoicePenMainWindowMeetingPreviews.swift",
                 "App/VoicePenMainWindowMeetingViews.swift",
                 "App/VoicePenMainWindow.swift",
+                "App/GlassMainWindow.swift",
+                "App/MainWindowController.swift",
+                "App/MainAppMenu.swift",
                 "App/SettingsViews.swift",
                 "Assets.xcassets"
             ],

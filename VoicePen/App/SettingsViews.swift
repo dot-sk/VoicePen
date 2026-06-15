@@ -2,61 +2,6 @@ import Foundation
 import KeyboardShortcuts
 import SwiftUI
 
-enum VoicePenSettingsSection: String, CaseIterable, Identifiable, Hashable {
-    case general
-    case model
-    case modes
-    case config
-    case dictionary
-    case meetings
-    case history
-    case about
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .general:
-            return "Home"
-        case .model:
-            return "Models"
-        case .modes:
-            return "Modes"
-        case .config:
-            return "Settings"
-        case .dictionary:
-            return "Dictionary"
-        case .meetings:
-            return "Meetings"
-        case .history:
-            return "Sessions"
-        case .about:
-            return "About"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .general:
-            return "house"
-        case .model:
-            return "sparkles"
-        case .modes:
-            return "terminal"
-        case .config:
-            return "slider.horizontal.3"
-        case .dictionary:
-            return "text.book.closed"
-        case .meetings:
-            return "person.2.wave.2"
-        case .history:
-            return "mic"
-        case .about:
-            return "info.circle"
-        }
-    }
-}
-
 struct AboutView: View {
     @ObservedObject var controller: AppController
     @ObservedObject var historyStore: VoiceHistoryStore
