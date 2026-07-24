@@ -17,7 +17,6 @@ final class MeetingPipeline {
     private let recoveryAudioStore: MeetingRecoveryAudioStore?
     private let savedAudioScheduler: SavedAudioArchiveScheduling
     private let languageProvider: () -> String
-    private let speechPreprocessingModeProvider: () -> SpeechPreprocessingMode
     private let meetingVoiceLevelingEnabledProvider: () -> Bool
     private let saveMeetingAudioEnabledProvider: () -> Bool
     private let savedAudioStorageLimitGBProvider: () -> Int
@@ -43,7 +42,6 @@ final class MeetingPipeline {
         recoveryAudioStore: MeetingRecoveryAudioStore? = nil,
         savedAudioScheduler: SavedAudioArchiveScheduling = NoOpSavedAudioArchiveScheduler(),
         languageProvider: @escaping () -> String = { VoicePenConfig.defaultLanguage },
-        speechPreprocessingModeProvider: @escaping () -> SpeechPreprocessingMode = { .off },
         meetingVoiceLevelingEnabledProvider: @escaping () -> Bool = { false },
         saveMeetingAudioEnabledProvider: @escaping () -> Bool = { false },
         savedAudioStorageLimitGBProvider: @escaping () -> Int = { VoicePenConfig.defaultSavedAudioStorageLimitGB },
@@ -66,7 +64,6 @@ final class MeetingPipeline {
         self.recoveryAudioStore = recoveryAudioStore
         self.savedAudioScheduler = savedAudioScheduler
         self.languageProvider = languageProvider
-        self.speechPreprocessingModeProvider = speechPreprocessingModeProvider
         self.meetingVoiceLevelingEnabledProvider = meetingVoiceLevelingEnabledProvider
         self.saveMeetingAudioEnabledProvider = saveMeetingAudioEnabledProvider
         self.savedAudioStorageLimitGBProvider = savedAudioStorageLimitGBProvider
@@ -248,7 +245,6 @@ final class MeetingPipeline {
 
         var timings = MeetingPipelineTimings(recording: recording.duration)
         let language = TranscriptionLanguageResolver.resolve(languageProvider())
-        let mode = speechPreprocessingModeProvider()
         let meetingVoiceLevelingEnabled = meetingVoiceLevelingEnabledProvider()
         let meetingTranscriptTimecodesEnabled = meetingTranscriptTimecodesEnabledProvider()
         let orderedChunks = chunks.sorted(by: chunkOrder)
@@ -273,7 +269,6 @@ final class MeetingPipeline {
                     operation: {
                         try await self.processChunk(
                             chunk,
-                            mode: mode,
                             language: language,
                             voiceLevelingEnabled: meetingVoiceLevelingEnabled,
                             timecodesEnabled: meetingTranscriptTimecodesEnabled,
@@ -732,7 +727,6 @@ final class MeetingPipeline {
 
     private func processChunk(
         _ chunk: MeetingAudioChunk,
-        mode: SpeechPreprocessingMode,
         language: String,
         voiceLevelingEnabled: Bool,
         timecodesEnabled: Bool,
@@ -740,7 +734,7 @@ final class MeetingPipeline {
         sourceSpans: [MeetingAudioSourceSpan]
     ) async throws -> MeetingProcessedChunk {
         let preprocessed = try await measure {
-            try await audioPreprocessor.preprocess(audioURL: chunk.url, mode: mode)
+            try await audioPreprocessor.preprocess(audioURL: chunk.url)
         }
 
         let shouldPreserveTimeline = timecodesEnabled || diarizationEnabled
@@ -761,11 +755,17 @@ final class MeetingPipeline {
                 }
             }
 
+            var options: TranscriptionOptions = [.voiceActivityDetection]
+            if timecodesEnabled || diarizationEnabled {
+                options.insert(.timestamps)
+            }
             return try await transcriber.transcribe(
-                audioURL: transcriptionAudioURL,
-                glossaryPrompt: "",
-                language: language,
-                includeTimestamps: timecodesEnabled || diarizationEnabled
+                TranscriptionRequest(
+                    audioURL: transcriptionAudioURL,
+                    glossaryPrompt: "",
+                    language: language,
+                    options: options
+                )
             )
         }
 

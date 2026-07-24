@@ -30,6 +30,7 @@ VoicePen.sqlite
 # Local model files
 Models/
 *.bin
+!VoicePen/Resources/ggml-silero-v6.2.0.bin
 *.mlmodelc/
 *.gguf
 *.safetensors

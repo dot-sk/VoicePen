@@ -384,6 +384,10 @@ private struct ReadOnlyTranscriptTextView: NSViewRepresentable {
 private final class CopyableTranscriptSTTextView: STTextView {
     var copyFullTranscriptAction: (() -> Void)?
 
+    override var mouseDownCanMoveWindow: Bool {
+        false
+    }
+
     override func copy(_ sender: Any?) {
         if textSelection.length > 0 {
             super.copy(sender)

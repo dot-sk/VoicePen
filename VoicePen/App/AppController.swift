@@ -536,7 +536,19 @@ final class AppController: ObservableObject {
         let overlay = BottomOverlayWindowController(recordingLevelProvider: {
             recorder.currentLevel()
         })
-        let audioPreprocessor = LiveAudioPreprocessingClient(outputDirectory: paths.tempAudioDirectory)
+        let microphoneDenoiser = RNNoiseAudioDenoiser(
+            modelURL: RNNoiseAudioDenoiser.bundledModelURL()
+        )
+        if microphoneDenoiser == nil {
+            AppLogger.info("Microphone noise suppression is unavailable because the RNNoise model is missing.")
+        }
+        let dictationAudioPreprocessor = LiveAudioPreprocessingClient(
+            outputDirectory: paths.tempAudioDirectory,
+            audioDenoiser: microphoneDenoiser
+        )
+        let meetingAudioPreprocessor = LiveAudioPreprocessingClient(
+            outputDirectory: paths.tempAudioDirectory
+        )
         let savedAudioArchive = SavedAudioArchive(paths: paths)
         let savedAudioScheduler = AsyncSavedAudioArchiveScheduler(archiver: savedAudioArchive) { owner, archivedURL in
             Task { @MainActor in
@@ -565,7 +577,7 @@ final class AppController: ObservableObject {
         )
         let pipeline = DictationPipeline(
             recorder: recorder,
-            audioPreprocessor: audioPreprocessor,
+            audioPreprocessor: dictationAudioPreprocessor,
             transcriber: transcriber,
             dictionaryStore: dictionaryStore,
             inserter: inserter,
@@ -574,7 +586,6 @@ final class AppController: ObservableObject {
             inputGainController: CoreAudioDefaultInputGainController(),
             savedAudioScheduler: savedAudioScheduler,
             languageProvider: { settingsStore.transcriptionLanguage },
-            speechPreprocessingModeProvider: { settingsStore.speechPreprocessingMode },
             boostDictationInputGainProvider: { settingsStore.boostDictationInputGain },
             saveDictationAudioEnabledProvider: { settingsStore.saveDictationAudioEnabled },
             savedAudioStorageLimitGBProvider: { settingsStore.savedAudioStorageLimitGB },
@@ -613,11 +624,12 @@ final class AppController: ObservableObject {
                     audioFileIO: meetingAudioFileIO
                 )
             ),
-            audioPreprocessor: audioPreprocessor,
+            audioPreprocessor: meetingAudioPreprocessor,
             voiceLevelingProcessor: SystemVoiceLevelingProcessor(outputDirectory: paths.tempAudioDirectory),
             chunker: AVFoundationMeetingAudioChunker(
                 outputDirectory: paths.tempAudioDirectory,
-                audioFileIO: meetingAudioFileIO
+                audioFileIO: meetingAudioFileIO,
+                microphoneDenoiser: microphoneDenoiser
             ),
             audioFileIO: meetingAudioFileIO,
             transcriber: transcriber,
@@ -626,7 +638,6 @@ final class AppController: ObservableObject {
             recoveryAudioStore: MeetingRecoveryAudioStore(directory: paths.meetingRecoveryDirectory),
             savedAudioScheduler: savedAudioScheduler,
             languageProvider: { settingsStore.transcriptionLanguage },
-            speechPreprocessingModeProvider: { settingsStore.speechPreprocessingMode },
             meetingVoiceLevelingEnabledProvider: { settingsStore.meetingVoiceLevelingEnabled },
             saveMeetingAudioEnabledProvider: { settingsStore.saveMeetingAudioEnabled },
             savedAudioStorageLimitGBProvider: { settingsStore.savedAudioStorageLimitGB },
@@ -1516,14 +1527,6 @@ final class AppController: ObservableObject {
     @discardableResult
     private func scheduleMeetingDiarizationModelWarmupIfNeeded() -> Task<Void, Never>? {
         modelRuntimeStore.scheduleMeetingDiarizationModelWarmupIfNeeded()
-    }
-
-    func updateSpeechPreprocessingMode(_ mode: SpeechPreprocessingMode) {
-        do {
-            try settingsStore.updateSpeechPreprocessingMode(mode)
-        } catch {
-            setError(error)
-        }
     }
 
     func updateBoostDictationInputGain(_ isEnabled: Bool) {

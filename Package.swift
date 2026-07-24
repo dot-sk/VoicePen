@@ -12,6 +12,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "Vendor/whisper.spm"),
+        .package(path: "Vendor/rnnoise.spm"),
         .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", from: "2.2.0"),
         .package(url: "https://github.com/Alamofire/Alamofire.git", from: "5.11.2"),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.1"),
@@ -25,6 +26,7 @@ let package = Package(
             name: "VoicePenCore",
             dependencies: [
                 .product(name: "whisper", package: "whisper.spm"),
+                .product(name: "CRNNoise", package: "rnnoise.spm"),
                 .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts"),
                 .product(name: "Alamofire", package: "Alamofire"),
                 .product(name: "Sparkle", package: "Sparkle"),
@@ -48,7 +50,9 @@ let package = Package(
             ],
             resources: [
                 .process("Resources/model-manifest.json"),
-                .process("Resources/default-config.toml")
+                .process("Resources/default-config.toml"),
+                .copy("Resources/ggml-silero-v6.2.0.bin"),
+                .copy("Resources/rnnoise-model-v0.2.bin")
             ],
             swiftSettings: [
                 .enableUpcomingFeature("MemberImportVisibility"),

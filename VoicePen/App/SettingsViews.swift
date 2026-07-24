@@ -738,13 +738,6 @@ struct ModelSettingsView: View {
         )
     }
 
-    private var speechPreprocessingSelection: Binding<SpeechPreprocessingMode> {
-        Binding(
-            get: { settingsStore.speechPreprocessingMode },
-            set: { controller.updateSpeechPreprocessingMode($0) }
-        )
-    }
-
     var body: some View {
         Form {
             Section {
@@ -830,18 +823,6 @@ struct ModelSettingsView: View {
                 }
                 .pickerStyle(.menu)
 
-                Picker(selection: speechPreprocessingSelection) {
-                    ForEach(SpeechPreprocessingMode.allCases) { mode in
-                        Text(mode.displayName)
-                            .tag(mode)
-                    }
-                } label: {
-                    recognitionSettingLabel(
-                        "Speech preprocessing",
-                        help: "Slower preprocessing can help with fast speech, but it increases transcription time."
-                    )
-                }
-                .pickerStyle(.menu)
             } header: {
                 Text("Recognition")
             }

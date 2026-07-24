@@ -3,42 +3,121 @@ import Foundation
 
 final class LiveAudioPreprocessingClient: AudioPreprocessingClient {
     private let outputDirectory: URL
-    private let fileManager: FileManager
+    private let audioDenoiser: AudioDenoising?
 
-    init(outputDirectory: URL, fileManager: FileManager = .default) {
+    init(
+        outputDirectory: URL,
+        audioDenoiser: AudioDenoising? = nil
+    ) {
         self.outputDirectory = outputDirectory
-        self.fileManager = fileManager
+        self.audioDenoiser = audioDenoiser
     }
 
-    func preprocess(audioURL: URL, mode: SpeechPreprocessingMode) async throws -> URL {
+    func preprocess(audioURL: URL) async throws -> URL {
         let outputDirectory = outputDirectory
-        let rate = mode.speedRate
+        let audioDenoiser = audioDenoiser
         return try await Task.detached(priority: .userInitiated) {
+            try FileManager.default.createDirectory(
+                at: outputDirectory,
+                withIntermediateDirectories: true
+            )
+
+            if let audioDenoiser {
+                return try preprocessWithDenoising(
+                    inputURL: audioURL,
+                    outputDirectory: outputDirectory,
+                    audioDenoiser: audioDenoiser
+                )
+            }
+
             let trimmedURL = try trimSilence(
                 inputURL: audioURL,
-                outputDirectory: outputDirectory,
-                fileManager: .default
+                outputDirectory: outputDirectory
             )
-            let sourceURL = trimmedURL ?? audioURL
-            guard mode != .off else { return sourceURL }
-
-            return try slowDownAudio(
-                inputURL: sourceURL,
-                outputDirectory: outputDirectory,
-                rate: rate,
-                fileManager: .default
-            )
+            return trimmedURL ?? audioURL
         }.value
     }
 }
 
-nonisolated private func trimSilence(
+nonisolated private func preprocessWithDenoising(
     inputURL: URL,
     outputDirectory: URL,
-    fileManager: FileManager
-) throws -> URL? {
-    try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+    audioDenoiser: AudioDenoising
+) throws -> URL {
+    let totalStart = DispatchTime.now().uptimeNanoseconds
 
+    let readStart = DispatchTime.now().uptimeNanoseconds
+    let input = try MonoPCM.read(from: inputURL)
+    let readDuration = elapsedTime(since: readStart)
+
+    let denoiseStart = DispatchTime.now().uptimeNanoseconds
+    let denoised: [Float]
+    do {
+        denoised = try audioDenoiser.process(
+            samples: input.samples,
+            sampleRate: Int(input.sampleRate.rounded())
+        )
+    } catch {
+        AppLogger.info(
+            "Microphone noise suppression skipped: \(error.localizedDescription)"
+        )
+        return try trimSilence(
+            inputURL: inputURL,
+            outputDirectory: outputDirectory
+        ) ?? inputURL
+    }
+    let denoiseDuration = elapsedTime(since: denoiseStart)
+
+    let silenceStart = DispatchTime.now().uptimeNanoseconds
+    guard
+        let analysis = AudioSilenceTrimmer.analyze(
+            samples: denoised,
+            sampleRate: input.sampleRate,
+            minimumSpeechDuration: VoicePenConfig.minimumSpeechSignalDuration
+        )
+    else {
+        throw AudioPreprocessingError.noSpeechDetected
+    }
+    let trimRange = analysis.trimRange(
+        sampleCount: denoised.count,
+        sampleRate: input.sampleRate
+    )
+    let silenceDuration = elapsedTime(since: silenceStart)
+
+    let outputName = trimRange == nil ? "voicepen-denoised" : "voicepen-trimmed"
+    let outputURL =
+        outputDirectory
+        .appendingPathComponent("\(outputName)-\(UUID().uuidString)")
+        .appendingPathExtension("wav")
+    let writeStart = DispatchTime.now().uptimeNanoseconds
+    let resultURL = try createTemporaryAudioFile(at: outputURL) {
+        let output = MonoPCM(samples: denoised, sampleRate: input.sampleRate)
+        if let trimRange {
+            try output.write(to: outputURL, sampleRange: trimRange)
+        } else {
+            try output.write(to: outputURL)
+        }
+    }
+    let writeDuration = elapsedTime(since: writeStart)
+
+    AppLogger.info(
+        String(
+            format:
+                "Audio preprocessing timings: read=%.3fs, denoise=%.3fs, silence=%.3fs, write=%.3fs, total=%.3fs",
+            readDuration,
+            denoiseDuration,
+            silenceDuration,
+            writeDuration,
+            elapsedTime(since: totalStart)
+        )
+    )
+    return resultURL
+}
+
+nonisolated private func trimSilence(
+    inputURL: URL,
+    outputDirectory: URL
+) throws -> URL? {
     let inputFile = try AVAudioFile(forReading: inputURL)
     let inputFormat = inputFile.processingFormat
     guard
@@ -54,7 +133,12 @@ nonisolated private func trimSilence(
     let frameLength = Int(buffer.frameLength)
     guard frameLength > 0 else { return nil }
 
-    let samples = try monoSamples(from: buffer, frameLength: frameLength)
+    let samples: [Float]
+    do {
+        samples = try MonoPCM(buffer: buffer).samples
+    } catch {
+        throw AudioPreprocessingError.renderFailed
+    }
     guard
         let analysis = AudioSilenceTrimmer.analyze(
             samples: samples,
@@ -90,115 +174,10 @@ nonisolated private func trimSilence(
         outputDirectory
         .appendingPathComponent("voicepen-trimmed-\(UUID().uuidString)")
         .appendingPathExtension("wav")
-    let outputFile = try AVAudioFile(forWriting: outputURL, settings: inputFormat.settings)
-    try outputFile.write(from: outputBuffer)
-    return outputURL
-}
-
-nonisolated private func slowDownAudio(
-    inputURL: URL,
-    outputDirectory: URL,
-    rate: Double,
-    fileManager: FileManager
-) throws -> URL {
-    try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
-
-    let inputFile = try AVAudioFile(forReading: inputURL)
-    let inputFormat = inputFile.processingFormat
-    let outputURL =
-        outputDirectory
-        .appendingPathComponent("voicepen-processed-\(UUID().uuidString)")
-        .appendingPathExtension("wav")
-
-    let engine = AVAudioEngine()
-    let player = AVAudioPlayerNode()
-    let timePitch = AVAudioUnitTimePitch()
-    timePitch.rate = Float(rate)
-
-    engine.attach(player)
-    engine.attach(timePitch)
-    engine.connect(player, to: timePitch, format: inputFormat)
-    engine.connect(timePitch, to: engine.mainMixerNode, format: inputFormat)
-
-    let maximumFrameCount: AVAudioFrameCount = 4096
-    try engine.enableManualRenderingMode(
-        .offline,
-        format: inputFormat,
-        maximumFrameCount: maximumFrameCount
-    )
-
-    let outputFile = try AVAudioFile(
-        forWriting: outputURL,
-        settings: inputFormat.settings
-    )
-
-    guard
-        let buffer = AVAudioPCMBuffer(
-            pcmFormat: engine.manualRenderingFormat,
-            frameCapacity: engine.manualRenderingMaximumFrameCount
-        )
-    else {
-        throw AudioPreprocessingError.couldNotCreateRenderBuffer
+    return try createTemporaryAudioFile(at: outputURL) {
+        let outputFile = try AVAudioFile(forWriting: outputURL, settings: inputFormat.settings)
+        try outputFile.write(from: outputBuffer)
     }
-
-    try engine.start()
-    player.scheduleFile(inputFile, at: nil)
-    player.play()
-
-    let expectedFrames = AVAudioFramePosition(
-        (Double(inputFile.length) / max(rate, 0.01)) + inputFormat.sampleRate
-    )
-
-    while engine.manualRenderingSampleTime < expectedFrames {
-        let frameCount = min(
-            buffer.frameCapacity,
-            AVAudioFrameCount(expectedFrames - engine.manualRenderingSampleTime)
-        )
-
-        switch try engine.renderOffline(frameCount, to: buffer) {
-        case .success:
-            guard buffer.frameLength > 0 else { continue }
-            try outputFile.write(from: buffer)
-        case .insufficientDataFromInputNode:
-            continue
-        case .cannotDoInCurrentContext:
-            continue
-        case .error:
-            throw AudioPreprocessingError.renderFailed
-        @unknown default:
-            throw AudioPreprocessingError.renderFailed
-        }
-    }
-
-    player.stop()
-    engine.stop()
-    engine.disableManualRenderingMode()
-
-    return outputURL
-}
-
-nonisolated private func monoSamples(from buffer: AVAudioPCMBuffer, frameLength: Int) throws -> [Float] {
-    guard let channelData = buffer.floatChannelData else {
-        throw AudioPreprocessingError.renderFailed
-    }
-
-    let channelCount = Int(buffer.format.channelCount)
-    guard channelCount > 0 else { return [] }
-
-    if channelCount == 1 {
-        return Array(UnsafeBufferPointer(start: channelData[0], count: frameLength))
-    }
-
-    var samples = [Float]()
-    samples.reserveCapacity(frameLength)
-    for frame in 0..<frameLength {
-        var mixedSample: Float = 0
-        for channel in 0..<channelCount {
-            mixedSample += channelData[channel][frame]
-        }
-        samples.append(mixedSample / Float(channelCount))
-    }
-    return samples
 }
 
 nonisolated private func copyFrames(
@@ -214,10 +193,29 @@ nonisolated private func copyFrames(
     }
 
     for channel in 0..<channelCount {
-        for frameOffset in 0..<range.count {
-            destinationData[channel][frameOffset] = sourceData[channel][range.lowerBound + frameOffset]
-        }
+        memcpy(
+            destinationData[channel],
+            sourceData[channel].advanced(by: range.lowerBound),
+            range.count * MemoryLayout<Float>.stride
+        )
     }
+}
+
+nonisolated private func createTemporaryAudioFile(
+    at url: URL,
+    operation: () throws -> Void
+) throws -> URL {
+    do {
+        try operation()
+        return url
+    } catch {
+        try? FileManager.default.removeItem(at: url)
+        throw error
+    }
+}
+
+nonisolated private func elapsedTime(since start: UInt64) -> TimeInterval {
+    TimeInterval(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000_000
 }
 
 enum AudioPreprocessingError: LocalizedError, Equatable {

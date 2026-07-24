@@ -119,13 +119,16 @@ nonisolated private struct MeetingAudioTimelineContributor: Equatable, Sendable 
 final class AVFoundationMeetingAudioChunker: MeetingAudioChunker {
     private let outputDirectory: URL
     private let audioFileIO: MeetingAudioFileIO
+    private let microphoneDenoiser: AudioDenoising?
 
     init(
         outputDirectory: URL,
-        audioFileIO: MeetingAudioFileIO = AVFoundationMeetingAudioFileIO()
+        audioFileIO: MeetingAudioFileIO = AVFoundationMeetingAudioFileIO(),
+        microphoneDenoiser: AudioDenoising? = nil
     ) {
         self.outputDirectory = outputDirectory
         self.audioFileIO = audioFileIO
+        self.microphoneDenoiser = microphoneDenoiser
     }
 
     func split(
@@ -135,6 +138,7 @@ final class AVFoundationMeetingAudioChunker: MeetingAudioChunker {
     ) async throws -> MeetingAudioChunkingResult {
         let outputDirectory = outputDirectory
         let audioFileIO = audioFileIO
+        let microphoneDenoiser = microphoneDenoiser
         return try await Task.detached(priority: .userInitiated) {
             try splitChunks(
                 chunks,
@@ -142,7 +146,8 @@ final class AVFoundationMeetingAudioChunker: MeetingAudioChunker {
                 chunkDuration: chunkDuration,
                 outputDirectory: outputDirectory,
                 fileManager: .default,
-                audioFileIO: audioFileIO
+                audioFileIO: audioFileIO,
+                microphoneDenoiser: microphoneDenoiser
             )
         }.value
     }
@@ -184,7 +189,8 @@ nonisolated private func splitChunks(
     chunkDuration: TimeInterval,
     outputDirectory: URL,
     fileManager: FileManager,
-    audioFileIO: MeetingAudioFileIO
+    audioFileIO: MeetingAudioFileIO,
+    microphoneDenoiser: AudioDenoising?
 ) throws -> MeetingAudioChunkingResult {
     try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
 
@@ -205,7 +211,8 @@ nonisolated private func splitChunks(
                     let writtenWindow = try writeMixedAudioWindow(
                         window,
                         outputDirectory: outputDirectory,
-                        audioFileIO: audioFileIO
+                        audioFileIO: audioFileIO,
+                        microphoneDenoiser: microphoneDenoiser
                     )
                 else {
                     continue
@@ -240,7 +247,9 @@ nonisolated private func splitChunks(
                 contributor.overlapStart == chunk.startOffset
                 && contributor.duration == chunk.duration
 
-            if usesOriginalChunk {
+            if usesOriginalChunk,
+                chunk.source != .microphone || microphoneDenoiser == nil
+            {
                 guard let readableDuration = try audioFileIO.readableDuration(for: chunk) else {
                     continue
                 }
@@ -275,7 +284,8 @@ nonisolated private func splitChunks(
                     windowChunk,
                     sourceChunk: chunk,
                     outputDirectory: outputDirectory,
-                    audioFileIO: audioFileIO
+                    audioFileIO: audioFileIO,
+                    microphoneDenoiser: microphoneDenoiser
                 )
             else {
                 continue
@@ -329,10 +339,15 @@ nonisolated private func mergedSource(for contributors: [MeetingAudioTimelineCon
 nonisolated private func writeMixedAudioWindow(
     _ window: MeetingAudioTimelineWindow,
     outputDirectory: URL,
-    audioFileIO: MeetingAudioFileIO
+    audioFileIO: MeetingAudioFileIO,
+    microphoneDenoiser: AudioDenoising?
 ) throws -> MeetingAudioWrittenWindow? {
     let readableContributors = try window.contributors.compactMap { contributor in
-        try readMonoSamples(for: contributor, audioFileIO: audioFileIO)
+        try readMonoSamples(
+            for: contributor,
+            audioFileIO: audioFileIO,
+            microphoneDenoiser: microphoneDenoiser
+        )
     }
     guard !readableContributors.isEmpty else { return nil }
 
@@ -381,7 +396,8 @@ nonisolated private func writeMixedAudioWindow(
 
 nonisolated private func readMonoSamples(
     for contributor: MeetingAudioTimelineContributor,
-    audioFileIO: MeetingAudioFileIO
+    audioFileIO: MeetingAudioFileIO,
+    microphoneDenoiser: AudioDenoising?
 ) throws -> MeetingAudioReadableContributor? {
     let window = MeetingAudioChunk(
         url: contributor.chunk.url,
@@ -390,11 +406,38 @@ nonisolated private func readMonoSamples(
         duration: contributor.duration
     )
     guard let sampleWindow = try audioFileIO.readMonoSampleWindow(window, in: contributor.chunk) else { return nil }
+    let samples = denoisedMicrophoneSamples(
+        sampleWindow.samples,
+        source: contributor.chunk.source,
+        sampleRate: audioFileIO.sampleRate,
+        microphoneDenoiser: microphoneDenoiser
+    )
     return MeetingAudioReadableContributor(
         contributor: contributor,
-        samples: sampleWindow.samples,
+        samples: samples,
         duration: sampleWindow.duration
     )
+}
+
+nonisolated private func denoisedMicrophoneSamples(
+    _ samples: [Float],
+    source: MeetingSourceKind,
+    sampleRate: Double,
+    microphoneDenoiser: AudioDenoising?
+) -> [Float] {
+    guard source == .microphone, let microphoneDenoiser else {
+        return samples
+    }
+
+    do {
+        return try microphoneDenoiser.process(
+            samples: samples,
+            sampleRate: Int(sampleRate.rounded())
+        )
+    } catch {
+        AppLogger.info("Meeting microphone noise suppression skipped: \(error.localizedDescription)")
+        return samples
+    }
 }
 
 nonisolated private func clippedSample(_ sample: Float) -> Float {
@@ -405,9 +448,16 @@ nonisolated private func writeAudioWindow(
     _ window: MeetingAudioChunk,
     sourceChunk: MeetingAudioChunk,
     outputDirectory: URL,
-    audioFileIO: MeetingAudioFileIO
+    audioFileIO: MeetingAudioFileIO,
+    microphoneDenoiser: AudioDenoising?
 ) throws -> MeetingAudioWrittenWindow? {
     guard let sampleWindow = try audioFileIO.readMonoSampleWindow(window, in: sourceChunk) else { return nil }
+    let samples = denoisedMicrophoneSamples(
+        sampleWindow.samples,
+        source: sourceChunk.source,
+        sampleRate: audioFileIO.sampleRate,
+        microphoneDenoiser: microphoneDenoiser
+    )
 
     let outputURL =
         outputDirectory
@@ -415,7 +465,7 @@ nonisolated private func writeAudioWindow(
             "voicepen-meeting-chunk-\(sourceChunk.source.rawValue)-\(Int(window.startOffset * 1000))-\(UUID().uuidString)"
         )
         .appendingPathExtension("caf")
-    let outputDuration = try audioFileIO.writeMonoSamples(sampleWindow.samples, to: outputURL)
+    let outputDuration = try audioFileIO.writeMonoSamples(samples, to: outputURL)
     return MeetingAudioWrittenWindow(
         url: outputURL,
         duration: min(window.duration, outputDuration, sampleWindow.duration),

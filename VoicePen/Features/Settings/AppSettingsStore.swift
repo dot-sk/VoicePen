@@ -5,7 +5,6 @@ import Foundation
 final class AppSettingsStore: ObservableObject {
     @Published private(set) var transcriptionLanguage: String
     @Published private(set) var selectedModelId: String
-    @Published private(set) var speechPreprocessingMode: SpeechPreprocessingMode
     @Published private(set) var hotkeyPreference: HotkeyPreference
     @Published private(set) var boostDictationInputGain: Bool
     @Published private(set) var meetingVoiceLevelingEnabled: Bool
@@ -30,7 +29,6 @@ final class AppSettingsStore: ObservableObject {
         self.fileManager = fileManager
         self.transcriptionLanguage = VoicePenConfig.defaultLanguage
         self.selectedModelId = VoicePenConfig.modelId
-        self.speechPreprocessingMode = .off
         self.hotkeyPreference = .option
         self.boostDictationInputGain = true
         self.meetingVoiceLevelingEnabled = true
@@ -53,7 +51,6 @@ final class AppSettingsStore: ObservableObject {
             try DatabaseMigrator.migrate(database)
             let language = try fetchValue(forKey: Self.languageKey, from: database) ?? VoicePenConfig.defaultLanguage
             let modelId = try fetchValue(forKey: Self.selectedModelKey, from: database) ?? defaultModelId
-            let preprocessing = try fetchValue(forKey: Self.speechPreprocessingKey, from: database) ?? SpeechPreprocessingMode.off.rawValue
             let hotkey = try fetchValue(forKey: Self.hotkeyPreferenceKey, from: database) ?? HotkeyPreference.option.rawValue
             let boostDictationInputGain =
                 try fetchValue(forKey: Self.boostDictationInputGainKey, from: database)
@@ -92,7 +89,6 @@ final class AppSettingsStore: ObservableObject {
             return LoadedSettings(
                 language: language,
                 modelId: modelId,
-                preprocessing: preprocessing,
                 hotkey: hotkey,
                 boostDictationInputGain: boostDictationInputGain,
                 meetingVoiceLeveling: meetingVoiceLeveling,
@@ -112,7 +108,6 @@ final class AppSettingsStore: ObservableObject {
         }
         transcriptionLanguage = Self.normalizeLanguage(values.language)
         selectedModelId = Self.normalizeModelId(values.modelId, fallback: defaultModelId)
-        speechPreprocessingMode = Self.normalizeSpeechPreprocessingMode(values.preprocessing)
         hotkeyPreference = Self.normalizeHotkeyPreference(values.hotkey)
         boostDictationInputGain = Self.normalizeBoolean(values.boostDictationInputGain)
         meetingVoiceLevelingEnabled = Self.normalizeBoolean(values.meetingVoiceLeveling)
@@ -144,13 +139,6 @@ final class AppSettingsStore: ObservableObject {
             normalizedModelId,
             forKey: Self.selectedModelKey
         ) { selectedModelId = normalizedModelId }
-    }
-
-    func updateSpeechPreprocessingMode(_ mode: SpeechPreprocessingMode) throws {
-        try persistAndApply(
-            mode.rawValue,
-            forKey: Self.speechPreprocessingKey
-        ) { speechPreprocessingMode = mode }
     }
 
     func updateHotkeyPreference(_ preference: HotkeyPreference) throws {
@@ -303,10 +291,6 @@ final class AppSettingsStore: ObservableObject {
         return normalizedModelId.isEmpty ? fallback : normalizedModelId
     }
 
-    private static func normalizeSpeechPreprocessingMode(_ mode: String) -> SpeechPreprocessingMode {
-        SpeechPreprocessingMode(rawValue: mode.trimmingCharacters(in: .whitespacesAndNewlines)) ?? .off
-    }
-
     private static func normalizeHotkeyPreference(_ preference: String) -> HotkeyPreference {
         HotkeyPreference(rawValue: preference.trimmingCharacters(in: .whitespacesAndNewlines)) ?? .option
     }
@@ -392,7 +376,6 @@ final class AppSettingsStore: ObservableObject {
 
     private static let languageKey = "transcription.language"
     private static let selectedModelKey = "transcription.selectedModelId"
-    private static let speechPreprocessingKey = "audio.speechPreprocessingMode"
     private static let boostDictationInputGainKey = "audio.boostDictationInputGain"
     private static let meetingVoiceLevelingEnabledKey = "audio.meetingVoiceLevelingEnabled"
     private static let saveDictationAudioEnabledKey = "audio.saveDictationAudioEnabled"
@@ -423,7 +406,6 @@ struct TranscriptionLanguage: Identifiable, Equatable {
 private struct LoadedSettings {
     let language: String
     let modelId: String
-    let preprocessing: String
     let hotkey: String
     let boostDictationInputGain: String
     let meetingVoiceLeveling: String

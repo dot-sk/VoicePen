@@ -53,24 +53,23 @@ actor WhisperCppContext {
     }
 
     func transcribe(
-        audioURL: URL,
-        prompt: String,
-        language: String,
-        includeTimestamps: Bool = false,
+        _ request: TranscriptionRequest,
+        voiceActivityDetectionModelPath: String?
     ) throws -> TranscriptionClientResult {
         let context = handle.pointer
 
-        let samples = try Self.readAudioSamples(audioURL)
+        let samples = try Self.readAudioSamples(request.audioURL)
         let options = WhisperCppDecodingOptions.resolve(
             sampleCount: samples.count,
-            includeTimestamps: includeTimestamps
+            includeTimestamps: request.options.contains(.timestamps)
         )
         let result = try runWhisper(
             context: context,
             samples: samples,
-            prompt: prompt,
-            language: language,
-            options: options
+            prompt: request.glossaryPrompt,
+            language: request.language,
+            options: options,
+            voiceActivityDetectionModelPath: voiceActivityDetectionModelPath
         )
 
         let trimmedText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -136,7 +135,8 @@ actor WhisperCppContext {
         samples: [Float],
         prompt: String,
         language: String,
-        options: WhisperCppDecodingOptions
+        options: WhisperCppDecodingOptions,
+        voiceActivityDetectionModelPath: String? = nil
     ) throws -> WhisperCppRunResult {
         var parameters = whisper_full_default_params(WHISPER_SAMPLING_GREEDY)
 
@@ -167,10 +167,11 @@ actor WhisperCppContext {
         parameters.split_on_word = options.splitOnWord
         parameters.no_context = true
         parameters.single_segment = options.singleSegment
-        parameters.suppress_non_speech_tokens = true
+        parameters.suppress_nst = true
         parameters.temperature = 0.0
         parameters.audio_ctx = options.audioContext
         parameters.n_threads = options.threadCount
+        parameters.vad_params = whisper_vad_default_params()
 
         whisper_reset_timings(context)
         let start = Date()
@@ -193,18 +194,41 @@ actor WhisperCppContext {
             }
         }
 
-        let status: Int32
-        if let languageCString {
-            status = languageCString.withUnsafeBufferPointer { languageBuffer in
+        func runWithLanguage() -> Int32 {
+            guard let languageCString else {
+                parameters.language = nil
+                return runWithPromptTokens()
+            }
+
+            return languageCString.withUnsafeBufferPointer { languageBuffer in
                 parameters.language = languageBuffer.baseAddress
                 return runWithPromptTokens()
             }
-        } else {
-            status = runWithPromptTokens()
         }
 
-        guard status == 0 else {
-            throw TranscriptionError.transcriptionFailed("whisper.cpp transcription failed with status \(status).")
+        func runAttempt(voiceActivityDetectionModelPath: String?) -> Int32 {
+            parameters.vad = voiceActivityDetectionModelPath != nil
+            guard let voiceActivityDetectionModelPath else {
+                parameters.vad_model_path = nil
+                return runWithLanguage()
+            }
+
+            return voiceActivityDetectionModelPath.withCString { modelPath in
+                parameters.vad_model_path = modelPath
+                return runWithLanguage()
+            }
+        }
+
+        let decodeStatus = WhisperCppVoiceActivityDetection.runDecode(
+            modelPath: voiceActivityDetectionModelPath
+        ) { modelPath in
+            runAttempt(voiceActivityDetectionModelPath: modelPath)
+        }
+
+        guard decodeStatus == 0 else {
+            throw TranscriptionError.transcriptionFailed(
+                "whisper.cpp transcription failed with status \(decodeStatus)."
+            )
         }
 
         var text = ""

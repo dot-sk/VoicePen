@@ -114,5 +114,6 @@ should stay useful without paying for it.
 ## Maintainers
 
 - Release and signing notes: [`Docs/releasing.md`](Docs/releasing.md)
+- Audio capture and transcription architecture: [`Docs/audio-transcription-architecture.md`](Docs/audio-transcription-architecture.md)
 - Architecture decisions: [`Docs/adr/`](Docs/adr/)
 - Product specs: [`Specs/`](Specs/)
