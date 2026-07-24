@@ -6,26 +6,11 @@ struct VoicePenMainWindow: View {
     @ObservedObject var controller: AppController
     @Environment(\.colorScheme) private var colorScheme
     @State private var selectedSection: VoicePenSettingsSection? = .general
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
-    private let primarySidebarSections: [VoicePenSettingsSection] = [
-        .general,
-        .meetings,
-        .history
-    ]
-
-    private var settingsSidebarSections: [VoicePenSettingsSection] {
-        var sections: [VoicePenSettingsSection] = [
-            .dictionary,
-            .model
-        ]
-        if VoicePenConfig.modesFeatureEnabled {
-            sections.append(.modes)
-        }
-        sections.append(contentsOf: [
-            .about
-        ])
-        return sections
+    private var sidebarSectionGroups: MainWindowSidebarSectionGroups {
+        MainWindowSidebarSectionGroups.make(
+            modesFeatureEnabled: VoicePenConfig.modesFeatureEnabled
+        )
     }
 
     private var theme: VoicePenTheme {
@@ -33,17 +18,18 @@ struct VoicePenMainWindow: View {
     }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            VoicePenIconSidebar(
-                selectedSection: $selectedSection,
-                primarySections: primarySidebarSections,
-                settingsSections: settingsSidebarSections,
-                bottomSections: [.config],
-                systemImage: systemImage(for:)
-            )
-            .navigationSplitViewColumnWidth(min: 72, ideal: 72, max: 72)
-        } detail: {
-            NavigationStack {
+        ZStack(alignment: .leading) {
+            theme.background
+                .ignoresSafeArea()
+
+            HStack(spacing: 0) {
+                VoicePenGlassSidebar(
+                    selectedSection: $selectedSection,
+                    sectionGroups: sidebarSectionGroups,
+                    systemImage: sidebarSystemImage(for:)
+                )
+                .frame(width: MainWindowGlassSidebarMetrics.columnWidth)
+
                 Group {
                     if let selectedSection {
                         detailView(for: selectedSection)
@@ -57,19 +43,14 @@ struct VoicePenMainWindow: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .navigationTitle(selectedSection?.title ?? "VoicePen")
             }
         }
         .environment(\.voicePenTheme, theme)
-        .background(theme.background)
         .tint(theme.blue)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             MeetingRecordingPanel(controller: controller)
         }
         .background {
-            MainWindowCloseLifecycleBridge()
-                .frame(width: 0, height: 0)
-
             SidebarNavigationShortcutMonitor(selectSection: { section in
                 selectedSection = section
             })
@@ -84,100 +65,7 @@ struct VoicePenMainWindow: View {
         .onChange(of: controller.mainWindowNavigationRequest) { _, request in
             applyNavigationRequest(request)
         }
-        .onChange(of: columnVisibility) { _, visibility in
-            if visibility != .all {
-                columnVisibility = .all
-            }
-        }
         .frame(minWidth: 920, minHeight: 560)
-    }
-
-    private struct MainWindowCloseLifecycleBridge: NSViewRepresentable {
-        func makeNSView(context: Context) -> NSView {
-            MainWindowCloseLifecycleView(coordinator: context.coordinator)
-        }
-
-        func updateNSView(_ view: NSView, context: Context) {
-            context.coordinator.bind(to: view.window)
-        }
-
-        static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
-            coordinator.detach()
-        }
-
-        func makeCoordinator() -> Coordinator {
-            Coordinator()
-        }
-
-        final class MainWindowCloseLifecycleView: NSView {
-            private let coordinator: Coordinator
-
-            init(coordinator: Coordinator) {
-                self.coordinator = coordinator
-                super.init(frame: .zero)
-            }
-
-            @available(*, unavailable)
-            required init?(coder: NSCoder) {
-                nil
-            }
-
-            override func viewDidMoveToWindow() {
-                super.viewDidMoveToWindow()
-                coordinator.bind(to: window)
-            }
-        }
-
-        final class Coordinator {
-            private weak var observedWindow: NSWindow?
-            private var closeObserver: NSObjectProtocol?
-
-            func bind(to window: NSWindow?) {
-                guard let window else {
-                    return
-                }
-
-                configureNativeSidebarChrome(window)
-
-                guard observedWindow !== window else {
-                    return
-                }
-
-                removeObservers()
-
-                observedWindow = window
-                closeObserver = NotificationCenter.default.addObserver(
-                    forName: NSWindow.willCloseNotification,
-                    object: window,
-                    queue: .main
-                ) { _ in
-                    DispatchQueue.main.async {
-                        NSApplication.shared.setActivationPolicy(.accessory)
-                    }
-                }
-            }
-
-            private func configureNativeSidebarChrome(_ window: NSWindow) {
-                window.titleVisibility = .hidden
-                window.titlebarAppearsTransparent = true
-                window.styleMask.insert(.fullSizeContentView)
-                window.toolbarStyle = .unifiedCompact
-                window.titlebarSeparatorStyle = .none
-                window.isMovableByWindowBackground = true
-            }
-
-            func detach() {
-                removeObservers()
-                observedWindow = nil
-            }
-
-            private func removeObservers() {
-                if let closeObserver {
-                    NotificationCenter.default.removeObserver(closeObserver)
-                    self.closeObserver = nil
-                }
-            }
-        }
     }
 
     private func applyNavigationRequest(_ request: MainWindowNavigationRequest?) {
@@ -185,12 +73,12 @@ struct VoicePenMainWindow: View {
         selectedSection = .meetings
     }
 
-    private func systemImage(for section: VoicePenSettingsSection) -> String {
-        guard section == .meetings, controller.appState.showsMeetingRecordingPanel else {
-            return section.systemImage
-        }
-
-        return controller.menuBarSystemImage
+    private func sidebarSystemImage(for section: VoicePenSettingsSection) -> String {
+        MainWindowSidebarNavigation.systemImage(
+            for: section,
+            showsMeetingRecordingPanel: controller.appState.showsMeetingRecordingPanel,
+            meetingRecordingSystemImage: controller.menuBarSystemImage
+        )
     }
 
     @ViewBuilder
@@ -271,15 +159,6 @@ private struct SidebarNavigationShortcutMonitor: NSViewRepresentable {
     }
 
     final class Coordinator {
-        private static let sectionByKeyCode: [UInt16: VoicePenSettingsSection] = [
-            18: .general,
-            19: .meetings,
-            20: .history,
-            83: .general,
-            84: .meetings,
-            85: .history
-        ]
-
         var selectSection: (VoicePenSettingsSection) -> Void
         private weak var view: NSView?
         private var monitor: Any?
@@ -310,7 +189,7 @@ private struct SidebarNavigationShortcutMonitor: NSViewRepresentable {
         private func handle(_ event: NSEvent) -> NSEvent? {
             guard
                 Self.isCommandOnlyShortcut(event),
-                let section = Self.sectionByKeyCode[event.keyCode],
+                let section = MainWindowSidebarNavigation.sectionForKeyboardShortcut(keyCode: event.keyCode),
                 let window = view?.window,
                 window.isKeyWindow
             else {
@@ -333,45 +212,72 @@ private struct SidebarNavigationShortcutMonitor: NSViewRepresentable {
     }
 }
 
-private struct VoicePenIconSidebar: View {
+private struct VoicePenGlassSidebar: View {
     @Environment(\.voicePenTheme) private var theme
     @Binding var selectedSection: VoicePenSettingsSection?
     @State private var hoveredSection: VoicePenSettingsSection?
 
-    private let verticalPadding: CGFloat = 10
-
-    let primarySections: [VoicePenSettingsSection]
-    let settingsSections: [VoicePenSettingsSection]
-    let bottomSections: [VoicePenSettingsSection]
+    let sectionGroups: MainWindowSidebarSectionGroups
     let systemImage: (VoicePenSettingsSection) -> String
+
+    private var islandShape: RoundedRectangle {
+        RoundedRectangle(
+            cornerRadius: MainWindowGlassSidebarMetrics.cornerRadius,
+            style: .continuous
+        )
+    }
 
     var body: some View {
         GeometryReader { proxy in
-            VStack(spacing: 0) {
-                VStack(spacing: 6) {
-                    sidebarButtons(primarySections)
+            ZStack(alignment: .topLeading) {
+                glassBackground
+                    .allowsHitTesting(false)
 
-                    sidebarButtons(settingsSections)
+                VStack(spacing: 0) {
+                    VStack(spacing: MainWindowGlassSidebarMetrics.iconSpacing) {
+                        sidebarButtons(sectionGroups.primary)
+                        sidebarButtons(sectionGroups.settings)
+                    }
+                    .padding(.top, MainWindowGlassSidebarMetrics.topPadding(for: proxy.safeAreaInsets.top))
+
+                    Spacer(minLength: 0)
+
+                    VStack(spacing: MainWindowGlassSidebarMetrics.iconSpacing) {
+                        sidebarDivider
+                        sidebarButtons(sectionGroups.bottom)
+                    }
+                    .padding(.bottom, MainWindowGlassSidebarMetrics.verticalPadding)
                 }
-                .padding(.top, topPadding(for: proxy.safeAreaInsets.top))
-
-                Spacer(minLength: 0)
-
-                VStack(spacing: 6) {
-                    sidebarDivider
-
-                    sidebarButtons(bottomSections)
-                }
-                .padding(.bottom, verticalPadding)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, MainWindowGlassSidebarMetrics.horizontalPadding)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.horizontal, 10)
+            .clipShape(islandShape)
+            .overlay {
+                islandShape
+                    .stroke(theme.border, lineWidth: 1)
+            }
+            .shadow(color: theme.cardShadow, radius: 10, x: 0, y: 4)
+            .padding(.leading, MainWindowGlassSidebarMetrics.islandLeadingInset)
+            .padding(.top, MainWindowGlassSidebarMetrics.islandTopInset)
+            .padding(.bottom, MainWindowGlassSidebarMetrics.islandBottomInset)
+            .padding(.trailing, MainWindowGlassSidebarMetrics.islandTrailingGap)
         }
-        .background(theme.heroBackground)
+        .frame(maxHeight: .infinity)
+        .ignoresSafeArea(edges: .top)
     }
 
-    private func topPadding(for safeAreaTopInset: CGFloat) -> CGFloat {
-        max(verticalPadding, safeAreaTopInset + verticalPadding)
+    private var glassBackground: some View {
+        ZStack {
+            MainWindowGlassSidebarBackground(
+                material: MainWindowGlassSidebarMetrics.material,
+                cornerRadius: MainWindowGlassSidebarMetrics.cornerRadius
+            )
+
+            theme.heroBackground
+                .opacity(theme.isDark ? 0.42 : 0.28)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var sidebarDivider: some View {

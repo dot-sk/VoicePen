@@ -1,60 +1,63 @@
 import AppKit
 import Combine
 import Foundation
-import SwiftUI
 
 @main
-struct VoicePenApp: App {
-    @NSApplicationDelegateAdaptor(VoicePenAppDelegate.self) private var appDelegate
+@MainActor
+final class VoicePenAppDelegate: NSObject, NSApplicationDelegate {
+    static func main() {
+        let app = NSApplication.shared
+        let delegate = VoicePenAppDelegate()
+        app.delegate = delegate
+        app.run()
+    }
+
     private let controller: AppController
     private let statusItemController: VoicePenStatusItemController
-    @StateObject private var softwareUpdateController: SoftwareUpdateController
-    @Environment(\.openWindow) private var openWindow
+    private let softwareUpdateController: SoftwareUpdateController
+    private let mainWindowController: MainWindowController
 
-    init() {
+    override init() {
         let controller = AppController.live()
-        let statusItemController = VoicePenStatusItemController(controller: controller)
         self.controller = controller
-        self.statusItemController = statusItemController
-        _softwareUpdateController = StateObject(wrappedValue: SoftwareUpdateController())
-        appDelegate.installStatusItemWhenReady {
-            statusItemController.installStatusItemIfNeeded()
-        }
+        statusItemController = VoicePenStatusItemController(controller: controller)
+        softwareUpdateController = SoftwareUpdateController()
+        mainWindowController = MainWindowController(controller: controller)
+
+        super.init()
 
         if !Self.isRunningTests {
             controller.start()
         }
     }
 
-    var body: some Scene {
-        Window("VoicePen", id: "voicepen-main") {
-            VoicePenMainWindow(controller: controller)
-                .onAppear {
-                    configureStatusItemActions()
-                    configureMeetingRecordingReminderClickAction()
-                }
-        }
-        .windowResizability(.contentMinSize)
-        .windowToolbarStyle(.unifiedCompact(showsTitle: false))
-        .defaultLaunchBehavior(.presented)
-        .commands {
-            CommandGroup(replacing: .appSettings) {
-                Button("Open Config File") {
-                    controller.openUserConfigFile()
-                }
-                .keyboardShortcut(",", modifiers: [.command])
-            }
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        configureStatusItemActions()
+        configureMeetingRecordingReminderClickAction()
 
-            CommandGroup(after: .appInfo) {
-                Button("Open VoicePen Window") {
-                    openVoicePenWindow()
-                }
-
-                Button("Check for Updates...") {
-                    softwareUpdateController.checkForUpdates()
-                }
+        MainAppMenu.install(
+            controller: controller,
+            openMainWindow: { [weak self] in
+                self?.openVoicePenWindow()
+            },
+            checkForUpdates: { [weak self] in
+                self?.softwareUpdateController.checkForUpdates()
             }
+        )
+
+        statusItemController.installStatusItemIfNeeded()
+        mainWindowController.show()
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows hasVisibleWindows: Bool) -> Bool {
+        if !hasVisibleWindows {
+            openVoicePenWindow()
         }
+        return true
     }
 
     private static var isRunningTests: Bool {
@@ -63,45 +66,24 @@ struct VoicePenApp: App {
 
     private func configureStatusItemActions() {
         statusItemController.setActions(
-            openMainWindow: { openVoicePenWindow() },
-            checkForUpdates: { softwareUpdateController.checkForUpdates() }
+            openMainWindow: { [weak self] in
+                self?.openVoicePenWindow()
+            },
+            checkForUpdates: { [weak self] in
+                self?.softwareUpdateController.checkForUpdates()
+            }
         )
     }
 
     private func configureMeetingRecordingReminderClickAction() {
-        controller.setMeetingRecordingReminderClickAction { [weak controller] in
-            controller?.requestMainWindowNavigation(.meetings)
-            openVoicePenWindow()
+        controller.setMeetingRecordingReminderClickAction { [weak self] in
+            self?.controller.requestMainWindowNavigation(.meetings)
+            self?.openVoicePenWindow()
         }
     }
 
     private func openVoicePenWindow() {
-        NSApplication.shared.setActivationPolicy(.regular)
-        NSApplication.shared.activate(ignoringOtherApps: true)
-        openWindow(id: "voicepen-main")
-    }
-}
-
-@MainActor
-private final class VoicePenAppDelegate: NSObject, NSApplicationDelegate {
-    private var installStatusItem: (@MainActor () -> Void)?
-    private var didFinishLaunching = false
-
-    func installStatusItemWhenReady(_ install: @escaping @MainActor () -> Void) {
-        installStatusItem = install
-
-        if didFinishLaunching {
-            install()
-        }
-    }
-
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        didFinishLaunching = true
-        installStatusItem?()
-    }
-
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        false
+        mainWindowController.show()
     }
 }
 
