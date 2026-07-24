@@ -1,7 +1,7 @@
 ---
 id: SPEC-016
 status: implemented
-updated: 2026-06-15
+updated: 2026-07-24
 tests:
   - VoicePenTests/App/VoicePenAppCommandTests.swift
 ---
@@ -43,7 +43,6 @@ available again and the Dock icon should reappear.
 ## Test Mapping
 
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` checks App delegate wiring, window open/close activation policy handling, close-lifecycle bridge, and tray Open/Quit command handlers.
-- Manual: launch the packaged app and verify the status item appears after launch without crashing before the main window opens.
 
 ## Notes
 

@@ -1,7 +1,7 @@
 ---
 id: SPEC-015
 status: implemented
-updated: 2026-06-14
+updated: 2026-07-24
 tests:
   - VoicePenTests/TranscriptWorkspace/TranscriptSearchFilterTests.swift
   - VoicePenTests/TranscriptWorkspace/TranscriptEditorMetricsTests.swift
@@ -58,6 +58,7 @@ copy action.
 - When the selected entry disappears because entries or search results changed, VoicePen shall select the first visible entry or show no selection if none remain.
 - When Sessions or Meetings show the right metadata/actions sidebar rail, the user shall be able to show and hide the entire sidebar without changing the selected entry.
 - When the center text changes or the selected entry changes, the center text surface shall clear text selection.
+- When the user drags across the center text surface, VoicePen shall select the corresponding text range without moving the main window.
 - When the user copies from the center text surface with no selected text, VoicePen shall run the adopting screen's full-text copy action and show stable copied feedback.
 - When the user copies while text is selected in the center text surface, VoicePen shall copy the selected text instead of running the full-text copy action.
 - When an adopting screen enables line numbers for the center text surface, it shall show stable line numbers and remain smooth while scrolling with hundreds of lines.
@@ -79,6 +80,7 @@ copy action.
 | Selection changed | User clicks another visible row | Center text and sidebar update to that row |
 | Sidebar default | User opens Sessions or Meetings | The right sidebar starts collapsed as a narrow rail |
 | Sidebar toggle | User clicks the sidebar toggle in Sessions or Meetings | The entire right sidebar hides or shows while the selected transcript remains unchanged |
+| Drag selection | User drags across part of the center transcript | The corresponding text range is selected and the main window stays in place |
 | Copy full text | User presses Copy in the center editor with no selection | The screen-provided full-text copy action runs and shows copied feedback |
 | Copy selection | User selects part of the center text and presses Command-C | Only the selected text is copied |
 
@@ -89,7 +91,6 @@ copy action.
 - Automated: `VoicePenTests/TranscriptWorkspace/TranscriptTextUIStateTests.swift` covers stable text revisions, content fingerprints for different displayed transcripts, revision changes when displayed text changes, metric snapshots, and transcript timecode detection snapshots.
 - Automated: `VoicePenTests/TranscriptWorkspace/TranscriptDayGroupsTests.swift` covers local-day grouping and entry order preservation.
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers that Meetings and Sessions wire the shared transcript workspace while keeping their own domain actions, and that shared workspace search is shown by Command-F and hidden with a cleared query by Escape.
-- Manual: open Meetings and Sessions with multiple entries and verify both use the same three-pane layout, the right sidebar starts collapsed as a narrow rail, search reveal shortcut, Escape-to-hide behavior, independent pane scrolling when the sidebar is shown, hide/show behavior for the whole right sidebar, center text copy behavior, and smooth scrolling in a transcript with hundreds of lines. Verify Meetings shows center text line numbers and Sessions does not show a line-number gutter.
 
 ## Notes
 

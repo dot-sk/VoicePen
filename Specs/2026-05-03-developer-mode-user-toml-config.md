@@ -1,7 +1,7 @@
 ---
 id: SPEC-008
 status: implemented
-updated: 2026-05-14
+updated: 2026-07-24
 tests:
   - VoicePenTests/App/VoicePenAppCommandTests.swift
   - VoicePenTests/Settings/UserConfigStoreTests.swift
@@ -101,14 +101,6 @@ and automatic mode classifies the active app as terminal, developer, or plain.
 - Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers per-dictation config reload and history diagnostics passing through pipeline results.
 - Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers plain dictation behavior when the Modes feature flag is disabled.
 - Automated: `VoicePenTests/History/VoiceHistoryStoreTests.swift` covers persistence of diagnostic notes.
-- Manual: open Settings and verify push-to-talk hotkey and hold-duration controls appear in the Settings screen.
-- Manual: open Settings, verify the Modes overview is short, mentions configured AI provider setup for full command parsing, and leaves detailed behavior to the per-mode explanations under the Modes tab.
-- Manual: open Settings, verify the Settings screen contains a `Config file` block with the config path and status, plus Reload Config, Open Config File, and any parse diagnostics, while Modes does not show config file controls and AI is not a settings section.
-- Manual: press Reload Config in the Settings screen and verify the control briefly shows successful reload feedback without shifting neighboring controls.
-- Manual: switch between Settings sections including the Settings screen and verify the console does not log a SwiftUI warning about publishing changes from within view updates.
-- Manual: use Open Config File from the Settings screen with no existing `~/.voicepen/config.toml`, verify the default file is created and opens in the system default editor.
-- Manual: press `Command + ,` with VoicePen active and verify the same config file opens.
-- Manual: edit `~/.voicepen/config.toml`, add one custom alias and one custom terminal command, keep VoicePen running, dictate both, and verify the next dictation uses the edited config.
 
 ## Notes
 

@@ -1,7 +1,7 @@
 ---
 id: SPEC-014
 status: active
-updated: 2026-06-14
+updated: 2026-07-24
 tests:
   - VoicePenTests/App/VoicePenAppCommandTests.swift
 ---
@@ -62,7 +62,6 @@ activity bar surface inside the native split-view column.
 ## Test Mapping
 
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` checks sidebar section grouping, readable Home status placement, primary-section keyboard shortcuts, Settings permission placement, feature flags, and meeting-aware icon routing.
-- Manual: open the main window; verify the left split-view sidebar is narrow, shows only section icons, does not contain a nested rounded custom sidebar, exposes section names through hover help/accessibility, Home shows readable app status, sidebar icon hover responds immediately while Home is selected, switching icons changes detail sections, native window controls and dragging work, dark mode looks correct, and the meeting panel remains at the bottom while recording or processing.
 
 ## Notes
 

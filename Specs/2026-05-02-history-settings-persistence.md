@@ -1,7 +1,7 @@
 ---
 id: SPEC-004
 status: implemented
-updated: 2026-06-14
+updated: 2026-07-24
 tests:
   - VoicePenTests/App/VoicePenAppCommandTests.swift
   - VoicePenTests/App/AppPathsTests.swift
@@ -67,7 +67,6 @@ session-specific persistence and actions here.
 - When Home shows usage stats, it shall emphasize typing time avoided for the current Monday-Sunday week by converting recognized word count with the professional typing baseline.
 - When Home computes typing time avoided, it shall use recognized word count only and shall not subtract spoken audio duration.
 - When Home shows weekly usage stats, it shall show weekly recognized word count, countable session count, spoken audio duration, current active streak, active days this week, best typing-time-avoided day this week, and best streak.
-- When Home dashboard sections are reviewed, both Light and Dark themes shall be included as explicit manual checks.
 - When Home has no countable activity for the current week, the weekly value area and daily activity chart shall present a calm empty weekly state rather than an empty chart or an oversized zero-value headline.
 - When Home shows weekly activity, it shall include countable daily activity and hourly activity buckets for each of 7 local weekdays and 24 local hours.
 - When the user hovers a Home unified Activity cell, VoicePen shall show that cell's weekday, hour, and words without changing dashboard state.
@@ -172,18 +171,6 @@ session-specific persistence and actions here.
 - Automated: `VoicePenTests/History/VoiceHistoryStoreTests.swift` covers unlimited local history rows, batch text compression, text payload eviction, storage stats, ordering, deletion, clearing, persisted history metadata including app version, and archived audio associations.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers saving the app version used for decoding with voice history model metadata.
 - Automated: `VoicePenTests/History/VoiceTranscriptionUsageStatsTests.swift` covers activity range aggregation for 7d/30d/12m data models, including 12m daily buckets, empty ranges, tie-breakers, streak cap semantics, and recognized-word fallback behavior.
-- Manual: open Home with empty and populated history in light and dark mode; verify the readiness strip, unified Activity card, Next Milestone placement, and that no sessions list or second activity chart is shown.
-- Manual: open Settings and verify the Open at login control reflects the current macOS login item status.
-- Manual: open Settings and verify permission statuses and request/refresh actions are available.
-- Manual: open About settings and verify the App block contains status, privacy, storage, and database path.
-- Manual: open Sessions with at least two entries, click a non-selected entry, and verify the row becomes active and the detail pane changes to that entry.
-- Manual: copy a completed Sessions row from the row context menu, and verify the clipboard receives the row text.
-- Manual: secondary-click a completed Sessions row and verify Copy Text and Delete Session are available; verify keyboard or VoiceOver accessibility actions expose the same actions.
-- Manual: verify successful Sessions rows show only a green checkmark status, while empty or failed rows show a textual reason.
-- Manual: select a completed Sessions entry and verify final text is visible immediately in the center workspace while raw transcript is not shown.
-- Manual: open a Sessions entry with saved archived audio and verify Reveal in Finder appears after metadata and selects the archived audio file.
-- Manual: open Sessions with entries from several days and verify sessions are grouped by day and the current day header sticks while scrolling.
-- Manual: verify README local data paths match where a running development build creates its database.
 
 ## Notes
 

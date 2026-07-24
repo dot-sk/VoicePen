@@ -1,7 +1,7 @@
 ---
 id: SPEC-005
 status: implemented
-updated: 2026-05-06
+updated: 2026-07-24
 tests:
   - VoicePenTests/App/AppControllerTests.swift
   - VoicePenTests/Persistence/DatabaseMigratorTests.swift
@@ -107,8 +107,6 @@ VoicePen does not analyze suspicious words locally, call external AI services, a
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers stable shared copy-button feedback.
 - Automated: `VoicePenTests/Dictionary/DictionaryWordDiffTests.swift` covers unchanged text, single-word changes, multi-word changes, and punctuation-adjacent changes.
 - Automated: `VoicePenTests/Dictionary/DictionaryCSVImporterTests.swift` and `VoicePenTests/Dictionary/DictionaryStoreTests.swift` cover valid file and clipboard-compatible CSV parsing, invalid input, prose rejection, partially valid import rejection, import merge behavior, and dictionary-corruption prevention.
-- Manual: open Dictionary settings, select different terms, and verify Review with GPT remains above the dictionary editor rather than moving inside the selected term editor.
-- Manual: copy the review prompt, paste it into GPT, copy a CSV-only response or save it as a file, import it, verify the impact preview highlights changed words, confirm import, and verify new dictionary entries appear in VoicePen.
 
 ## Notes
 

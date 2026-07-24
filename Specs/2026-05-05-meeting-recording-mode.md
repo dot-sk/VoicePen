@@ -1,11 +1,18 @@
 ---
 id: SPEC-011
 status: active
-updated: 2026-06-13
+updated: 2026-07-24
 tests:
   - VoicePenTests/Meetings/MeetingRecordingStoreTests.swift
   - VoicePenTests/Meetings/MeetingRecordingStateTests.swift
   - VoicePenTests/Meetings/MeetingPipelineTests.swift
+  - VoicePenTests/AudioProcessing/RNNoiseAudioDenoiserTests.swift
+  - VoicePenTests/Pipeline/DictationPipelineTests.swift
+  - VoicePenTests/Transcription/RoutingTranscriptionClientTests.swift
+  - VoicePenTests/Transcription/WhisperCppTranscriptionClientTests.swift
+  - VoicePenTests/AudioProcessing/PCMStreamConverterTests.swift
+  - VoicePenTests/Recording/ActiveChannelMonoMixerTests.swift
+  - VoicePenTests/Recording/LiveAudioRecordingClientTests.swift
   - VoicePenTests/AudioProcessing/SavedAudioArchiveTests.swift
   - VoicePenTests/AudioProcessing/SavedAudioArchiveSchedulerTests.swift
   - VoicePenTests/Meetings/MeetingHistoryEntryTests.swift
@@ -98,6 +105,11 @@ creation, or transcript editing.
 - When system output audio capture cannot start because permission is missing, VoicePen shall identify system audio permission as missing.
 - When microphone permission is available and system output audio capture starts, VoicePen shall start one meeting session that captures microphone and system audio.
 - Meeting Mode shall not request Apple system voice processing for microphone or system audio capture.
+- Raw Meeting microphone capture shall preserve the selected active input-channel sample level through mono conversion and shall not apply software gain or automatic gain control.
+- When consecutive native-rate system output buffers are converted to Meeting storage audio, VoicePen shall preserve resampler state across buffers so readable audio duration tracks the captured source frames without per-buffer timing loss or conversion-boundary discontinuities.
+- Meeting microphone and system-audio callbacks shall preserve buffer order while conversion, active-channel selection, metering, and asynchronous file writes run on the serial callback path for that source.
+- When Meeting capture stops normally, VoicePen shall stop the underlying Core Audio source, wait for callback work already submitted to that source queue, and dispose the file writer only after the callback queue is drained so the final accepted buffer is flushed.
+- Meeting audio write or writer-close failures shall mark the affected source as failed, log the failure by source, and remove empty or invalid output files.
 - During Meeting recording, VoicePen shall not change, mute, duck, restore, or call CoreAudio output-volume or output-mute APIs for the user's speaker or other output device.
 - Push-to-talk may run while meeting capture is recording or processing and shall not pause, stop, or restart meeting capture.
 - While meeting capture is recording or processing, push-to-talk shall not run its own default-input gain boost and shall not restore output-related gain levels.
@@ -173,6 +185,13 @@ creation, or transcript editing.
 - Meeting transcript timecodes shall be controlled by a persistent Settings screen setting that is enabled by default.
 - When Meeting transcript timecodes are enabled, meeting transcripts shall include meeting-relative timecodes for each transcribed segment returned by local transcription; chunks without returned segments shall not receive synthetic timecodes.
 - When Meeting transcript timecodes are enabled, VoicePen shall request fine-grained timestamp decoding from local models and shall trim leading or trailing inactive source-audio time from displayed segment intervals when source activity is available.
+- VoicePen shall apply bundled RNNoise suppression only to the microphone source before it is mixed with system audio for Meeting processing and saved Meeting chunks.
+- Meeting microphone noise suppression shall preserve the microphone timeline and speech samples, shall not use Voice Activity Detection to remove unclassified microphone intervals, and shall not alter system audio, raw captured microphone files, or retained recovery audio.
+- When Meeting microphone RNNoise suppression fails, VoicePen shall continue Meeting processing with the original microphone samples and log a diagnostic note.
+- When a compatible local Voice Activity Detection model is available, Meeting transcription shall use it to exclude non-speech audio from Whisper decoding while preserving segment timestamps on the original meeting timeline.
+- Meeting Voice Activity Detection shall apply only to Meeting source processing and transcription and shall not change push-to-talk capture or decoding behavior.
+- When the bundled Voice Activity Detection model is unavailable, VoicePen shall run one ordinary Meeting decode without Voice Activity Detection.
+- When Meeting decoding with Voice Activity Detection returns a failure status, VoicePen shall retry that chunk exactly once without Voice Activity Detection and continue Meeting processing when the fallback succeeds; a failed fallback remains a transcription error.
 - Meeting diarization shall be controlled by a persistent Settings screen setting in the Meeting features section.
 - Meeting diarization settings help shall describe experimental speaker labels from a separate local diarization model.
 - When Meeting diarization is enabled and the local diarization model is installed, VoicePen shall warm the diarization model automatically at app start, after enabling the setting, and after a successful diarization model download.
@@ -248,6 +267,12 @@ creation, or transcript editing.
 | First meeting | User chooses Start Meeting Recording | Consent reminder appears before recording starts |
 | Missing microphone | Microphone permission is denied | Recording does not start and microphone is identified as missing |
 | Missing system audio | System output audio capture is denied | Recording does not start and system audio is identified as missing |
+| Noisy Meeting microphone | The microphone contains steady background noise while the user or system speakers talk | VoicePen keeps raw microphone recovery audio unchanged, applies RNNoise before the derived Meeting chunk is mixed, preserves local speech, and leaves system audio unchanged |
+| Microphone denoising failure | RNNoise model loading or processing fails | VoicePen uses the original microphone samples and continues Meeting processing |
+| Consecutive system buffers | The system tap delivers a long sequence of native-rate buffers | The 16 kHz Meeting track preserves continuous timing instead of losing resampler latency at every buffer boundary |
+| Consecutive capture callbacks | Meeting callbacks deliver microphone and system buffers normally | Each source preserves buffer order through its stateful conversion and asynchronous writer path |
+| Immediate stop | Stop follows the final capture callback immediately | VoicePen drains submitted callback work and disposes the writer only after the final buffer is flushed |
+| Audio writer failure | A source write or close fails | The source is marked failed, the failure is logged for that source, and invalid output is removed |
 | Hung capture start | Audio capture does not finish starting | VoicePen exits recording state and shows a capture timeout error |
 | Canceled capture start | One audio source starts and another source does not finish starting before cancellation | Started sources are stopped before VoicePen exits recording state |
 | Cancel meeting | User cancels an active recording | Temporary audio is deleted and no meeting row is saved |
@@ -305,7 +330,12 @@ creation, or transcript editing.
 ## Test Mapping
 
 - Automated: `VoicePenTests/Meetings/MeetingRecordingStateTests.swift` covers start, stop, cancel, composite microphone/system-audio source recording, active wall-clock duration, cleanup after canceled start, and partial source failure with fakes.
-- Automated: `VoicePenTests/Meetings/MeetingRecordingStateTests.swift` covers the meeting audio sink writing 16 kHz mono 16-bit PCM files.
+- Automated: `VoicePenTests/Meetings/MeetingRecordingStateTests.swift` covers asynchronous Meeting sink writes to 16 kHz mono 16-bit PCM, ordered multi-buffer waveform continuity, immediate-finish tail flushing, cancellation cleanup, and injected write/close failures.
+- Automated: `VoicePenTests/AudioProcessing/PCMStreamConverterTests.swift` covers equivalent one-shot and streamed conversion, converter requests spanning a large input buffer, and active-channel preservation.
+- Automated: `VoicePenTests/Recording/CoreAudioMicrophoneCaptureTests.swift` covers stop waiting for callback work already submitted to the microphone callback queue.
+- Automated: `VoicePenTests/Recording/ActiveChannelMonoMixerTests.swift` covers preserving mono sample levels and the selected active channel while producing the Meeting microphone output format.
+- Automated: `VoicePenTests/AudioProcessing/RNNoiseAudioDenoiserTests.swift` covers RNNoise frame processing, sample-rate conversion, duration preservation, tail handling, and bundled model loading.
+- Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers denoising microphone samples before source mixing, leaving system audio unchanged, processing microphone-only chunks, and preserving original samples when denoising fails.
 - Automated: `VoicePenTests/Meetings/MeetingRecordingStateTests.swift` covers Meeting system audio tap planning, older-macOS process-object app filtering, and preflight fallback.
 - Automated: `VoicePenTests/Meetings/MeetingRecordingStoreTests.swift` covers scheduling, canceling, and firing the one-time recording limit reminder.
 - Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers local transcription flow, chunk ordering, overlapping source merging before transcription, 16-bit PCM merged chunk output, optional meeting timecodes, separate diarization speaker labels, whole-pipeline processing progress, app version metadata, active wall-clock duration, processing recovery audio beyond the live recording limit, silent source chunks, all-silent discard, known subtitle/outro artifact cleanup, chunk timeout partial salvage, manual processing cancellation, completed and failed recovery audio retention and retry, temporary audio cleanup, and no automatic insertion.
@@ -315,6 +345,9 @@ creation, or transcript editing.
 - Automated: `VoicePenTests/AudioProcessing/SavedAudioArchiveSchedulerTests.swift` covers asynchronous saved-audio scheduling, request forwarding, owner correlation, non-fatal archive failures, completion callbacks, and serialized copy/pruning work.
 - Automated: `VoicePenTests/App/AppPathsTests.swift` covers stale VoicePen-owned `.wav` and `.caf` temporary audio cleanup while preserving recent and unrelated files.
 - Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers removing repeated short trailing Meeting transcription hallucinations.
+- Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers requesting Voice Activity Detection for Meeting chunks.
+- Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` and `VoicePenTests/Transcription/RoutingTranscriptionClientTests.swift` cover keeping ordinary push-to-talk decoding outside Voice Activity Detection while forwarding explicit Meeting requests.
+- Automated: `VoicePenTests/Transcription/WhisperCppTranscriptionClientTests.swift` covers Meeting Voice Activity Detection option resolution, bundled local model availability, one ordinary decode when the model is missing, and exactly one fallback decode after a failed VAD attempt.
 - Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers ASR-first diarization sequencing, missing timestamp fallback without speaker labels, short-recording diarization with usable ASR timestamps, speaker turn postprocessing, word overlap speaker merge, segment midpoint fallback, uncovered-gap behavior, diarization failure fallback, saving detected speaker count, and transcript formatting after diarization completion.
 - Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers saving diarization elapsed time in meeting pipeline timings.
 - Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers retry diarization behavior with recovery metadata only when available from recovered audio flow.
@@ -335,25 +368,16 @@ creation, or transcript editing.
 - Automated: `VoicePenTests/Persistence/DatabaseMigratorTests.swift` covers `meeting_history` creation and migration from old databases.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers consent gating, permission gating, meeting state, Meeting system audio source settings updates, selected-app fallback, meeting processing state, live recording limit auto-stop, silent recording discard prompt/no-history behavior, meeting timeout recovery, manual meeting processing cancellation, and no conflict with dictation history.
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers menu and sidebar meeting commands, header recording controls, shared transcript workspace wiring, main-window Command-R recording shortcut wiring, right sidebar metadata/actions content, empty search UI, allowed actions, absence of out-of-stage playback/waveform/audio-player/export/speaker-profile/voice-profile/editing actions, meeting processing UI, phase-aware meeting progress rendering, persistent processing cancellation, Settings screen placement for Meeting features, Meeting system audio source settings controls, live Meeting microphone capture wiring without system voice processing, stable shared copy-button feedback behavior, meeting status icons in navigation surfaces, recording limit display, and recording pulses in the menu bar, Meetings header, and persistent status panel.
-- Manual: Meetings desktop UI review covers the three-pane visual layout, independent pane scrolling, compact search field, right sidebar compactness, bottom Delete recording placement, transcript editor Copy action, line numbers, bounded line-number separator, read-only transcript selection/copying, and clearing transcript selection when switching focused meeting rows.
-- Manual: open a Meeting detail with saved archived audio and verify Reveal in Finder appears after metadata, selects the archived file or files, and does not appear for recovery-audio-only meetings.
 - Automated: `VoicePenTests/Settings/AppSettingsStoreTests.swift` covers Meeting system audio source defaults, persistence, invalid mode fallback, and invalid selected-app filtering.
-- Manual: switch the Settings screen Meeting system audio source between all system audio and filtered modes; verify selected-app controls hide and show without SwiftUI publishing warnings, then use the add-apps control, select multiple macOS `.app` bundles, and verify they appear with bundle identifiers.
-- Manual: record real meeting audio with microphone plus Zoom, Meet, or browser audio and verify both sides appear in the transcript.
-- Manual: finish a new meeting while the Meetings screen is open and verify the new history row text appears without scrolling.
-- Manual: open Meetings on desktop and verify the left searchable date-grouped list, center read-only transcript workspace, and right metadata/actions sidebar scroll independently.
-- Manual: open Meetings with entries from several days and verify meetings are grouped by day and the current day header sticks while the list scrolls.
-- Manual: deny System Audio access and verify the recovery path.
-- Manual: start a meeting recording while playing meeting audio through speakers or headphones and verify the audible output level does not drop when recording starts or restore when recording stops.
-- Manual: stop, cancel, fail, retry, and expire a recording and verify temporary audio and recovery audio follow the documented cleanup behavior.
-- Manual: run the HAL input probe on the current default input device and confirm two concurrent AUHAL input opens are possible; document that this allows V1 to omit the previous manual double-capture gate.
 
 ## Notes
 
 Meeting Mode v1 uses separate audio-only sources for microphone input and system
 output audio. VoicePen does not use ScreenCaptureKit or persist screen/video
 frames for Meeting Mode. OpenRouter and hosted LLM providers are outside this v1
-flow.
+flow. Meeting capture relies on each Core Audio source's serial callback queue
+and the internal asynchronous ring used by `ExtAudioFileWriteAsync`; it does not
+add a second application-owned realtime buffer queue.
 
 ## Open Questions
 
