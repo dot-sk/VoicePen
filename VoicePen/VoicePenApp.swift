@@ -53,7 +53,7 @@ final class VoicePenAppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
-    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows hasVisibleWindows: Bool) -> Bool {
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         if !hasVisibleWindows {
             openVoicePenWindow()
         }
