@@ -432,7 +432,7 @@ opus_val16 rnn_remove_doubling(opus_val16 *x, int maxperiod, int minperiod,
    int offset;
    int minperiod0;
    opus_val32 yy_lookup[PITCH_MAX_PERIOD+1];
-   
+
    celt_assert(maxperiod <= PITCH_MAX_PERIOD);
 
    minperiod0 = minperiod;

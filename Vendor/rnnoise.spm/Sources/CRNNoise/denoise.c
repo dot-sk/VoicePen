@@ -52,7 +52,7 @@
 
 
 /* ERB bandwidths going in reverse from 20 kHz and then replacing the 700 and 800
-   with just 750 because having 32 bands is convenient for the DNN. 
+   with just 750 because having 32 bands is convenient for the DNN.
    B(1)=400;
    for k=2:35
      B(k) = B(k-1) - max(2, round(24.7*(4.37*B(k-1)/20+1)/50));
@@ -111,7 +111,6 @@ static void compute_band_energy(float *bandE, const kiss_fft_cpx *X) {
     bandE[i] = sum[i+1];
   }
 }
-
 static void compute_band_corr(float *bandE, const kiss_fft_cpx *X, const kiss_fft_cpx *P) {
   int i;
   float sum[NB_BANDS+2] = {0};
@@ -498,4 +497,3 @@ float rnnoise_process_frame(DenoiseState *st, float *out, const float *in) {
   RNN_COPY(st->delayed_Exp, Exp, NB_BANDS);
   return vad_prob;
 }
-
