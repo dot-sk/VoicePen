@@ -31,6 +31,7 @@ VoicePen.sqlite
 Models/
 *.bin
 !VoicePen/Resources/ggml-silero-v6.2.0.bin
+!VoicePen/Resources/rnnoise-model-v0.2.bin
 *.mlmodelc/
 *.gguf
 *.safetensors
