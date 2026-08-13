@@ -27,8 +27,7 @@ Describe the current broken behavior and the expected fixed behavior.
 
 ## Test Mapping
 
-- Automated: name the regression test that fails before the fix and passes after it.
-- Manual: name any required manual verification that cannot be automated reasonably.
+- Automated: name the existing or planned regression test that fails before the fix and passes after it.
 
 ## Notes
 

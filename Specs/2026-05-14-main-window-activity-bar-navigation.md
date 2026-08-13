@@ -1,7 +1,7 @@
 ---
 id: SPEC-014
 status: implemented
-updated: 2026-06-16
+updated: 2026-07-24
 tests:
   - VoicePenTests/App/MainWindowSidebarNavigationTests.swift
   - VoicePenTests/App/MainWindowTrafficLightLayoutTests.swift
@@ -60,7 +60,6 @@ Selecting an icon changes the detail content to that section. VoicePen opens wit
 - Automated: `VoicePenTests/App/MainWindowSidebarNavigationTests.swift` checks sidebar section grouping, meeting-aware icon routing, and primary-section keyboard shortcut mapping.
 - Automated: `VoicePenTests/App/MainWindowTrafficLightLayoutTests.swift` checks traffic-light inset layout math.
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` checks status menu command placement.
-- Manual: open the main window; verify the left floating glass sidebar island is narrow, shows only section icons, has inset margins and rounded corners, keeps native traffic lights visible and clickable inside the island chrome, does not contain a nested duplicate sidebar, exposes section names through hover help/accessibility, Home shows readable app status, sidebar icon hover responds immediately while Home is selected, switching icons changes detail sections, native window controls and dragging work, dark mode looks correct, and the meeting panel remains at the bottom while recording or processing.
 
 ## Notes
 

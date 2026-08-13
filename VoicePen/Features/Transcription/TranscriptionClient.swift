@@ -42,22 +42,32 @@ nonisolated struct TranscriptionClientResult: Equatable, Sendable {
     }
 }
 
-protocol TranscriptionClient: AnyObject {
-    func transcribe(
+nonisolated struct TranscriptionOptions: OptionSet, Equatable, Sendable {
+    let rawValue: UInt8
+
+    static let timestamps = Self(rawValue: 1 << 0)
+    static let voiceActivityDetection = Self(rawValue: 1 << 1)
+}
+
+nonisolated struct TranscriptionRequest: Equatable, Sendable {
+    let audioURL: URL
+    let glossaryPrompt: String
+    let language: String
+    let options: TranscriptionOptions
+
+    init(
         audioURL: URL,
         glossaryPrompt: String,
         language: String,
-        includeTimestamps: Bool
-    ) async throws -> TranscriptionClientResult
+        options: TranscriptionOptions = []
+    ) {
+        self.audioURL = audioURL
+        self.glossaryPrompt = glossaryPrompt
+        self.language = language
+        self.options = options
+    }
 }
 
-extension TranscriptionClient {
-    func transcribe(audioURL: URL, glossaryPrompt: String, language: String) async throws -> TranscriptionClientResult {
-        try await transcribe(
-            audioURL: audioURL,
-            glossaryPrompt: glossaryPrompt,
-            language: language,
-            includeTimestamps: false
-        )
-    }
+protocol TranscriptionClient: AnyObject {
+    func transcribe(_ request: TranscriptionRequest) async throws -> TranscriptionClientResult
 }

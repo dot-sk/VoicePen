@@ -44,7 +44,6 @@ final class DictationPipeline {
     private let inputGainController: DefaultInputGainControlling
     private let savedAudioScheduler: SavedAudioArchiveScheduling
     private let languageProvider: () -> String
-    private let speechPreprocessingModeProvider: () -> SpeechPreprocessingMode
     private let boostDictationInputGainProvider: () -> Bool
     private var shouldEnableDictationInputGainProvider: () -> Bool
     private let saveDictationAudioEnabledProvider: () -> Bool
@@ -68,7 +67,6 @@ final class DictationPipeline {
         inputGainController: DefaultInputGainControlling = NoOpDefaultInputGainController(),
         savedAudioScheduler: SavedAudioArchiveScheduling = NoOpSavedAudioArchiveScheduler(),
         languageProvider: @escaping () -> String = { VoicePenConfig.defaultLanguage },
-        speechPreprocessingModeProvider: @escaping () -> SpeechPreprocessingMode = { .off },
         boostDictationInputGainProvider: @escaping () -> Bool = { false },
         saveDictationAudioEnabledProvider: @escaping () -> Bool = { false },
         savedAudioStorageLimitGBProvider: @escaping () -> Int = { VoicePenConfig.defaultSavedAudioStorageLimitGB },
@@ -89,7 +87,6 @@ final class DictationPipeline {
         self.inputGainController = inputGainController
         self.savedAudioScheduler = savedAudioScheduler
         self.languageProvider = languageProvider
-        self.speechPreprocessingModeProvider = speechPreprocessingModeProvider
         self.boostDictationInputGainProvider = boostDictationInputGainProvider
         self.shouldEnableDictationInputGainProvider = { true }
         self.saveDictationAudioEnabledProvider = saveDictationAudioEnabledProvider
@@ -160,10 +157,7 @@ final class DictationPipeline {
         let transcriptionAudioURL: URL
         do {
             let measured = try await measure {
-                try await audioPreprocessor.preprocess(
-                    audioURL: recording.url,
-                    mode: speechPreprocessingModeProvider()
-                )
+                try await audioPreprocessor.preprocess(audioURL: recording.url)
             }
             transcriptionAudioURL = measured.value
             timings.preprocessing = measured.elapsed
@@ -190,9 +184,11 @@ final class DictationPipeline {
         do {
             let measured = try await measure {
                 try await transcriber.transcribe(
-                    audioURL: transcriptionAudioURL,
-                    glossaryPrompt: glossary,
-                    language: language
+                    TranscriptionRequest(
+                        audioURL: transcriptionAudioURL,
+                        glossaryPrompt: glossary,
+                        language: language
+                    )
                 )
             }
             transcriptionResult = measured.value

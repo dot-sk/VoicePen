@@ -1,7 +1,7 @@
 ---
 id: SPEC-016
 status: implemented
-updated: 2026-06-16
+updated: 2026-07-24
 tests:
   - VoicePenTests/App/VoicePenAppCommandTests.swift
   - VoicePenTests/App/MainWindowTrafficLightLayoutTests.swift
@@ -49,7 +49,6 @@ The main window is owned by `MainWindowController` as an AppKit `GlassMainWindow
 
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` checks tray Open/Quit command handlers.
 - Automated: `VoicePenTests/App/MainWindowTrafficLightLayoutTests.swift` checks traffic-light inset layout math used by the AppKit main window.
-- Manual: launch the packaged app and verify the status item appears after launch without crashing before the main window opens; verify close hides the Dock icon, tray reopen restores it, and Dock reopen opens the main window.
 
 ## Notes
 

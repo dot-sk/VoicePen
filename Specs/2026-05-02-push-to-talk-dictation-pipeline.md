@@ -1,12 +1,13 @@
 ---
 id: SPEC-001
 status: implemented
-updated: 2026-06-12
+updated: 2026-07-24
 tests:
   - VoicePenTests/Hotkey/HotkeyPreferenceTests.swift
   - VoicePenTests/Insertion/TextInsertionClientTests.swift
   - VoicePenTests/AudioProcessing/SavedAudioArchiveTests.swift
   - VoicePenTests/AudioProcessing/SavedAudioArchiveSchedulerTests.swift
+  - VoicePenTests/AudioProcessing/RNNoiseAudioDenoiserTests.swift
   - VoicePenTests/Pipeline/DictationPipelineTests.swift
   - VoicePenTests/Recording/LiveRecordingMeterTests.swift
   - VoicePenTests/Recording/VoiceBandAnalyzerTests.swift
@@ -43,6 +44,11 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 - When speech or sung vowels remain present, including sustained flat A/O-like tones, the microphone level bar shall keep a stable visible height instead of decaying toward zero due to lack of spectral novelty; when input becomes silent, the bar shall release down.
 - When recording duration is below the minimum, VoicePen shall stop without transcription or insertion.
 - When recording duration is below the minimum, VoicePen shall not save a local audio recording even if saved dictation recordings are enabled.
+- When a push-to-talk recording meets the minimum duration, VoicePen shall apply bundled RNNoise suppression to the recorded microphone audio before silence trimming, saved transcription-input audio, and local transcription.
+- Push-to-talk RNNoise suppression shall preserve the recording timeline and speech samples instead of using Voice Activity Detection to remove unclassified microphone intervals.
+- When push-to-talk RNNoise suppression cannot run, VoicePen shall continue preprocessing and transcription with the original recorded samples and log a diagnostic note.
+- When push-to-talk preprocessing successfully denoises and trims a recording, VoicePen shall preserve the original recording and create no more than one derived transcription-input file.
+- When push-to-talk preprocessing succeeds, VoicePen shall log diagnostics that distinguish audio read, RNNoise input conversion, RNNoise frame processing, RNNoise output conversion, silence analysis, and final audio write durations.
 - When saved dictation recordings are enabled and recording duration meets the minimum, VoicePen shall schedule one best-effort asynchronous audio copy for the dictation attempt to the user's saved recordings folder.
 - When audio preprocessing produces a transcription input file, VoicePen shall schedule saving that transcription input; when preprocessing reports no speech or fails before producing an input file, VoicePen shall schedule saving the original recording once.
 - When a saved dictation audio copy succeeds for a dictation that creates a history entry, VoicePen shall associate the archived audio file with that history entry.
@@ -79,6 +85,9 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 | Recording startup | Press push-to-talk while ready | Recording feedback appears immediately, before capture startup finishes |
 | Recording overlay | Active recording with changing input level | The microphone level bar changes height from collapsed-spectrum levels while staying horizontally anchored |
 | Sustained vowel meter | Hold a steady A/O-like vowel while recording | The single white microphone level bar stays visibly raised and stable while voice remains present |
+| Noisy office dictation | Push-to-talk captures speech with steady office noise | RNNoise reduces the microphone noise before silence trimming and transcription without removing speech intervals |
+| Dictation denoising failure | RNNoise model loading or processing fails | VoicePen continues with the original microphone recording |
+| Multiple preprocessing stages | Denoising is followed by silence trimming | The original recording and one final trimmed transcription input remain without a denoised intermediate file |
 | Silent recording | Valid duration with no speech | No insertion and no history recording |
 | Artifact-only transcription | Whisper returns only `Субтитры создавал DimaTorzok` | No insertion and no history recording |
 | Artifact line with useful text | Whisper returns subtitle credit, useful dictated text, and `Продолжение следует...` | Inserts and stores only the useful dictated text |
@@ -99,6 +108,7 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 - Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers async recording start/stop ordering, immediate pre-capture recording feedback, confirmed recording feedback after successful capture start, short recording skip, preprocessing, glossary/language routing for short and long valid recordings, normalization, global output cleanup, insertion, silent audio, empty transcription, error propagation, and saved dictation audio scheduling.
 - Automated: `VoicePenTests/AudioProcessing/SavedAudioArchiveTests.swift` covers byte-for-byte saved audio copies, readable filenames, extension preservation, and storage pruning.
 - Automated: `VoicePenTests/AudioProcessing/SavedAudioArchiveSchedulerTests.swift` covers asynchronous saved-audio scheduling, request forwarding, owner correlation, non-fatal archive failures, completion callbacks, and serialized copy/pruning work.
+- Automated: `VoicePenTests/AudioProcessing/RNNoiseAudioDenoiserTests.swift` covers RNNoise frame processing, sample-rate conversion, duration preservation, tail handling, bundled model loading, dictation preprocessing before transcription, fallback to original recorded samples when denoising fails, and producing at most one derived transcription-input file.
 - Automated: `VoicePenTests/Insertion/TextInsertionClientTests.swift` covers temporary pasteboard replacement and restoration of previous plain text, empty pasteboards, and multi-item or multi-type pasteboard contents.
 - Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers awaited best-effort microphone boost start and restore around dictation recordings.
 - Automated: `VoicePenTests/Recording/VoiceBandAnalyzerTests.swift` covers FFT voice-band ratio and collapsed-spectrum level calculation used by live dictation metering, including sustained vowel-like tones and non-voice high-frequency tones.
@@ -110,10 +120,6 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 - Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers DictationRuntimeState usage without `AppState.recording`/`AppState.transcribing` and validates dictation timeout error reporting when ASR concurrency with meetings is simulated.
 - Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers concurrent meeting + dictation requests sharing the same transcriber actor/client and preserving meeting state on PTT timeout/error.
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers menu bar extra command grouping, hiding unavailable menu actions, omitting idle status text, showing push-to-talk hotkey hints, refreshing the tray icon from dictation runtime-state changes, showing the custom shortcut limitation note in the Settings screen, omitting the removed hold-duration control from Settings, and labeling latest-text actions as dictation actions.
-- Manual: verify the menu bar app records while the configured hotkey is held and pastes final text into the active app when Accessibility permission is granted.
-- Manual: hold the configured push-to-talk hotkey and verify the white microphone level bar changes height without moving left or right inside the red capsule.
-- Manual: select the custom push-to-talk shortcut, record Ctrl-E, press Ctrl-E, and verify recording feedback appears immediately without restarting VoicePen.
-- Manual: run the HAL input probe on the default input device and confirm two `AUHAL` input opens are supported before release; confirm this removes the need for a manual double-capture gate.
 
 ## Notes
 

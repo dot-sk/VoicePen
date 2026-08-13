@@ -138,8 +138,7 @@ nonisolated final class CoreAudioMicrophoneMeetingAudioSource: MeetingAudioSourc
     private let audioFileIO: MeetingAudioFileIO
     private let microphoneCapture: CoreAudioMicrophoneCapturing
     private let lock = NSLock()
-    private var converter: AVAudioConverter?
-    private var captureFormat: AVAudioFormat?
+    private var converter: PCMStreamConverter?
     private var outputFormat: AVAudioFormat?
     private var currentSink: MeetingAudioBufferFileSink?
     private var currentSegmentStartOffset: TimeInterval = 0
@@ -217,7 +216,6 @@ nonisolated final class CoreAudioMicrophoneMeetingAudioSource: MeetingAudioSourc
         defer { lock.unlock() }
         isRecording = false
         converter = nil
-        captureFormat = nil
         outputFormat = nil
         let sink = currentSink
         currentSink = nil
@@ -235,10 +233,15 @@ nonisolated final class CoreAudioMicrophoneMeetingAudioSource: MeetingAudioSourc
             let captureFormat = ActiveChannelMonoMixer.makeFloatFormat(
                 sampleRate: audioFileIO.sampleRate,
                 channelCount: inputFormat.channelCount
-            ),
-            let converter = AVAudioConverter(from: inputFormat, to: captureFormat)
+            )
         else {
             throw MeetingRecordingError.captureFailed("Microphone input format is unavailable.")
+        }
+        let converter: PCMStreamConverter
+        do {
+            converter = try PCMStreamConverter(inputFormat: inputFormat, outputFormat: captureFormat)
+        } catch {
+            throw MeetingRecordingError.captureFailed("Microphone audio converter is unavailable.")
         }
 
         let outputURL = tempDirectory.appendingPathComponent("voicepen-meeting-mic-\(UUID().uuidString).wav")
@@ -251,7 +254,6 @@ nonisolated final class CoreAudioMicrophoneMeetingAudioSource: MeetingAudioSourc
 
         lock.lock()
         self.converter = converter
-        self.captureFormat = captureFormat
         self.outputFormat = outputFormat
         currentSink = sink
         currentSegmentStartOffset = offset
@@ -286,7 +288,6 @@ nonisolated final class CoreAudioMicrophoneMeetingAudioSource: MeetingAudioSourc
         }
         isRecording = false
         converter = nil
-        captureFormat = nil
         outputFormat = nil
         let recordingError = recordingError
         let currentSegmentStartOffset = currentSegmentStartOffset
@@ -316,30 +317,18 @@ nonisolated final class CoreAudioMicrophoneMeetingAudioSource: MeetingAudioSourc
         defer { lock.unlock() }
         guard isRecording else { return }
         guard let converter,
-            let captureFormat,
             let outputFormat,
-            let currentSink,
-            let captureBuffer = AVAudioPCMBuffer(
-                pcmFormat: captureFormat,
-                frameCapacity: MeetingAudioFrameCapacity.converted(
-                    inputFrames: buffer.frameLength,
-                    inputSampleRate: buffer.format.sampleRate,
-                    outputSampleRate: captureFormat.sampleRate
-                )
-            )
+            let currentSink
         else {
             recordingError = MeetingRecordingError.captureFailed("Microphone audio could not be converted.")
             sourceStatus = .failed
             return
         }
 
-        let inputProvider = MeetingAudioSingleBufferInputProvider(buffer: buffer)
-        var conversionError: NSError?
-        let status = converter.convert(to: captureBuffer, error: &conversionError) { _, inputStatus in
-            inputProvider.next(inputStatus: inputStatus)
-        }
-
-        guard conversionError == nil, status == .haveData || status == .inputRanDry else {
+        let captureBuffer: AVAudioPCMBuffer
+        do {
+            captureBuffer = try converter.convert(buffer)
+        } catch {
             recordingError = MeetingRecordingError.captureFailed("Microphone audio conversion failed.")
             sourceStatus = .failed
             return
@@ -367,7 +356,6 @@ nonisolated final class CoreAudioMicrophoneMeetingAudioSource: MeetingAudioSourc
         lock.lock()
         isRecording = false
         converter = nil
-        captureFormat = nil
         outputFormat = nil
         let sink = currentSink
         currentSink = nil
@@ -386,6 +374,7 @@ final class CoreAudioSystemOutputSource: MeetingAudioSourceClient {
     private let processResolver: MeetingSystemAudioProcessResolving
     private let audioFileIO: MeetingAudioFileIO
     private let queue = DispatchQueue(label: "voicepen.meeting.system-audio")
+    private let queueKey = DispatchSpecificKey<Void>()
     private var tap: AudioHardwareTap?
     private var aggregateDevice: AudioHardwareAggregateDevice?
     private var ioProcID: AudioDeviceIOProcID?
@@ -407,6 +396,7 @@ final class CoreAudioSystemOutputSource: MeetingAudioSourceClient {
         self.settingsProvider = settingsProvider
         self.processResolver = processResolver
         self.audioFileIO = audioFileIO
+        queue.setSpecific(key: queueKey, value: ())
     }
 
     var status: MeetingSourceHealth {
@@ -437,6 +427,7 @@ final class CoreAudioSystemOutputSource: MeetingAudioSourceClient {
 
     func cancel() async throws {
         stopCoreAudioObjects()
+        drainCallbackQueue()
         currentSink?.cancel()
         currentSink = nil
         inputHandler = nil
@@ -530,6 +521,7 @@ final class CoreAudioSystemOutputSource: MeetingAudioSourceClient {
     private func finishSegment(at offset: TimeInterval, healthAfterStop: MeetingSourceHealth) throws {
         guard let currentSink else { return }
         stopCoreAudioObjects()
+        drainCallbackQueue()
         if inputHandler?.hasFailed == true {
             sourceStatus = .failed
             currentSink.cancel()
@@ -559,6 +551,11 @@ final class CoreAudioSystemOutputSource: MeetingAudioSourceClient {
         self.ioProcID = nil
         self.aggregateDevice = nil
         self.tap = nil
+    }
+
+    private func drainCallbackQueue() {
+        guard DispatchQueue.getSpecific(key: queueKey) == nil else { return }
+        queue.sync {}
     }
 }
 

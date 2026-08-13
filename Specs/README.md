@@ -34,7 +34,7 @@ tests: []
 ---
 ```
 
-Allowed `status` values are `draft`, `active`, `implemented`, and `superseded`. Use `tests` for automated test files that verify the spec. Keep manual checks in the `Test Mapping` section.
+Allowed `status` values are `draft`, `active`, `implemented`, and `superseded`. Use `tests` for automated test files that verify the spec. `Test Mapping` is an automated test model: every item must describe existing or planned automated coverage. Do not put manual verification or QA checklists in specs.
 
 Specs should describe behavior. Put durable architecture rationale and tradeoffs in ADRs under `Docs/adr/`.
 
@@ -52,6 +52,8 @@ Before marking a spec `active`, check these points:
 - For clipboard, file, prompt, diagnostics, or debug-bundle export, require an explicit user action and make clear what user data is included before it leaves VoicePen.
 - For external-tool output contracts, specify the exact format, escaping rules, whether prose is allowed, and what VoicePen does when the output violates the contract.
 - Map tests to behavior decisions, not just files. Include default values, selected values, old data, invalid input, partial input, zero-impact cases, and cancellation when those cases exist.
+- Keep every `Test Mapping` item automated. If coverage does not exist yet, name the planned automated scenario and test layer instead of substituting a manual check.
+- Mark a spec `implemented` only when its mapped automated coverage exists; manual validation reported elsewhere does not satisfy the status.
 
 ## Validation
 

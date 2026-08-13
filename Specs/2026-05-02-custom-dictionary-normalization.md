@@ -1,7 +1,7 @@
 ---
 id: SPEC-003
 status: implemented
-updated: 2026-06-09
+updated: 2026-08-13
 tests:
   - VoicePenTests/Dictionary/DictionaryCSVImporterTests.swift
   - VoicePenTests/Dictionary/DictionaryStoreTests.swift
@@ -9,6 +9,7 @@ tests:
   - VoicePenTests/Dictionary/TermNormalizerTests.swift
   - VoicePenTests/Dictionary/DictionaryEntryFilterTests.swift
   - VoicePenTests/Pipeline/DictationPipelineTests.swift
+  - VoicePenTests/Meetings/MeetingPipelineTests.swift
 ---
 
 # Custom Dictionary Normalization
@@ -19,7 +20,7 @@ Technical dictation often produces phonetically correct but textually wrong term
 
 ## Behavior
 
-Dictionary entries contain a canonical form and variants. VoicePen imports entries from CSV, stores them locally, builds glossary prompts for dictation transcription, filters entries, and normalizes transcribed text with configured variants. CSV import requires every parsed entry to have a canonical form and at least one variant. It does not provide cloud dictionary sync, grammar rewriting, or semantic post-processing beyond configured term replacements.
+Dictionary entries contain a canonical form and variants. VoicePen imports entries from CSV, stores them locally, builds glossary prompts for dictation and Meeting transcription, filters entries, and normalizes transcribed text with configured variants. CSV import requires every parsed entry to have a canonical form and at least one variant. It does not provide cloud dictionary sync, grammar rewriting, or semantic post-processing beyond configured term replacements.
 
 ## Acceptance Criteria
 
@@ -30,7 +31,9 @@ Dictionary entries contain a canonical form and variants. VoicePen imports entri
 - When the user clicks Add in the dictionary editor, VoicePen shall open an empty editable term draft on the first click even if another term was selected.
 - When a prompt glossary is built, VoicePen shall produce deterministic, language-aware output that respects configured limits.
 - When a valid dictation recording is transcribed, VoicePen shall build and pass the glossary prompt regardless of recording duration.
+- When Meeting transcription or retry starts, VoicePen shall snapshot the current dictionary once and pass its language-aware glossary prompt to the complete-master local ASR request.
 - When transcribed text contains configured variants, VoicePen shall replace them with canonical terms while preserving unrelated text.
+- When Meeting transcription contains configured variants, VoicePen shall normalize recognized content before saving while preserving transcript timecodes and speaker labels.
 - When dictionary data is empty or invalid, VoicePen shall fail predictably without corrupting existing data.
 
 ## Examples
@@ -40,6 +43,7 @@ Dictionary entries contain a canonical form and variants. VoicePen imports entri
 | CSV variants | `TypeScript,"тайп скрипт; type script"` | One canonical entry with two variants |
 | Canonical only | `TypeScript` | Import is rejected and existing dictionary remains unchanged |
 | Normalization | `создай типы на тайп скрипт` | `создай типы на TypeScript` |
+| Meeting normalization | `[00:00:10 - 00:00:12] Speaker 1: микрофон на сидение` with configured variants | `[00:00:10 - 00:00:12] Speaker 1: микрофронт на CDN-е` |
 | User-cleared dictionary | User deletes all dictionary entries and restarts VoicePen | The dictionary remains empty instead of reseeding samples |
 | Word boundary | Variant inside a longer word | Text is not replaced inside unrelated words |
 | Glossary limit | More entries than limit | Deterministic limited glossary |
@@ -51,10 +55,8 @@ Dictionary entries contain a canonical form and variants. VoicePen imports entri
 - Automated: CSV import tests cover rejection of canonical-only or partially valid imports without dictionary corruption.
 - Automated: `VoicePenTests/Dictionary/PromptGlossaryBuilderTests.swift` covers glossary ordering, language, and limits.
 - Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers passing glossary prompts for short and long valid dictation recordings.
+- Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers passing a language-aware glossary to Meeting ASR and applying one dictionary snapshot to saved Meeting content without changing timecodes or speaker labels.
 - Automated: `VoicePenTests/Dictionary/TermNormalizerTests.swift` and `VoicePenTests/Dictionary/DictionaryEntryFilterTests.swift` cover replacement and filtering behavior.
-- Manual: with an existing dictionary term selected, click Add once and verify the editor immediately shows an empty draft instead of the previously selected term.
-- Manual: import a small CSV in the app and verify a configured spoken variant is inserted as the canonical term.
-
 ## Notes
 
 Prefer deterministic sorting and explicit limits because glossary text is part of the transcription prompt. Avoid broad fuzzy matching unless a future spec defines it.

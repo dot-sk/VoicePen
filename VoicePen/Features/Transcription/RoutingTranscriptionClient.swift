@@ -2,11 +2,8 @@ import Foundation
 
 protocol WhisperCppTranscribing: Sendable {
     func transcribe(
-        audioURL: URL,
-        model: ModelManifestModel,
-        glossaryPrompt: String,
-        language: String,
-        includeTimestamps: Bool
+        _ request: TranscriptionRequest,
+        model: ModelManifestModel
     ) async throws -> TranscriptionClientResult
 
     func warmUp(model: ModelManifestModel, language: String) async throws
@@ -26,24 +23,13 @@ final class RoutingTranscriptionClient: TranscriptionClient, ModelWarmupClient {
         self.whisperCppClient = whisperCppClient
     }
 
-    func transcribe(
-        audioURL: URL,
-        glossaryPrompt: String,
-        language: String,
-        includeTimestamps: Bool
-    ) async throws -> TranscriptionClientResult {
+    func transcribe(_ request: TranscriptionRequest) async throws -> TranscriptionClientResult {
         let model = modelProvider()
         let modelMetadata = VoiceTranscriptionModelMetadata(model: model)
 
         switch model.backendKind {
         case .whisperCpp:
-            let result = try await whisperCppClient.transcribe(
-                audioURL: audioURL,
-                model: model,
-                glossaryPrompt: glossaryPrompt,
-                language: language,
-                includeTimestamps: includeTimestamps
-            )
+            let result = try await whisperCppClient.transcribe(request, model: model)
             return TranscriptionClientResult(
                 text: result.text,
                 segments: result.segments,

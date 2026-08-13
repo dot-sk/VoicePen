@@ -213,12 +213,16 @@ nonisolated struct AVFoundationMeetingAudioFileIO: MeetingAudioFileIO {
         guard frameCount > 0 else {
             return nil
         }
-        guard let inputBuffer = AVAudioPCMBuffer(pcmFormat: inputFormat, frameCapacity: frameCount) else {
-            throw MeetingRecordingError.captureFailed("Meeting audio output buffer is unavailable.")
-        }
-
         inputFile.framePosition = startFrame
-        try inputFile.read(into: inputBuffer, frameCount: frameCount)
+        guard
+            let inputBuffer = try readFrames(
+                from: inputFile,
+                format: inputFormat,
+                frameCount: frameCount
+            )
+        else {
+            return nil
+        }
 
         let duration = Double(inputBuffer.frameLength) / sampleRate
         guard inputBuffer.frameLength > 0, duration > 0 else {
@@ -233,6 +237,71 @@ nonisolated struct AVFoundationMeetingAudioFileIO: MeetingAudioFileIO {
             return nil
         }
         return MeetingAudioBufferWindow(buffer: outputBuffer, duration: duration)
+    }
+
+    private func readFrames(
+        from inputFile: AVAudioFile,
+        format: AVAudioFormat,
+        frameCount: AVAudioFrameCount
+    ) throws -> AVAudioPCMBuffer? {
+        guard let destination = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
+            throw MeetingRecordingError.captureFailed("Meeting audio output buffer is unavailable.")
+        }
+        let readCapacity = min(frameCount, 65_536)
+        guard let readBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: readCapacity) else {
+            throw MeetingRecordingError.captureFailed("Meeting audio input buffer is unavailable.")
+        }
+
+        destination.frameLength = frameCount
+        var copiedFrames: AVAudioFrameCount = 0
+        while copiedFrames < frameCount {
+            let requestedFrames = min(readCapacity, frameCount - copiedFrames)
+            try inputFile.read(into: readBuffer, frameCount: requestedFrames)
+            let readFrames = readBuffer.frameLength
+            guard readFrames > 0 else { break }
+            guard
+                copyFrames(
+                    from: readBuffer,
+                    to: destination,
+                    destinationFrameOffset: copiedFrames,
+                    frameCount: readFrames,
+                    format: format
+                )
+            else {
+                throw MeetingRecordingError.captureFailed("Meeting audio input buffer could not be copied.")
+            }
+            copiedFrames += readFrames
+        }
+
+        destination.frameLength = copiedFrames
+        return copiedFrames > 0 ? destination : nil
+    }
+
+    private func copyFrames(
+        from source: AVAudioPCMBuffer,
+        to destination: AVAudioPCMBuffer,
+        destinationFrameOffset: AVAudioFrameCount,
+        frameCount: AVAudioFrameCount,
+        format: AVAudioFormat
+    ) -> Bool {
+        let bytesPerFrame = Int(format.streamDescription.pointee.mBytesPerFrame)
+        let destinationByteOffset = Int(destinationFrameOffset) * bytesPerFrame
+        let byteCount = Int(frameCount) * bytesPerFrame
+        let sourceBuffers = UnsafeMutableAudioBufferListPointer(source.mutableAudioBufferList)
+        let destinationBuffers = UnsafeMutableAudioBufferListPointer(destination.mutableAudioBufferList)
+        guard bytesPerFrame > 0, sourceBuffers.count == destinationBuffers.count else { return false }
+
+        for index in sourceBuffers.indices {
+            guard let sourceData = sourceBuffers[index].mData,
+                let destinationData = destinationBuffers[index].mData,
+                byteCount <= Int(sourceBuffers[index].mDataByteSize),
+                destinationByteOffset + byteCount <= Int(destinationBuffers[index].mDataByteSize)
+            else {
+                return false
+            }
+            memcpy(destinationData.advanced(by: destinationByteOffset), sourceData, byteCount)
+        }
+        return true
     }
 
     private func monoFloatFormat(sampleRate: Double) throws -> AVAudioFormat {
@@ -289,27 +358,53 @@ nonisolated final class MeetingAudioBufferFileSink: @unchecked Sendable {
 
     private let lock = NSLock()
     private let audioFileIO: MeetingAudioFileIO
-    private let audioFile: AVAudioFile
+    private let inputFormat: AVAudioFormat
+    private let writer: MeetingAudioBufferWriting
     private var didWriteSamples = false
     private var didFinish = false
     private var latestLevel: Double?
+    private var acceptedDuration: TimeInterval = 0
+    private var firstFailure: MeetingRecordingError?
 
     init(
         source: MeetingSourceKind,
         outputURL: URL,
-        format _: AVAudioFormat,
+        format inputFormat: AVAudioFormat,
         audioFileIO: MeetingAudioFileIO = AVFoundationMeetingAudioFileIO()
     ) throws {
         let outputFormat = try audioFileIO.storageFormat()
+        let writer: ExtendedAudioFileWriter
+        do {
+            writer = try ExtendedAudioFileWriter(
+                outputURL: outputURL,
+                clientFormat: inputFormat,
+                fileFormat: outputFormat
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: outputURL)
+            throw MeetingRecordingError.captureFailed(
+                "Meeting \(source.rawValue) audio writer could not be created."
+            )
+        }
         self.source = source
         self.outputURL = outputURL
         self.audioFileIO = audioFileIO
-        audioFile = try AVAudioFile(
-            forWriting: outputURL,
-            settings: outputFormat.settings,
-            commonFormat: outputFormat.commonFormat,
-            interleaved: outputFormat.isInterleaved
-        )
+        self.inputFormat = inputFormat
+        self.writer = writer
+    }
+
+    init(
+        source: MeetingSourceKind,
+        outputURL: URL,
+        format inputFormat: AVAudioFormat,
+        audioFileIO: MeetingAudioFileIO = AVFoundationMeetingAudioFileIO(),
+        writer: MeetingAudioBufferWriting
+    ) {
+        self.source = source
+        self.outputURL = outputURL
+        self.audioFileIO = audioFileIO
+        self.inputFormat = inputFormat
+        self.writer = writer
     }
 
     var level: Double? {
@@ -318,23 +413,68 @@ nonisolated final class MeetingAudioBufferFileSink: @unchecked Sendable {
         return latestLevel
     }
 
+    var hasFailed: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return firstFailure != nil
+    }
+
+    func fail(_ error: MeetingRecordingError) {
+        lock.lock()
+        _ = recordFailure(error)
+        lock.unlock()
+    }
+
     func append(_ buffer: AVAudioPCMBuffer) throws {
         lock.lock()
         defer { lock.unlock() }
         guard !didFinish else { return }
-        let outputBuffer = try audioFileIO.storageBuffer(from: buffer)
-        guard outputBuffer.frameLength > 0 else { return }
-        try audioFile.write(from: outputBuffer)
-        didWriteSamples = true
-        latestLevel = audioFileIO.normalizedLevel(from: outputBuffer)
+        if let firstFailure {
+            throw firstFailure
+        }
+        guard buffer.format.matches(inputFormat) else {
+            throw recordFailure(
+                MeetingRecordingError.captureFailed(
+                    "Meeting \(source.rawValue) audio input format changed during capture."
+                )
+            )
+        }
+        guard buffer.frameLength > 0 else { return }
+
+        do {
+            try writer.write(buffer)
+            didWriteSamples = true
+            acceptedDuration += Double(buffer.frameLength) / buffer.format.sampleRate
+            latestLevel = audioFileIO.normalizedLevel(from: buffer)
+        } catch {
+            throw recordFailure(
+                MeetingRecordingError.captureFailed(
+                    "Meeting \(source.rawValue) audio could not be written."
+                )
+            )
+        }
     }
 
     func finish(startOffset: TimeInterval, endOffset: TimeInterval) throws -> MeetingAudioChunk? {
         lock.lock()
-        didFinish = true
+        do {
+            try closeWriter()
+        } catch {
+            _ = recordFailure(
+                MeetingRecordingError.captureFailed(
+                    "Meeting \(source.rawValue) audio writer could not be closed."
+                )
+            )
+        }
         let didWriteSamples = didWriteSamples
+        let acceptedDuration = acceptedDuration
+        let firstFailure = firstFailure
         lock.unlock()
 
+        if let firstFailure {
+            try? FileManager.default.removeItem(at: outputURL)
+            throw firstFailure
+        }
         guard didWriteSamples,
             FileManager.default.fileExists(atPath: outputURL.path)
         else {
@@ -342,20 +482,62 @@ nonisolated final class MeetingAudioBufferFileSink: @unchecked Sendable {
             return nil
         }
 
+        let probe = MeetingAudioChunk(
+            url: outputURL,
+            source: source,
+            startOffset: startOffset,
+            duration: acceptedDuration
+        )
+        let expectedDuration = max(0, endOffset - startOffset)
+        guard let readableDuration = try audioFileIO.readableDuration(for: probe),
+            abs(readableDuration - acceptedDuration) <= Self.maximumWriterDurationMismatch,
+            readableDuration + Self.maximumTimelineShortfall >= expectedDuration
+        else {
+            try? FileManager.default.removeItem(at: outputURL)
+            throw MeetingRecordingError.captureFailed(
+                "Meeting \(source.rawValue) audio lost captured frames before finalization."
+            )
+        }
+
         return MeetingAudioChunk(
             url: outputURL,
             source: source,
             startOffset: startOffset,
-            duration: max(0, endOffset - startOffset)
+            duration: min(expectedDuration, readableDuration)
         )
     }
 
     func cancel() {
         lock.lock()
-        didFinish = true
+        do {
+            try closeWriter()
+        } catch {
+            AppLogger.error(
+                "Meeting \(source.rawValue) audio writer close failed during cancellation: "
+                    + error.localizedDescription
+            )
+        }
         lock.unlock()
         try? FileManager.default.removeItem(at: outputURL)
     }
+
+    private func closeWriter() throws {
+        guard !didFinish else { return }
+        didFinish = true
+        try writer.close()
+    }
+
+    private func recordFailure(_ error: MeetingRecordingError) -> MeetingRecordingError {
+        if let firstFailure {
+            return firstFailure
+        }
+        firstFailure = error
+        AppLogger.error(error.localizedDescription)
+        return error
+    }
+
+    private static let maximumWriterDurationMismatch: TimeInterval = 0.25
+    private static let maximumTimelineShortfall: TimeInterval = 2
 }
 
 nonisolated enum MeetingAudioFrameCapacity {
@@ -402,7 +584,7 @@ nonisolated private struct MeetingAudioBufferWindow {
     var duration: TimeInterval
 }
 
-private extension AVAudioFormat {
+extension AVAudioFormat {
     nonisolated func matches(_ other: AVAudioFormat) -> Bool {
         commonFormat == other.commonFormat
             && sampleRate == other.sampleRate

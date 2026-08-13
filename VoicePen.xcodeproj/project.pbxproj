@@ -14,9 +14,8 @@
 		11953DBC2FA7000000ED707B /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DBB2FA7000000ED707B /* Sparkle */; };
 		11953DBE2FA7200000ED707B /* TOMLKit in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DBF2FA7200000ED707B /* TOMLKit */; };
 		11953DC12FA7200000ED707B /* Stencil in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DC22FA7200000ED707B /* Stencil */; };
-		11953DC42FA7300000ED707B /* SpeechVAD in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DC52FA7300000ED707B /* SpeechVAD */; };
-		11953DC62FA7300000ED707B /* AudioCommon in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DC72FA7300000ED707B /* AudioCommon */; };
 		11953DCC2FA7400000ED707B /* SpeakerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DCA2FA7400000ED707B /* SpeakerKit */; };
+		11953DD22FA7700000ED707B /* CRNNoise in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DD32FA7700000ED707B /* CRNNoise */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -66,14 +65,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				111029512FDDC57200844B60 /* STTextView in Frameworks */,
+				11953DD22FA7700000ED707B /* CRNNoise in Frameworks */,
 				11953DB02FA5000000ED707B /* whisper in Frameworks */,
 				11953DB42FA5300000ED707B /* KeyboardShortcuts in Frameworks */,
 				11953DB82FA5E00000ED707B /* Alamofire in Frameworks */,
 				11953DBC2FA7000000ED707B /* Sparkle in Frameworks */,
 				11953DBE2FA7200000ED707B /* TOMLKit in Frameworks */,
 				11953DC12FA7200000ED707B /* Stencil in Frameworks */,
-				11953DC42FA7300000ED707B /* SpeechVAD in Frameworks */,
-				11953DC62FA7300000ED707B /* AudioCommon in Frameworks */,
 				11953DCC2FA7400000ED707B /* SpeakerKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -142,9 +140,8 @@
 				11953DBF2FA7200000ED707B /* TOMLKit */,
 				11953DC22FA7200000ED707B /* Stencil */,
 				11953DCA2FA7400000ED707B /* SpeakerKit */,
-				11953DC52FA7300000ED707B /* SpeechVAD */,
-				11953DC72FA7300000ED707B /* AudioCommon */,
 				11953DD12FA7600000ED707B /* STTextView */,
+				11953DD32FA7700000ED707B /* CRNNoise */,
 			);
 			productName = VoicePen;
 			productReference = 11953D762FA4D47A00ED707B /* VoicePen.app */;
@@ -230,13 +227,13 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				11953DB22FA5000000ED707B /* XCLocalSwiftPackageReference "Vendor/whisper.spm" */,
+				11953DD42FA7700000ED707B /* XCLocalSwiftPackageReference "Vendor/rnnoise.spm" */,
 				11953DB52FA5300000ED707B /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */,
 				11953DB92FA5E00000ED707B /* XCRemoteSwiftPackageReference "Alamofire" */,
 				11953DBA2FA7000000ED707B /* XCRemoteSwiftPackageReference "Sparkle" */,
 				11953DBD2FA7200000ED707B /* XCRemoteSwiftPackageReference "TOMLKit" */,
 				11953DC02FA7200000ED707B /* XCRemoteSwiftPackageReference "Stencil" */,
 				11953DCE2FA7400000ED707B /* XCRemoteSwiftPackageReference "argmax-oss-swift" */,
-				11953DC32FA7300000ED707B /* XCRemoteSwiftPackageReference "speech-swift" */,
 				11953DD02FA7600000ED707B /* XCRemoteSwiftPackageReference "STTextView" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -641,6 +638,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Vendor/whisper.spm;
 		};
+		11953DD42FA7700000ED707B /* XCLocalSwiftPackageReference "Vendor/rnnoise.spm" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Vendor/rnnoise.spm;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -682,14 +683,6 @@
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 0.15.1;
-			};
-		};
-		11953DC32FA7300000ED707B /* XCRemoteSwiftPackageReference "speech-swift" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/soniqo/speech-swift";
-			requirement = {
-				kind = revision;
-				revision = 88cd3784b489706b53a7e3b8bff02834b40855dd;
 			};
 		};
 		11953DCE2FA7400000ED707B /* XCRemoteSwiftPackageReference "argmax-oss-swift" */ = {
@@ -741,16 +734,6 @@
 			package = 11953DC02FA7200000ED707B /* XCRemoteSwiftPackageReference "Stencil" */;
 			productName = Stencil;
 		};
-		11953DC52FA7300000ED707B /* SpeechVAD */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 11953DC32FA7300000ED707B /* XCRemoteSwiftPackageReference "speech-swift" */;
-			productName = SpeechVAD;
-		};
-		11953DC72FA7300000ED707B /* AudioCommon */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 11953DC32FA7300000ED707B /* XCRemoteSwiftPackageReference "speech-swift" */;
-			productName = AudioCommon;
-		};
 		11953DCA2FA7400000ED707B /* SpeakerKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 11953DCE2FA7400000ED707B /* XCRemoteSwiftPackageReference "argmax-oss-swift" */;
@@ -760,6 +743,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 11953DD02FA7600000ED707B /* XCRemoteSwiftPackageReference "STTextView" */;
 			productName = STTextView;
+		};
+		11953DD32FA7700000ED707B /* CRNNoise */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 11953DD42FA7700000ED707B /* XCLocalSwiftPackageReference "Vendor/rnnoise.spm" */;
+			productName = CRNNoise;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

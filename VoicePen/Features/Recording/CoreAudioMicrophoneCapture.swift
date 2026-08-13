@@ -174,6 +174,8 @@ nonisolated final class CoreAudioMicrophoneCapture: CoreAudioMicrophoneCapturing
     }
 
     private let callbackQueue: DispatchQueue
+    private let callbackQueueKey = DispatchSpecificKey<Void>()
+    private let callbackSubmissionGroup = DispatchGroup()
     private let defaultInputDeviceProvider: DefaultAudioInputDeviceProviding
     private let componentFinder: CoreAudioMicrophoneComponentFinding
     private let audioUnitManager: CoreAudioMicrophoneAudioUnitManaging
@@ -203,6 +205,7 @@ nonisolated final class CoreAudioMicrophoneCapture: CoreAudioMicrophoneCapturing
             interleaved: false
         )!
         self.inputFormat = fallbackInputFormat
+        callbackQueue.setSpecific(key: callbackQueueKey, value: ())
     }
 
     var isPrepared: Bool {
@@ -293,15 +296,21 @@ nonisolated final class CoreAudioMicrophoneCapture: CoreAudioMicrophoneCapturing
 
     func stop() {
         lock.lock()
-        defer { lock.unlock() }
         guard isPreparedValue, isCapturing, let unit else {
+            lock.unlock()
             return
         }
+        isCapturing = false
+        lock.unlock()
 
         audioUnitManager.stop(unit: unit)
         clearCallback(on: unit)
-        isCapturing = false
+        callbackSubmissionGroup.wait()
+        drainCallbackQueue()
+
+        lock.lock()
         state = nil
+        lock.unlock()
     }
 
     func teardown() {
@@ -332,6 +341,11 @@ nonisolated final class CoreAudioMicrophoneCapture: CoreAudioMicrophoneCapturing
             data: &callbackStruct,
             dataSize: callbackSize
         )
+    }
+
+    private func drainCallbackQueue() {
+        guard DispatchQueue.getSpecific(key: callbackQueueKey) == nil else { return }
+        callbackQueue.sync {}
     }
 
     private func resolveDefaultInputDeviceID() throws -> AudioDeviceID {
@@ -486,7 +500,9 @@ nonisolated final class CoreAudioMicrophoneCapture: CoreAudioMicrophoneCapturing
             lock.unlock()
             return noErr
         }
+        callbackSubmissionGroup.enter()
         lock.unlock()
+        defer { callbackSubmissionGroup.leave() }
 
         inputBuffer.frameLength = AVAudioFrameCount(frameCount)
         let renderStatus = audioUnitManager.renderInput(

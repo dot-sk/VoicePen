@@ -1,7 +1,7 @@
 ---
 id: SPEC-007
 status: implemented
-updated: 2026-05-07
+updated: 2026-07-24
 tests:
   - VoicePenTests/App/AppControllerTests.swift
   - VoicePenTests/App/VoicePenStatusMenuModelTests.swift
@@ -105,10 +105,6 @@ available through an explicit command.
   changes.
 - Automated: `scripts/code-impacting-changes.sh` is shared by CI and local
   hooks to classify changed paths.
-- Manual: run `make install-hooks` in a checkout with Lefthook installed and
-  verify `lefthook.yml` installs pre-commit and pre-push hooks.
-- Manual: observe that `make test` does not open the VoicePen app window, while
-  `make integration-test` may launch the app host by design.
 
 ## Notes
 

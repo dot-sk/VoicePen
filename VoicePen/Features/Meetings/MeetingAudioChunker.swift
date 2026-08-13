@@ -1,10 +1,10 @@
+@preconcurrency import AVFoundation
 import Foundation
 
 protocol MeetingAudioChunker: AnyObject {
-    func split(
+    func master(
         _ chunks: [MeetingAudioChunk],
-        maximumDuration: TimeInterval,
-        chunkDuration: TimeInterval
+        duration: TimeInterval
     ) async throws -> MeetingAudioChunkingResult
 }
 
@@ -23,402 +23,445 @@ nonisolated struct MeetingAudioSourceSpan: Equatable, Sendable {
     var duration: TimeInterval
 }
 
-nonisolated enum MeetingAudioChunkWindowPlanner {
-    static func windows(
-        for chunk: MeetingAudioChunk,
-        maximumDuration: TimeInterval,
-        chunkDuration: TimeInterval
-    ) -> [MeetingAudioChunk] {
-        guard chunk.duration > 0,
-            chunk.startOffset < maximumDuration,
-            chunkDuration > 0
-        else {
-            return []
-        }
-
-        var windows: [MeetingAudioChunk] = []
-        var elapsed: TimeInterval = 0
-        var remaining = min(chunk.duration, maximumDuration - chunk.startOffset)
-
-        while remaining > 0 {
-            let duration = min(remaining, chunkDuration)
-            windows.append(
-                MeetingAudioChunk(
-                    url: chunk.url,
-                    source: chunk.source,
-                    startOffset: chunk.startOffset + elapsed,
-                    duration: duration
-                )
-            )
-            elapsed += duration
-            remaining -= duration
-        }
-
-        return windows
-    }
-
-    fileprivate static func timelineWindows(
-        for chunks: [MeetingAudioChunk],
-        maximumDuration: TimeInterval,
-        chunkDuration: TimeInterval
-    ) -> [MeetingAudioTimelineWindow] {
-        guard maximumDuration > 0, chunkDuration > 0 else { return [] }
-
-        let cappedEndOffset =
-            chunks
-            .map { min(maximumDuration, $0.startOffset + max(0, $0.duration)) }
-            .max() ?? 0
-        guard cappedEndOffset > 0 else { return [] }
-
-        var windows: [MeetingAudioTimelineWindow] = []
-        var windowStart: TimeInterval = 0
-        while windowStart < cappedEndOffset {
-            let windowEnd = min(cappedEndOffset, windowStart + chunkDuration)
-            let contributors = chunks.compactMap { chunk -> MeetingAudioTimelineContributor? in
-                let chunkStart = chunk.startOffset
-                let chunkEnd = min(maximumDuration, chunk.startOffset + max(0, chunk.duration))
-                let overlapStart = max(windowStart, chunkStart)
-                let overlapEnd = min(windowEnd, chunkEnd)
-                guard overlapEnd > overlapStart else { return nil }
-
-                return MeetingAudioTimelineContributor(
-                    chunk: chunk,
-                    overlapStart: overlapStart,
-                    duration: overlapEnd - overlapStart
-                )
-            }
-
-            if !contributors.isEmpty {
-                windows.append(
-                    MeetingAudioTimelineWindow(
-                        startOffset: windowStart,
-                        duration: windowEnd - windowStart,
-                        contributors: contributors
-                    )
-                )
-            }
-            windowStart = windowEnd
-        }
-
-        return windows
-    }
-}
-
-nonisolated private struct MeetingAudioTimelineWindow: Equatable, Sendable {
-    var startOffset: TimeInterval
-    var duration: TimeInterval
-    var contributors: [MeetingAudioTimelineContributor]
-}
-
-nonisolated private struct MeetingAudioTimelineContributor: Equatable, Sendable {
-    var chunk: MeetingAudioChunk
-    var overlapStart: TimeInterval
-    var duration: TimeInterval
-}
-
 final class AVFoundationMeetingAudioChunker: MeetingAudioChunker {
     private let outputDirectory: URL
     private let audioFileIO: MeetingAudioFileIO
+    private let microphoneDenoiser: AudioDenoising?
 
     init(
         outputDirectory: URL,
-        audioFileIO: MeetingAudioFileIO = AVFoundationMeetingAudioFileIO()
+        audioFileIO: MeetingAudioFileIO = AVFoundationMeetingAudioFileIO(),
+        microphoneDenoiser: AudioDenoising? = nil
     ) {
         self.outputDirectory = outputDirectory
         self.audioFileIO = audioFileIO
+        self.microphoneDenoiser = microphoneDenoiser
     }
 
-    func split(
+    func master(
         _ chunks: [MeetingAudioChunk],
-        maximumDuration: TimeInterval,
-        chunkDuration: TimeInterval
+        duration: TimeInterval
     ) async throws -> MeetingAudioChunkingResult {
         let outputDirectory = outputDirectory
         let audioFileIO = audioFileIO
+        let microphoneDenoiser = microphoneDenoiser
         return try await Task.detached(priority: .userInitiated) {
-            try splitChunks(
+            try masterChunks(
                 chunks,
-                maximumDuration: maximumDuration,
-                chunkDuration: chunkDuration,
+                duration: duration,
                 outputDirectory: outputDirectory,
                 fileManager: .default,
-                audioFileIO: audioFileIO
+                audioFileIO: audioFileIO,
+                microphoneDenoiser: microphoneDenoiser
             )
         }.value
     }
 }
 
 final class PassthroughMeetingAudioChunker: MeetingAudioChunker {
-    func split(
+    func master(
         _ chunks: [MeetingAudioChunk],
-        maximumDuration: TimeInterval,
-        chunkDuration: TimeInterval
+        duration: TimeInterval
     ) async throws -> MeetingAudioChunkingResult {
-        let windows = chunks.flatMap {
-            MeetingAudioChunkWindowPlanner.windows(
-                for: $0,
-                maximumDuration: maximumDuration,
-                chunkDuration: chunkDuration
-            )
+        guard
+            let first = chunks.sorted(by: { lhs, rhs in
+                if lhs.startOffset != rhs.startOffset {
+                    return lhs.startOffset < rhs.startOffset
+                }
+                return lhs.source == .microphone && rhs.source == .systemAudio
+            }).first
+        else {
+            return MeetingAudioChunkingResult(chunks: [], temporaryURLs: [], sourceSpans: [])
         }
+        let master = MeetingAudioChunk(
+            url: first.url,
+            source: first.source,
+            startOffset: 0,
+            duration: duration
+        )
         return MeetingAudioChunkingResult(
-            chunks: windows,
+            chunks: [master],
             temporaryURLs: [],
-            sourceSpans: windows.map { window in
+            sourceSpans: chunks.map { chunk in
                 MeetingAudioSourceSpan(
-                    chunkURL: window.url,
-                    source: window.source,
-                    sourceURL: window.url,
-                    sourceStartOffset: window.startOffset,
-                    startOffset: window.startOffset,
-                    duration: window.duration
-                )
-            }
-        )
-    }
-}
-
-nonisolated private func splitChunks(
-    _ chunks: [MeetingAudioChunk],
-    maximumDuration: TimeInterval,
-    chunkDuration: TimeInterval,
-    outputDirectory: URL,
-    fileManager: FileManager,
-    audioFileIO: MeetingAudioFileIO
-) throws -> MeetingAudioChunkingResult {
-    try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
-
-    var splitChunks: [MeetingAudioChunk] = []
-    var temporaryURLs: [URL] = []
-    var sourceSpans: [MeetingAudioSourceSpan] = []
-
-    do {
-        let timelineWindows = MeetingAudioChunkWindowPlanner.timelineWindows(
-            for: chunks,
-            maximumDuration: maximumDuration,
-            chunkDuration: chunkDuration
-        )
-
-        for window in timelineWindows {
-            if window.contributors.count > 1 {
-                guard
-                    let writtenWindow = try writeMixedAudioWindow(
-                        window,
-                        outputDirectory: outputDirectory,
-                        audioFileIO: audioFileIO
-                    )
-                else {
-                    continue
-                }
-                temporaryURLs.append(writtenWindow.url)
-                splitChunks.append(
-                    MeetingAudioChunk(
-                        url: writtenWindow.url,
-                        source: mergedSource(for: writtenWindow.contributors),
-                        startOffset: window.startOffset,
-                        duration: writtenWindow.duration
-                    )
-                )
-                sourceSpans.append(
-                    contentsOf: writtenWindow.contributors.map { contributor in
-                        MeetingAudioSourceSpan(
-                            chunkURL: writtenWindow.url,
-                            source: contributor.chunk.source,
-                            sourceURL: contributor.chunk.url,
-                            sourceStartOffset: contributor.chunk.startOffset,
-                            startOffset: contributor.overlapStart,
-                            duration: contributor.duration
-                        )
-                    }
-                )
-                continue
-            }
-
-            guard let contributor = window.contributors.first else { continue }
-            let chunk = contributor.chunk
-            let usesOriginalChunk =
-                contributor.overlapStart == chunk.startOffset
-                && contributor.duration == chunk.duration
-
-            if usesOriginalChunk {
-                guard let readableDuration = try audioFileIO.readableDuration(for: chunk) else {
-                    continue
-                }
-                let readableChunk = MeetingAudioChunk(
-                    url: chunk.url,
-                    source: chunk.source,
-                    startOffset: chunk.startOffset,
-                    duration: min(chunk.duration, readableDuration)
-                )
-                splitChunks.append(readableChunk)
-                sourceSpans.append(
-                    MeetingAudioSourceSpan(
-                        chunkURL: chunk.url,
-                        source: chunk.source,
-                        sourceURL: chunk.url,
-                        sourceStartOffset: chunk.startOffset,
-                        startOffset: chunk.startOffset,
-                        duration: readableChunk.duration
-                    )
-                )
-                continue
-            }
-
-            let windowChunk = MeetingAudioChunk(
-                url: chunk.url,
-                source: chunk.source,
-                startOffset: contributor.overlapStart,
-                duration: contributor.duration
-            )
-            guard
-                let writtenWindow = try writeAudioWindow(
-                    windowChunk,
-                    sourceChunk: chunk,
-                    outputDirectory: outputDirectory,
-                    audioFileIO: audioFileIO
-                )
-            else {
-                continue
-            }
-            temporaryURLs.append(writtenWindow.url)
-            splitChunks.append(
-                MeetingAudioChunk(
-                    url: writtenWindow.url,
-                    source: chunk.source,
-                    startOffset: contributor.overlapStart,
-                    duration: writtenWindow.duration
-                )
-            )
-            sourceSpans.append(
-                MeetingAudioSourceSpan(
-                    chunkURL: writtenWindow.url,
+                    chunkURL: master.url,
                     source: chunk.source,
                     sourceURL: chunk.url,
                     sourceStartOffset: chunk.startOffset,
-                    startOffset: contributor.overlapStart,
-                    duration: writtenWindow.duration
+                    startOffset: chunk.startOffset,
+                    duration: chunk.duration
                 )
+            }
+        )
+    }
+}
+
+nonisolated private func masterChunks(
+    _ chunks: [MeetingAudioChunk],
+    duration: TimeInterval,
+    outputDirectory: URL,
+    fileManager: FileManager,
+    audioFileIO: MeetingAudioFileIO,
+    microphoneDenoiser: AudioDenoising?
+) throws -> MeetingAudioChunkingResult {
+    guard duration > 0 else {
+        return MeetingAudioChunkingResult(chunks: [], temporaryURLs: [], sourceSpans: [])
+    }
+    try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+
+    let originalReadableChunks = try chunks.compactMap { chunk -> MeetingAudioChunk? in
+        guard let readableDuration = try audioFileIO.readableDuration(for: chunk), readableDuration > 0 else {
+            return nil
+        }
+        return MeetingAudioChunk(
+            url: chunk.url,
+            source: chunk.source,
+            startOffset: chunk.startOffset,
+            duration: min(chunk.duration, readableDuration)
+        )
+    }
+    guard !originalReadableChunks.isEmpty else {
+        return MeetingAudioChunkingResult(chunks: [], temporaryURLs: [], sourceSpans: [])
+    }
+
+    let denoisedSources = prepareMicrophoneSources(
+        originalReadableChunks,
+        outputDirectory: outputDirectory,
+        fileManager: fileManager,
+        audioFileIO: audioFileIO,
+        microphoneDenoiser: microphoneDenoiser
+    )
+    let readableChunks = denoisedSources.chunks
+    var keepDenoisedSources = false
+    defer {
+        if !keepDenoisedSources {
+            for url in denoisedSources.temporaryURLs {
+                try? fileManager.removeItem(at: url)
+            }
+        }
+    }
+
+    let sourceGains = try MeetingSourceLevelNormalizer.gains(
+        for: readableChunks,
+        audioFileIO: audioFileIO
+    )
+    let masterScale = try consistentMasterScale(
+        chunks: readableChunks,
+        duration: duration,
+        gains: sourceGains,
+        audioFileIO: audioFileIO
+    )
+    let outputURL =
+        outputDirectory
+        .appendingPathComponent("voicepen-meeting-master-\(UUID().uuidString)")
+        .appendingPathExtension("wav")
+    let processingFormat = try audioFileIO.processingFormat()
+    let writer = try ExtendedAudioFileWriter(
+        outputURL: outputURL,
+        clientFormat: processingFormat,
+        fileFormat: audioFileIO.storageFormat(),
+        writeMode: .synchronous
+    )
+
+    do {
+        var blockStart: TimeInterval = 0
+        while blockStart < duration {
+            let blockDuration = min(MeetingSourceLevelNormalizer.blockDuration, duration - blockStart)
+            var samples = try masteredSamples(
+                chunks: readableChunks,
+                startOffset: blockStart,
+                duration: blockDuration,
+                gains: sourceGains,
+                audioFileIO: audioFileIO
             )
+            if !samples.isEmpty {
+                applyScale(masterScale, to: &samples)
+                try writer.write(try pcmBuffer(samples: samples, format: processingFormat))
+            }
+            blockStart += blockDuration
         }
+        try writer.close()
     } catch {
-        for url in temporaryURLs where fileManager.fileExists(atPath: url.path) {
-            try? fileManager.removeItem(at: url)
-        }
+        try? writer.close()
+        try? fileManager.removeItem(at: outputURL)
         throw error
     }
 
-    return MeetingAudioChunkingResult(chunks: splitChunks, temporaryURLs: temporaryURLs, sourceSpans: sourceSpans)
-}
-
-nonisolated private struct MeetingAudioWrittenWindow: Sendable {
-    var url: URL
-    var duration: TimeInterval
-    var contributors: [MeetingAudioTimelineContributor]
-}
-
-nonisolated private struct MeetingAudioReadableContributor: Sendable {
-    var contributor: MeetingAudioTimelineContributor
-    var samples: [Float]
-    var duration: TimeInterval
-}
-
-nonisolated private func mergedSource(for contributors: [MeetingAudioTimelineContributor]) -> MeetingSourceKind {
-    contributors.contains { $0.chunk.source == .microphone } ? .microphone : (contributors.first?.chunk.source ?? .systemAudio)
-}
-
-nonisolated private func writeMixedAudioWindow(
-    _ window: MeetingAudioTimelineWindow,
-    outputDirectory: URL,
-    audioFileIO: MeetingAudioFileIO
-) throws -> MeetingAudioWrittenWindow? {
-    let readableContributors = try window.contributors.compactMap { contributor in
-        try readMonoSamples(for: contributor, audioFileIO: audioFileIO)
+    let probe = MeetingAudioChunk(url: outputURL, source: .microphone, startOffset: 0, duration: duration)
+    guard let masteredDuration = try audioFileIO.readableDuration(for: probe), masteredDuration > 0 else {
+        try? fileManager.removeItem(at: outputURL)
+        return MeetingAudioChunkingResult(chunks: [], temporaryURLs: [], sourceSpans: [])
     }
-    guard !readableContributors.isEmpty else { return nil }
-
-    let sampleRate = audioFileIO.sampleRate
-    let frameCount = max(
-        1,
-        readableContributors.map { readableContributor in
-            let destinationOffset = Int(
-                ((readableContributor.contributor.overlapStart - window.startOffset) * sampleRate).rounded(.down)
-            )
-            return destinationOffset + readableContributor.samples.count
-        }.max() ?? 0
+    let master = MeetingAudioChunk(
+        url: outputURL,
+        source: readableChunks.contains { $0.source == .microphone } ? .microphone : .systemAudio,
+        startOffset: 0,
+        duration: min(duration, masteredDuration)
     )
-    var outputSamples = Array(repeating: Float(0), count: frameCount)
-
-    for readableContributor in readableContributors {
-        let contributor = readableContributor.contributor
-        let samples = readableContributor.samples
-        let destinationOffset = Int(
-            ((contributor.overlapStart - window.startOffset) * sampleRate).rounded(.down)
+    let sourceSpans = originalReadableChunks.map { chunk in
+        MeetingAudioSourceSpan(
+            chunkURL: outputURL,
+            source: chunk.source,
+            sourceURL: chunk.url,
+            sourceStartOffset: chunk.startOffset,
+            startOffset: chunk.startOffset,
+            duration: chunk.duration
         )
-        guard destinationOffset < frameCount else { continue }
+    }
+    keepDenoisedSources = true
+    return MeetingAudioChunkingResult(
+        chunks: [master],
+        temporaryURLs: denoisedSources.temporaryURLs + [outputURL],
+        sourceSpans: sourceSpans
+    )
+}
 
-        let writableCount = min(samples.count, frameCount - destinationOffset)
-        for sampleIndex in 0..<writableCount {
-            let outputIndex = destinationOffset + sampleIndex
-            outputSamples[outputIndex] = clippedSample(outputSamples[outputIndex] + samples[sampleIndex])
+nonisolated private struct MeetingPreparedAudioSources {
+    var chunks: [MeetingAudioChunk]
+    var temporaryURLs: [URL]
+}
+
+nonisolated private func prepareMicrophoneSources(
+    _ chunks: [MeetingAudioChunk],
+    outputDirectory: URL,
+    fileManager: FileManager,
+    audioFileIO: MeetingAudioFileIO,
+    microphoneDenoiser: AudioDenoising?
+) -> MeetingPreparedAudioSources {
+    guard let microphoneDenoiser else {
+        return MeetingPreparedAudioSources(chunks: chunks, temporaryURLs: [])
+    }
+
+    var preparedChunks: [MeetingAudioChunk] = []
+    var temporaryURLs: [URL] = []
+    for chunk in chunks {
+        let prepared = prepareMicrophoneSource(
+            chunk,
+            outputDirectory: outputDirectory,
+            fileManager: fileManager,
+            audioFileIO: audioFileIO,
+            microphoneDenoiser: microphoneDenoiser
+        )
+        preparedChunks.append(prepared.chunk)
+        if let temporaryURL = prepared.temporaryURL {
+            temporaryURLs.append(temporaryURL)
         }
     }
+    return MeetingPreparedAudioSources(chunks: preparedChunks, temporaryURLs: temporaryURLs)
+}
+
+nonisolated private func prepareMicrophoneSource(
+    _ chunk: MeetingAudioChunk,
+    outputDirectory: URL,
+    fileManager: FileManager,
+    audioFileIO: MeetingAudioFileIO,
+    microphoneDenoiser: AudioDenoising
+) -> (chunk: MeetingAudioChunk, temporaryURL: URL?) {
+    guard chunk.source == .microphone else { return (chunk, nil) }
 
     let outputURL =
         outputDirectory
-        .appendingPathComponent("voicepen-meeting-merged-\(Int(window.startOffset * 1000))-\(UUID().uuidString)")
+        .appendingPathComponent("voicepen-meeting-denoised-\(UUID().uuidString)")
         .appendingPathExtension("wav")
-    let duration = try audioFileIO.writeMonoSamples(outputSamples, to: outputURL)
-    return MeetingAudioWrittenWindow(
-        url: outputURL,
-        duration: min(window.duration, duration),
-        contributors: readableContributors.map { readableContributor in
-            var contributor = readableContributor.contributor
-            contributor.duration = min(contributor.duration, readableContributor.duration)
-            return contributor
-        }
-    )
-}
-
-nonisolated private func readMonoSamples(
-    for contributor: MeetingAudioTimelineContributor,
-    audioFileIO: MeetingAudioFileIO
-) throws -> MeetingAudioReadableContributor? {
-    let window = MeetingAudioChunk(
-        url: contributor.chunk.url,
-        source: contributor.chunk.source,
-        startOffset: contributor.overlapStart,
-        duration: contributor.duration
-    )
-    guard let sampleWindow = try audioFileIO.readMonoSampleWindow(window, in: contributor.chunk) else { return nil }
-    return MeetingAudioReadableContributor(
-        contributor: contributor,
-        samples: sampleWindow.samples,
-        duration: sampleWindow.duration
-    )
-}
-
-nonisolated private func clippedSample(_ sample: Float) -> Float {
-    min(1, max(-1, sample))
-}
-
-nonisolated private func writeAudioWindow(
-    _ window: MeetingAudioChunk,
-    sourceChunk: MeetingAudioChunk,
-    outputDirectory: URL,
-    audioFileIO: MeetingAudioFileIO
-) throws -> MeetingAudioWrittenWindow? {
-    guard let sampleWindow = try audioFileIO.readMonoSampleWindow(window, in: sourceChunk) else { return nil }
-
-    let outputURL =
-        outputDirectory
-        .appendingPathComponent(
-            "voicepen-meeting-chunk-\(sourceChunk.source.rawValue)-\(Int(window.startOffset * 1000))-\(UUID().uuidString)"
+    var writer: ExtendedAudioFileWriter?
+    do {
+        let processingFormat = try audioFileIO.processingFormat()
+        writer = try ExtendedAudioFileWriter(
+            outputURL: outputURL,
+            clientFormat: processingFormat,
+            fileFormat: audioFileIO.storageFormat(),
+            writeMode: .synchronous
         )
-        .appendingPathExtension("caf")
-    let outputDuration = try audioFileIO.writeMonoSamples(sampleWindow.samples, to: outputURL)
-    return MeetingAudioWrittenWindow(
-        url: outputURL,
-        duration: min(window.duration, outputDuration, sampleWindow.duration),
-        contributors: []
-    )
+
+        let blockDuration: TimeInterval = 60
+        let endOffset = chunk.startOffset + chunk.duration
+        var blockStart = chunk.startOffset
+        var writtenSampleCount = 0
+        while blockStart < endOffset {
+            let requestedDuration = min(blockDuration, endOffset - blockStart)
+            let window = MeetingAudioChunk(
+                url: chunk.url,
+                source: chunk.source,
+                startOffset: blockStart,
+                duration: requestedDuration
+            )
+            guard let sampleWindow = try audioFileIO.readMonoSampleWindow(window, in: chunk),
+                !sampleWindow.samples.isEmpty
+            else {
+                break
+            }
+            let denoised = try microphoneDenoiser.process(
+                samples: sampleWindow.samples,
+                sampleRate: Int(audioFileIO.sampleRate.rounded())
+            )
+            guard denoised.count == sampleWindow.samples.count else {
+                throw MeetingRecordingError.captureFailed(
+                    "Meeting microphone noise suppression changed the audio duration."
+                )
+            }
+            try writer?.write(try pcmBuffer(samples: denoised, format: processingFormat))
+            writtenSampleCount += denoised.count
+            blockStart += sampleWindow.duration
+        }
+
+        guard writtenSampleCount > 0 else {
+            throw MeetingRecordingError.noCapturedAudio
+        }
+        try writer?.close()
+        writer = nil
+        let writtenDuration = Double(writtenSampleCount) / audioFileIO.sampleRate
+        return (
+            MeetingAudioChunk(
+                url: outputURL,
+                source: chunk.source,
+                startOffset: chunk.startOffset,
+                duration: min(chunk.duration, writtenDuration)
+            ),
+            outputURL
+        )
+    } catch {
+        try? writer?.close()
+        try? fileManager.removeItem(at: outputURL)
+        AppLogger.info("Meeting microphone noise suppression skipped: \(error.localizedDescription)")
+        return (chunk, nil)
+    }
+}
+
+nonisolated private enum MeetingSourceLevelNormalizer {
+    static let blockDuration: TimeInterval = 30
+    private static let analysisFrameDuration: TimeInterval = 0.1
+    private static let targetRMS = pow(10, -20.0 / 20.0)
+    private static let minimumGain = pow(10, -12.0 / 20.0)
+    private static let maximumGain = pow(10, 18.0 / 20.0)
+
+    static func gains(
+        for chunks: [MeetingAudioChunk],
+        audioFileIO: MeetingAudioFileIO
+    ) throws -> [MeetingSourceKind: Float] {
+        var levelsBySource: [MeetingSourceKind: [Double]] = [:]
+        let frameCount = max(1, Int((analysisFrameDuration * audioFileIO.sampleRate).rounded()))
+
+        for chunk in chunks {
+            var offset = chunk.startOffset
+            let endOffset = chunk.startOffset + chunk.duration
+            while offset < endOffset {
+                let duration = min(blockDuration, endOffset - offset)
+                let window = MeetingAudioChunk(
+                    url: chunk.url,
+                    source: chunk.source,
+                    startOffset: offset,
+                    duration: duration
+                )
+                if let sampleWindow = try audioFileIO.readMonoSampleWindow(window, in: chunk) {
+                    var frameStart = 0
+                    while frameStart < sampleWindow.samples.count {
+                        let frameEnd = min(sampleWindow.samples.count, frameStart + frameCount)
+                        let frame = sampleWindow.samples[frameStart..<frameEnd]
+                        let meanSquare =
+                            frame.reduce(0.0) { partial, sample in
+                                partial + Double(sample * sample)
+                            } / Double(frame.count)
+                        levelsBySource[chunk.source, default: []].append(sqrt(meanSquare))
+                        frameStart = frameEnd
+                    }
+                }
+                offset += duration
+            }
+        }
+
+        return Dictionary(
+            uniqueKeysWithValues: Set(chunks.map(\.source)).map { source in
+                let usefulLevels = (levelsBySource[source] ?? [])
+                    .filter { $0 > 0.000_1 }
+                    .sorted()
+                guard !usefulLevels.isEmpty else { return (source, Float(1)) }
+                let index = min(usefulLevels.count - 1, Int(Double(usefulLevels.count - 1) * 0.9))
+                let referenceRMS = usefulLevels[index]
+                let gain = min(maximumGain, max(minimumGain, targetRMS / referenceRMS))
+                return (source, Float(gain))
+            })
+    }
+}
+
+nonisolated private func masteredSamples(
+    chunks: [MeetingAudioChunk],
+    startOffset: TimeInterval,
+    duration: TimeInterval,
+    gains: [MeetingSourceKind: Float],
+    audioFileIO: MeetingAudioFileIO
+) throws -> [Float] {
+    let frameCount = max(1, Int((duration * audioFileIO.sampleRate).rounded()))
+    var output = [Float](repeating: 0, count: frameCount)
+    let blockEnd = startOffset + duration
+
+    for chunk in chunks {
+        let overlapStart = max(startOffset, chunk.startOffset)
+        let overlapEnd = min(blockEnd, chunk.startOffset + chunk.duration)
+        guard overlapEnd > overlapStart else { continue }
+        let window = MeetingAudioChunk(
+            url: chunk.url,
+            source: chunk.source,
+            startOffset: overlapStart,
+            duration: overlapEnd - overlapStart
+        )
+        guard let sampleWindow = try audioFileIO.readMonoSampleWindow(window, in: chunk) else { continue }
+        let destinationOffset = max(0, Int(((overlapStart - startOffset) * audioFileIO.sampleRate).rounded()))
+        let count = min(sampleWindow.samples.count, output.count - destinationOffset)
+        guard count > 0 else { continue }
+        let gain = gains[chunk.source] ?? 1
+        for index in 0..<count {
+            output[destinationOffset + index] += sampleWindow.samples[index] * gain
+        }
+    }
+
+    return output
+}
+
+nonisolated private func consistentMasterScale(
+    chunks: [MeetingAudioChunk],
+    duration: TimeInterval,
+    gains: [MeetingSourceKind: Float],
+    audioFileIO: MeetingAudioFileIO
+) throws -> Float {
+    let headroom: Float = 0.8
+    var peak: Float = 0
+    var blockStart: TimeInterval = 0
+    while blockStart < duration {
+        let blockDuration = min(MeetingSourceLevelNormalizer.blockDuration, duration - blockStart)
+        let samples = try masteredSamples(
+            chunks: chunks,
+            startOffset: blockStart,
+            duration: blockDuration,
+            gains: gains,
+            audioFileIO: audioFileIO
+        )
+        peak = samples.reduce(peak) { max($0, abs($1)) }
+        blockStart += blockDuration
+    }
+
+    let scaledPeak = peak * headroom
+    return scaledPeak > 0.95 ? headroom * 0.95 / scaledPeak : headroom
+}
+
+nonisolated private func applyScale(_ scale: Float, to samples: inout [Float]) {
+    for index in samples.indices {
+        samples[index] *= scale
+    }
+}
+
+nonisolated private func pcmBuffer(samples: [Float], format: AVAudioFormat) throws -> AVAudioPCMBuffer {
+    guard
+        let buffer = AVAudioPCMBuffer(
+            pcmFormat: format,
+            frameCapacity: AVAudioFrameCount(samples.count)
+        ), let channel = buffer.floatChannelData?[0]
+    else {
+        throw MeetingRecordingError.captureFailed("Meeting master buffer is unavailable.")
+    }
+    buffer.frameLength = AVAudioFrameCount(samples.count)
+    samples.withUnsafeBufferPointer { source in
+        guard let baseAddress = source.baseAddress else { return }
+        channel.update(from: baseAddress, count: samples.count)
+    }
+    return buffer
 }
