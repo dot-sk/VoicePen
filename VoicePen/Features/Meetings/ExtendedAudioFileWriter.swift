@@ -7,21 +7,41 @@ nonisolated protocol MeetingAudioBufferWriting: AnyObject {
     func close() throws
 }
 
-nonisolated private enum ExtendedAudioFileWriterError: Error {
-    case unsupportedFileType
-    case invalidState
-    case status(OSStatus)
+nonisolated enum ExtendedAudioFileWriteMode {
+    case synchronous
+    case asynchronous
 }
 
+nonisolated private enum ExtendedAudioFileWriterError: LocalizedError {
+    case unsupportedFileType(String)
+    case invalidState
+    case status(operation: String, code: OSStatus)
+
+    var errorDescription: String? {
+        switch self {
+        case let .unsupportedFileType(extensionName):
+            return "Extended audio writer does not support .\(extensionName) files."
+        case .invalidState:
+            return "Extended audio writer is closed or received an incompatible buffer format."
+        case let .status(operation, code):
+            return "Extended audio writer failed during \(operation): OSStatus(\(code))."
+        }
+    }
+}
+
+/// Audio Toolbox owns the ring buffer and disk-writing thread. After warm-up,
+/// writes are suitable for a realtime Core Audio callback.
 nonisolated final class ExtendedAudioFileWriter: MeetingAudioBufferWriting, @unchecked Sendable {
     private let clientFormat: AVAudioFormat
+    private let writeMode: ExtendedAudioFileWriteMode
     private var audioFile: ExtAudioFileRef?
     private var firstFailureStatus: OSStatus?
 
     init(
         outputURL: URL,
         clientFormat: AVAudioFormat,
-        fileFormat: AVAudioFormat
+        fileFormat: AVAudioFormat,
+        writeMode: ExtendedAudioFileWriteMode = .asynchronous
     ) throws {
         var fileDescription = fileFormat.streamDescription.pointee
         var audioFile: ExtAudioFileRef?
@@ -34,7 +54,10 @@ nonisolated final class ExtendedAudioFileWriter: MeetingAudioBufferWriting, @unc
             &audioFile
         )
         guard createStatus == noErr, let audioFile else {
-            throw ExtendedAudioFileWriterError.status(createStatus)
+            throw ExtendedAudioFileWriterError.status(
+                operation: "file creation",
+                code: createStatus
+            )
         }
 
         do {
@@ -46,12 +69,20 @@ nonisolated final class ExtendedAudioFileWriter: MeetingAudioBufferWriting, @unc
                 &clientDescription
             )
             guard clientFormatStatus == noErr else {
-                throw ExtendedAudioFileWriterError.status(clientFormatStatus)
+                throw ExtendedAudioFileWriterError.status(
+                    operation: "client format configuration",
+                    code: clientFormatStatus
+                )
             }
 
-            let warmUpStatus = ExtAudioFileWriteAsync(audioFile, 0, nil)
-            guard warmUpStatus == noErr else {
-                throw ExtendedAudioFileWriterError.status(warmUpStatus)
+            if writeMode == .asynchronous {
+                let warmUpStatus = ExtAudioFileWriteAsync(audioFile, 0, nil)
+                guard warmUpStatus == noErr else {
+                    throw ExtendedAudioFileWriterError.status(
+                        operation: "asynchronous writer warm-up",
+                        code: warmUpStatus
+                    )
+                }
             }
         } catch {
             ExtAudioFileDispose(audioFile)
@@ -59,6 +90,7 @@ nonisolated final class ExtendedAudioFileWriter: MeetingAudioBufferWriting, @unc
         }
 
         self.clientFormat = clientFormat
+        self.writeMode = writeMode
         self.audioFile = audioFile
     }
 
@@ -70,27 +102,46 @@ nonisolated final class ExtendedAudioFileWriter: MeetingAudioBufferWriting, @unc
 
     func write(_ buffer: AVAudioPCMBuffer) throws {
         if let firstFailureStatus {
-            throw ExtendedAudioFileWriterError.status(firstFailureStatus)
+            throw ExtendedAudioFileWriterError.status(
+                operation: "a previous write",
+                code: firstFailureStatus
+            )
         }
         guard let audioFile, buffer.format.matches(clientFormat) else {
             throw ExtendedAudioFileWriterError.invalidState
         }
 
-        let status = ExtAudioFileWriteAsync(
-            audioFile,
-            UInt32(buffer.frameLength),
-            buffer.audioBufferList
-        )
+        let status: OSStatus
+        switch writeMode {
+        case .synchronous:
+            status = ExtAudioFileWrite(
+                audioFile,
+                UInt32(buffer.frameLength),
+                buffer.audioBufferList
+            )
+        case .asynchronous:
+            status = ExtAudioFileWriteAsync(
+                audioFile,
+                UInt32(buffer.frameLength),
+                buffer.audioBufferList
+            )
+        }
         guard status == noErr else {
             firstFailureStatus = status
-            throw ExtendedAudioFileWriterError.status(status)
+            throw ExtendedAudioFileWriterError.status(
+                operation: writeMode == .synchronous ? "synchronous write" : "asynchronous write",
+                code: status
+            )
         }
     }
 
     func close() throws {
         guard let audioFile else {
             if let firstFailureStatus {
-                throw ExtendedAudioFileWriterError.status(firstFailureStatus)
+                throw ExtendedAudioFileWriterError.status(
+                    operation: "a previous write",
+                    code: firstFailureStatus
+                )
             }
             return
         }
@@ -101,7 +152,10 @@ nonisolated final class ExtendedAudioFileWriter: MeetingAudioBufferWriting, @unc
             firstFailureStatus = closeStatus
         }
         if let firstFailureStatus {
-            throw ExtendedAudioFileWriterError.status(firstFailureStatus)
+            throw ExtendedAudioFileWriterError.status(
+                operation: "file finalization",
+                code: firstFailureStatus
+            )
         }
     }
 
@@ -112,7 +166,7 @@ nonisolated final class ExtendedAudioFileWriter: MeetingAudioBufferWriting, @unc
         case "caf":
             return kAudioFileCAFType
         default:
-            throw ExtendedAudioFileWriterError.unsupportedFileType
+            throw ExtendedAudioFileWriterError.unsupportedFileType(outputURL.pathExtension)
         }
     }
 }

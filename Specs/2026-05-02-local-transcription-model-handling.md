@@ -1,7 +1,7 @@
 ---
 id: SPEC-002
 status: implemented
-updated: 2026-07-24
+updated: 2026-08-13
 tests:
   - VoicePenTests/App/VoicePenAppCommandTests.swift
   - VoicePenTests/App/AppControllerTests.swift
@@ -37,6 +37,7 @@ confirmation, or public model marketplace behavior.
 - When VoicePen shows Model settings, it shall avoid redundant bottom explanatory text once model details, actions, feature support, and per-control help are visible.
 - When VoicePen shows the tray menu, it shall expose a Recognition Language submenu backed by the same supported language options and persisted setting as Model settings; the selected language shall be visibly marked, and choosing an option shall update the global transcription language for future dictation and Meeting transcription.
 - When a Whisper.cpp model is selected, VoicePen shall require the expected model and Core ML companion artifacts before accelerated transcription.
+- When Whisper.cpp runs on Apple Silicon, VoicePen shall make the packaged Metal kernels discoverable from both the app bundle and SwiftPM runtime bundles so the decoder does not fall back to CPU because of resource lookup.
 - When a Whisper.cpp model is installed by download, VoicePen shall treat it as installed only after the full download set validates and a completed-download marker is written.
 - When a transcription request runs, VoicePen shall route it to the backend that matches the selected model.
 - When Whisper.cpp decodes audio, VoicePen shall use the default audio context and a conservative thread count of `min(4, processorCount - 2)`, floored at `1`.

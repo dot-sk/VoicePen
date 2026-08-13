@@ -266,37 +266,38 @@ actor WhisperCppContext {
     private static func readAudioSamples(_ url: URL) throws -> [Float] {
         let audioFile = try AVAudioFile(forReading: url)
         let format = audioFile.processingFormat
-        guard
-            let buffer = AVAudioPCMBuffer(
-                pcmFormat: format,
-                frameCapacity: AVAudioFrameCount(audioFile.length)
-            )
-        else {
-            throw TranscriptionError.transcriptionFailed("Could not create audio buffer.")
-        }
-
-        try audioFile.read(into: buffer)
-
-        guard let channelData = buffer.floatChannelData else {
-            throw TranscriptionError.transcriptionFailed("Could not read audio samples.")
-        }
-
-        let frameLength = Int(buffer.frameLength)
         let channelCount = Int(format.channelCount)
         guard channelCount > 0 else { return [] }
 
-        if channelCount == 1 {
-            return Array(UnsafeBufferPointer(start: channelData[0], count: frameLength))
+        let blockFrameCapacity: AVAudioFrameCount = 1_048_576
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: blockFrameCapacity) else {
+            throw TranscriptionError.transcriptionFailed("Could not create audio buffer.")
         }
 
         var samples = [Float]()
-        samples.reserveCapacity(frameLength)
-        for frame in 0..<frameLength {
-            var mixedSample: Float = 0
-            for channel in 0..<channelCount {
-                mixedSample += channelData[channel][frame]
+        samples.reserveCapacity(Int(audioFile.length))
+        while audioFile.framePosition < audioFile.length {
+            let remainingFrames = audioFile.length - audioFile.framePosition
+            let requestedFrames = AVAudioFrameCount(min(Int64(blockFrameCapacity), remainingFrames))
+            try audioFile.read(into: buffer, frameCount: requestedFrames)
+            let frameLength = Int(buffer.frameLength)
+            guard frameLength > 0 else { break }
+            guard let channelData = buffer.floatChannelData else {
+                throw TranscriptionError.transcriptionFailed("Could not read audio samples.")
             }
-            samples.append(mixedSample / Float(channelCount))
+
+            if channelCount == 1 {
+                samples.append(contentsOf: UnsafeBufferPointer(start: channelData[0], count: frameLength))
+                continue
+            }
+
+            for frame in 0..<frameLength {
+                var mixedSample: Float = 0
+                for channel in 0..<channelCount {
+                    mixedSample += channelData[channel][frame]
+                }
+                samples.append(mixedSample / Float(channelCount))
+            }
         }
         return samples
     }

@@ -246,7 +246,7 @@ nonisolated struct MeetingHistoryEntry: Codable, Identifiable, Equatable, Sendab
     private static let leadingTimecodePattern = #"(?m)^\s*\[\d{2}:\d{2}:\d{2}\s*-\s*\d{2}:\d{2}:\d{2}\]\s*"#
 }
 
-nonisolated enum MeetingSourceKind: String, Codable, Equatable, Sendable {
+nonisolated enum MeetingSourceKind: String, Codable, Equatable, Hashable, Sendable {
     case microphone
     case systemAudio
 }

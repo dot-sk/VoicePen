@@ -22,7 +22,6 @@ nonisolated enum VoicePenConfig {
     static let meetingMaximumRecordingDuration: TimeInterval = 120 * 60
     static let meetingRecordingReminderLeadTime: TimeInterval = 5 * 60
     static let meetingProcessingTimeout: Duration = .seconds(14_400)
-    static let meetingChunkProcessingTimeout: Duration = .seconds(900)
     static let meetingRecoveryAudioTTL: TimeInterval = 7 * 24 * 60 * 60
     static let meetingCompletedRecoveryAudioTTL: TimeInterval = 24 * 60 * 60
     static let defaultSavedAudioStorageLimitGB = 5

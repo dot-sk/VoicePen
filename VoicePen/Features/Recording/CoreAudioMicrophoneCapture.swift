@@ -205,7 +205,7 @@ nonisolated final class CoreAudioMicrophoneCapture: CoreAudioMicrophoneCapturing
             interleaved: false
         )!
         self.inputFormat = fallbackInputFormat
-        self.callbackQueue.setSpecific(key: callbackQueueKey, value: ())
+        callbackQueue.setSpecific(key: callbackQueueKey, value: ())
     }
 
     var isPrepared: Bool {
@@ -344,9 +344,7 @@ nonisolated final class CoreAudioMicrophoneCapture: CoreAudioMicrophoneCapturing
     }
 
     private func drainCallbackQueue() {
-        guard DispatchQueue.getSpecific(key: callbackQueueKey) == nil else {
-            return
-        }
+        guard DispatchQueue.getSpecific(key: callbackQueueKey) == nil else { return }
         callbackQueue.sync {}
     }
 

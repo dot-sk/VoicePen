@@ -9,28 +9,35 @@ nonisolated enum PCMStreamConverterError: LocalizedError {
     }
 }
 
+/// Keeps one AVAudioConverter alive for an entire capture stream so resampler
+/// state is preserved across Core Audio callback boundaries.
 nonisolated final class PCMStreamConverter: @unchecked Sendable {
     let inputFormat: AVAudioFormat
     let outputFormat: AVAudioFormat
 
-    private let converter: AVAudioConverter
+    private let converter: AVAudioConverter?
     private var inputBuffer: AVAudioPCMBuffer?
     private var inputFrameOffset: AVAudioFrameCount = 0
     private var scratchBuffer: AVAudioPCMBuffer?
     private var inputCopyFailed = false
 
     init(inputFormat: AVAudioFormat, outputFormat: AVAudioFormat) throws {
-        guard let converter = AVAudioConverter(from: inputFormat, to: outputFormat) else {
+        let converter = inputFormat.matches(outputFormat) ? nil : AVAudioConverter(from: inputFormat, to: outputFormat)
+        guard inputFormat.matches(outputFormat) || converter != nil else {
             throw PCMStreamConverterError.conversionFailed
         }
-        converter.primeMethod = .none
+        converter?.primeMethod = .none
         self.inputFormat = inputFormat
         self.outputFormat = outputFormat
         self.converter = converter
     }
 
     func convert(_ buffer: AVAudioPCMBuffer) throws -> AVAudioPCMBuffer {
-        guard buffer.format.matches(inputFormat),
+        if buffer.format.matches(outputFormat), let copy = buffer.mutableCopy() {
+            return copy
+        }
+        guard let converter,
+            buffer.format.matches(inputFormat),
             let outputBuffer = AVAudioPCMBuffer(
                 pcmFormat: outputFormat,
                 frameCapacity: outputFrameCapacity(for: buffer.frameLength)
@@ -112,5 +119,24 @@ nonisolated final class PCMStreamConverter: @unchecked Sendable {
             memcpy(destinationData, sourceData.advanced(by: byteOffset), byteCount)
         }
         return true
+    }
+}
+
+private extension AVAudioPCMBuffer {
+    nonisolated func mutableCopy() -> AVAudioPCMBuffer? {
+        guard let copy = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameLength) else { return nil }
+        copy.frameLength = frameLength
+        let sourceBuffers = UnsafeMutableAudioBufferListPointer(mutableAudioBufferList)
+        let destinationBuffers = UnsafeMutableAudioBufferListPointer(copy.mutableAudioBufferList)
+        guard sourceBuffers.count == destinationBuffers.count else { return nil }
+        for index in sourceBuffers.indices {
+            guard let sourceData = sourceBuffers[index].mData,
+                let destinationData = destinationBuffers[index].mData
+            else { return nil }
+            let byteCount = Int(sourceBuffers[index].mDataByteSize)
+            memcpy(destinationData, sourceData, byteCount)
+            destinationBuffers[index].mDataByteSize = sourceBuffers[index].mDataByteSize
+        }
+        return copy
     }
 }

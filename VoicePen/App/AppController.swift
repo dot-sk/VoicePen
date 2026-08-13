@@ -633,6 +633,7 @@ final class AppController: ObservableObject {
             ),
             audioFileIO: meetingAudioFileIO,
             transcriber: transcriber,
+            dictionaryStore: dictionaryStore,
             diarizer: meetingDiarizationClient,
             historyStore: meetingHistoryStore,
             recoveryAudioStore: MeetingRecoveryAudioStore(directory: paths.meetingRecoveryDirectory),

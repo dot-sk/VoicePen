@@ -232,10 +232,14 @@ struct ggml_metal_context {
 @end
 
 static NSBundle * ggml_metal_bundle_for_resources(void) {
+    NSURL * mainBundleURL = NSBundle.mainBundle.bundleURL;
+    NSBundle * classBundle = [NSBundle bundleForClass:[GGMLMetalClass class]];
     NSArray<NSURL *> * candidateURLs = @[
         NSBundle.mainBundle.resourceURL,
-        [NSBundle bundleForClass:[GGMLMetalClass class]].resourceURL,
-        NSBundle.mainBundle.bundleURL
+        classBundle.resourceURL,
+        mainBundleURL,
+        mainBundleURL.URLByDeletingLastPathComponent,
+        classBundle.bundleURL.URLByDeletingLastPathComponent
     ];
     NSArray<NSString *> * bundleNames = @[
         @"whisper_spm_ggml_metal",
@@ -256,7 +260,7 @@ static NSBundle * ggml_metal_bundle_for_resources(void) {
         }
     }
 
-    return [NSBundle bundleForClass:[GGMLMetalClass class]];
+    return classBundle;
 }
 
 static void ggml_metal_default_log_callback(enum ggml_log_level level, const char * msg, void * user_data) {
@@ -402,6 +406,22 @@ static struct ggml_metal_context * ggml_metal_init(int n_cb) {
             if (error) {
                 GGML_METAL_LOG_ERROR("%s: error: %s\n", __func__, [[error description] UTF8String]);
                 return NULL;
+            }
+
+            NSString * commonHeaderInclude = @"#include \"ggml-common.h\"";
+            if ([src containsString:commonHeaderInclude]) {
+                NSString * commonHeaderPath = [bundle pathForResource:@"ggml-common" ofType:@"h"];
+                if (commonHeaderPath == nil) {
+                    GGML_METAL_LOG_ERROR("%s: error: could not find ggml-common.h in resource bundle\n", __func__);
+                    return NULL;
+                }
+
+                NSString * commonHeader = [NSString stringWithContentsOfFile:commonHeaderPath encoding:NSUTF8StringEncoding error:&error];
+                if (error) {
+                    GGML_METAL_LOG_ERROR("%s: error: %s\n", __func__, [[error description] UTF8String]);
+                    return NULL;
+                }
+                src = [src stringByReplacingOccurrencesOfString:commonHeaderInclude withString:commonHeader];
             }
 #endif // GGML_METAL_EMBED_LIBRARY
 
