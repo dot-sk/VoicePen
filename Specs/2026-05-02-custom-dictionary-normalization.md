@@ -1,7 +1,7 @@
 ---
 id: SPEC-003
 status: implemented
-updated: 2026-06-09
+updated: 2026-07-24
 tests:
   - VoicePenTests/Dictionary/DictionaryCSVImporterTests.swift
   - VoicePenTests/Dictionary/DictionaryStoreTests.swift
@@ -52,8 +52,6 @@ Dictionary entries contain a canonical form and variants. VoicePen imports entri
 - Automated: `VoicePenTests/Dictionary/PromptGlossaryBuilderTests.swift` covers glossary ordering, language, and limits.
 - Automated: `VoicePenTests/Pipeline/DictationPipelineTests.swift` covers passing glossary prompts for short and long valid dictation recordings.
 - Automated: `VoicePenTests/Dictionary/TermNormalizerTests.swift` and `VoicePenTests/Dictionary/DictionaryEntryFilterTests.swift` cover replacement and filtering behavior.
-- Manual: with an existing dictionary term selected, click Add once and verify the editor immediately shows an empty draft instead of the previously selected term.
-- Manual: import a small CSV in the app and verify a configured spoken variant is inserted as the canonical term.
 
 ## Notes
 

@@ -1,7 +1,7 @@
 ---
 id: SPEC-002
 status: implemented
-updated: 2026-06-10
+updated: 2026-07-24
 tests:
   - VoicePenTests/App/VoicePenAppCommandTests.swift
   - VoicePenTests/App/AppControllerTests.swift
@@ -82,7 +82,6 @@ confirmation, or public model marketplace behavior.
 - Automated: `VoicePenTests/Transcription/WhisperCppTranscriptionClientTests.swift` covers Whisper.cpp decoding defaults, the conservative thread cap, short-utterance single-segment behavior, timestamped segmentation behavior, benchmark configurations, and prompt-token caching.
 - Automated: `VoicePenTests/Transcription/ModelDownloadProxyConfigurationTests.swift` covers proxy configuration.
 - Automated: routing behavior belongs in `VoicePenTests/Transcription/RoutingTranscriptionClientTests.swift` and `VoicePenTests/Transcription/RoutingModelDownloadClientTests.swift` when those files are present.
-- Manual: verify a fresh install prompts before downloading model files and can transcribe after required artifacts are installed.
 
 ## Notes
 

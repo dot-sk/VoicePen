@@ -26,27 +26,36 @@ nonisolated struct WhisperCppRuntimeState: Equatable {
 
 actor WhisperCppTranscriptionClient {
     private let paths: AppPaths
+    private let voiceActivityDetectionModelURLProvider: @Sendable () -> URL?
     private var runtimeState = WhisperCppRuntimeState()
     private var context: WhisperCppContext?
 
-    init(paths: AppPaths) {
+    init(
+        paths: AppPaths,
+        voiceActivityDetectionModelURLProvider: @escaping @Sendable () -> URL? = {
+            WhisperCppVoiceActivityDetection.bundledModelURL()
+        }
+    ) {
         self.paths = paths
+        self.voiceActivityDetectionModelURLProvider = voiceActivityDetectionModelURLProvider
     }
 
     func transcribe(
-        audioURL: URL,
-        model: ModelManifestModel,
-        glossaryPrompt: String,
-        language: String,
-        includeTimestamps: Bool = false
+        _ request: TranscriptionRequest,
+        model: ModelManifestModel
     ) async throws -> TranscriptionClientResult {
         let context = try await loadContextIfNeeded(for: model)
+        let isVoiceActivityDetectionRequested = request.options.contains(.voiceActivityDetection)
+        let voiceActivityDetectionModelPath = WhisperCppVoiceActivityDetection.existingModelPath(
+            requested: isVoiceActivityDetectionRequested,
+            modelURL: isVoiceActivityDetectionRequested
+                ? voiceActivityDetectionModelURLProvider()
+                : nil
+        )
         do {
             let result = try await context.transcribe(
-                audioURL: audioURL,
-                prompt: glossaryPrompt,
-                language: language,
-                includeTimestamps: includeTimestamps
+                request,
+                voiceActivityDetectionModelPath: voiceActivityDetectionModelPath
             )
             runtimeState.markWarmed(modelId: model.id)
             return result

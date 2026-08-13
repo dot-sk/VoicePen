@@ -82,7 +82,10 @@ nonisolated final class LiveAudioRecordingClient: NSObject, AudioRecordingClient
         try fileManager.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
         let url = tempDirectory.appendingPathComponent("voicepen-\(UUID().uuidString).wav")
 
-        guard let converter = preparedCapture.makeConverter() else {
+        let converter: PCMStreamConverter
+        do {
+            converter = try preparedCapture.makeConverter()
+        } catch {
             throw RecordingError.couldNotStart
         }
 
@@ -197,8 +200,8 @@ nonisolated private final class PreparedAudioCapture: @unchecked Sendable {
         try microphoneCapture.prepare()
     }
 
-    func makeConverter() -> AVAudioConverter? {
-        AVAudioConverter(from: inputFormat, to: captureFormat)
+    func makeConverter() throws -> PCMStreamConverter {
+        try PCMStreamConverter(inputFormat: inputFormat, outputFormat: captureFormat)
     }
 
     func start(onBuffer: @escaping @Sendable (AVAudioPCMBuffer) -> Void) throws {
@@ -217,19 +220,17 @@ nonisolated private final class PreparedAudioCapture: @unchecked Sendable {
 nonisolated private final class LiveAudioRecordingSession: @unchecked Sendable {
     private let preparedCapture: PreparedAudioCapture
     private let audioFile: AVAudioFile
-    private let converter: AVAudioConverter
+    private let converter: PCMStreamConverter
     private let url: URL
     private let startedAt: Date
     private let fileManager: FileManager
     private let recordingMeter: LiveRecordingMeter
-    private let lock = NSLock()
     private var recordingError: Error?
-    private var didFinish = false
 
     init(
         preparedCapture: PreparedAudioCapture,
         audioFile: AVAudioFile,
-        converter: AVAudioConverter,
+        converter: PCMStreamConverter,
         url: URL,
         startedAt: Date,
         fileManager: FileManager,
@@ -245,42 +246,17 @@ nonisolated private final class LiveAudioRecordingSession: @unchecked Sendable {
     }
 
     func processInputBuffer(_ buffer: AVAudioPCMBuffer) {
-        lock.lock()
-        let didFinish = didFinish
-        lock.unlock()
-        guard !didFinish else { return }
+        guard recordingError == nil else { return }
 
-        lock.lock()
-        defer { lock.unlock() }
-        guard !self.didFinish else { return }
-
-        guard
-            let captureBuffer = AVAudioPCMBuffer(
-                pcmFormat: preparedCapture.captureFormat,
-                frameCapacity: convertedFrameCapacity(
-                    inputFrames: buffer.frameLength,
-                    inputSampleRate: buffer.format.sampleRate,
-                    outputSampleRate: preparedCapture.captureFormat.sampleRate
-                )
-            )
-        else {
+        let captureBuffer: AVAudioPCMBuffer
+        do {
+            captureBuffer = try converter.convert(buffer)
+        } catch {
             recordingError = RecordingError.audioWriteFailed
             return
         }
 
-        let inputProvider = AudioConverterInputProvider(buffer: buffer)
-        var conversionError: NSError?
-        let status = converter.convert(to: captureBuffer, error: &conversionError) { _, inputStatus in
-            inputProvider.next(inputStatus: inputStatus)
-        }
-
-        guard conversionError == nil else {
-            recordingError = RecordingError.audioWriteFailed
-            return
-        }
-
-        guard status == .haveData || status == .inputRanDry,
-            captureBuffer.frameLength > 0,
+        guard captureBuffer.frameLength > 0,
             let outputBuffer = ActiveChannelMonoMixer.makeMonoBuffer(
                 from: captureBuffer,
                 outputFormat: preparedCapture.outputFormat
@@ -302,11 +278,6 @@ nonisolated private final class LiveAudioRecordingSession: @unchecked Sendable {
     func stop() throws -> RecordingResult {
         preparedCapture.stop()
 
-        lock.lock()
-        didFinish = true
-        let recordingError = recordingError
-        lock.unlock()
-
         recordingMeter.reset()
 
         if recordingError != nil {
@@ -322,47 +293,7 @@ nonisolated private final class LiveAudioRecordingSession: @unchecked Sendable {
 
     func cancelAfterStartFailure() {
         preparedCapture.stop()
-        lock.lock()
-        didFinish = true
         recordingError = nil
-        lock.unlock()
         recordingMeter.reset()
-    }
-
-    private func convertedFrameCapacity(
-        inputFrames: AVAudioFrameCount,
-        inputSampleRate: Double,
-        outputSampleRate: Double
-    ) -> AVAudioFrameCount {
-        guard inputSampleRate > 0, outputSampleRate > 0 else {
-            return inputFrames
-        }
-
-        let ratio = outputSampleRate / inputSampleRate
-        return AVAudioFrameCount((Double(inputFrames) * ratio).rounded(.up)) + 32
-    }
-}
-
-nonisolated private final class AudioConverterInputProvider: @unchecked Sendable {
-    private let buffer: AVAudioPCMBuffer
-    private let lock = NSLock()
-    private var didProvideInput = false
-
-    init(buffer: AVAudioPCMBuffer) {
-        self.buffer = buffer
-    }
-
-    func next(inputStatus: UnsafeMutablePointer<AVAudioConverterInputStatus>) -> AVAudioBuffer? {
-        lock.lock()
-        defer { lock.unlock() }
-
-        guard !didProvideInput else {
-            inputStatus.pointee = .noDataNow
-            return nil
-        }
-
-        didProvideInput = true
-        inputStatus.pointee = .haveData
-        return buffer
     }
 }

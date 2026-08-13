@@ -1,7 +1,7 @@
 ---
 id: SPEC-010
 status: implemented
-updated: 2026-06-14
+updated: 2026-07-24
 tests:
   - VoicePenTests/LLM/LLMClientTests.swift
   - VoicePenTests/Settings/UserConfigStoreTests.swift
@@ -65,7 +65,6 @@ prompt or registry logic.
 - Automated: `VoicePenTests/LLM/LLMClientTests.swift` covers Ollama and OpenRouter request shape, Ollama availability ping behavior, status failures, timeouts, invalid JSON, strict schema unsupported errors, unreachable provider errors, and API key redaction.
 - Automated: `VoicePenTests/Settings/UserConfigStoreTests.swift` covers default LLM provider config, OpenRouter empty-key config validation, and TOML save behavior while preserving TOML-only advanced values.
 - Automated: `VoicePenTests/App/VoicePenAppCommandTests.swift` covers that the settings sidebar does not expose the AI section and keeps generic config controls in the Settings screen.
-- Manual: open the main window and verify there is no AI sidebar icon or AI settings section; edit LLM values through Settings > Config > Open Config File when provider changes are needed.
 
 ## Notes
 

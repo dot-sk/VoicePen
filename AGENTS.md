@@ -49,7 +49,7 @@ Before changing behavior:
 
 1. Find the relevant spec in `Specs/index.md`; if none exists, create one from `Specs/templates/feature-spec.md` or `Specs/templates/bug-spec.md`.
 2. Capture intended behavior as acceptance criteria before editing production code.
-3. Map each acceptance criterion to an automated test or explicit manual verification.
+3. Map each acceptance criterion to an automated test or a planned automated test scenario. Do not add manual verification to specs.
 4. Implement the smallest change that satisfies the spec.
 5. Update the spec in the same change when behavior, edge cases, or tests change.
 6. Run `make test` before handoff when local tooling is available.
@@ -163,7 +163,7 @@ Write commit messages using Conventional Commits: `type(scope): summary` or
 
 - `draft`: intent is still being shaped; implementation should not begin unless the user explicitly asks for a spike.
 - `active`: ready for implementation and test mapping.
-- `implemented`: behavior is present in code and tests/manual checks are mapped.
+- `implemented`: behavior is present in code and automated tests are mapped.
 - `superseded`: retained for history; link to the replacing spec.
 
 ## Test Expectations
@@ -177,6 +177,12 @@ Automated tests should cover stable behavior contracts: state transitions,
 persistence, routing, permissions, pipeline decisions, parsing, model selection,
 and domain logic. Use UI tests only when behavior depends on the macOS UI
 surface, and keep view-level tests focused on stable product contracts.
+
+Specs are an automated test model, not a manual QA checklist. Every `Test
+Mapping` item must describe automated coverage or a planned automated scenario.
+Do not add manual verification steps to specs, and do not use a manual check to
+justify `implemented` status. One-off manual validation may still be reported
+in a task handoff, but it belongs outside the spec.
 
 Do not unit-test presentation-only details: SwiftUI hierarchy, exact layout,
 colors, fonts, icon names, sizes, spacing, padding, corner radii, hover chrome,

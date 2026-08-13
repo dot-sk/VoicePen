@@ -1,7 +1,7 @@
 ---
 id: SPEC-006
 status: implemented
-updated: 2026-05-07
+updated: 2026-07-24
 tests:
   - VoicePenTests/Updates/SoftwareUpdateConfigurationTests.swift
   - VoicePenTests/Updates/AppcastGenerationTests.swift
@@ -112,11 +112,6 @@ update-signing material.
 - Automated: `VoicePenTests/Updates/AppcastGenerationTests.swift` verifies
   release feed generation emits an item for the tagged version with the expected
   archive URL, version/build metadata, length, and updater signature.
-- Manual: run `make prepare-release VERSION=x.y.z`, wait for the release pull
-  request checks to pass, then run `make publish-release VERSION=x.y.z` and
-  confirm the script refuses non-green PRs, mismatched versions, or
-  non-incremented builds before tagging, and confirm a valid tag points to the
-  release branch commit.
 - Automated: `VoicePenTests/Updates/SoftwareUpdateConfigurationTests.swift`
   verifies the package target signs and verifies the app bundle before archiving
   it and the release workflow imports a stable macOS signing identity from GitHub
@@ -126,14 +121,6 @@ update-signing material.
 - Automated: `VoicePenTests/Updates/SoftwareUpdateConfigurationTests.swift`
   verifies Debug and Release use separate app identity and local data build
   settings.
-- Manual: install an older update-enabled build into `/Applications`, publish or
-  locally host a newer feed item, choose check for updates, approve the prompt,
-  and confirm the app updates and launches as the newer version.
-- Manual: locally host an appcast item for a newer build whose archive has a
-  missing or invalid updater signature, choose check for updates, and confirm
-  VoicePen refuses to install that update.
-- Manual: check for updates from the newest build and confirm the standard
-  no-update result is shown.
 
 ## Notes
 

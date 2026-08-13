@@ -27,8 +27,7 @@ Describe the exact behavior VoicePen should have after implementation.
 
 ## Test Mapping
 
-- Automated: name the Swift Testing test file or scenario that verifies the acceptance criteria.
-- Manual: name any required manual verification that cannot be automated reasonably.
+- Automated: name the existing or planned automated test file and scenario that verifies the acceptance criteria.
 
 ## Notes
 

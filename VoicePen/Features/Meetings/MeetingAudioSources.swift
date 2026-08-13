@@ -130,23 +130,17 @@ final class CompositeMeetingRecordingClient: MeetingRecordingClient {
     }
 }
 
-nonisolated final class CoreAudioMicrophoneMeetingAudioSource: MeetingAudioSourceClient, @unchecked Sendable {
+final class CoreAudioMicrophoneMeetingAudioSource: MeetingAudioSourceClient {
     let source = MeetingSourceKind.microphone
 
     private let tempDirectory: URL
     private let fileManager: FileManager
     private let audioFileIO: MeetingAudioFileIO
     private let microphoneCapture: CoreAudioMicrophoneCapturing
-    private let lock = NSLock()
-    private var converter: AVAudioConverter?
-    private var captureFormat: AVAudioFormat?
-    private var outputFormat: AVAudioFormat?
-    private var currentSink: MeetingAudioBufferFileSink?
+    private var currentStream: MeetingMicrophoneStream?
     private var currentSegmentStartOffset: TimeInterval = 0
     private var chunks: [MeetingAudioChunk] = []
-    private var recordingError: Error?
     private var sourceStatus = MeetingSourceHealth.unavailable
-    private var isRecording = false
 
     init(
         tempDirectory: URL,
@@ -161,16 +155,11 @@ nonisolated final class CoreAudioMicrophoneMeetingAudioSource: MeetingAudioSourc
     }
 
     var status: MeetingSourceHealth {
-        lock.lock()
-        defer { lock.unlock() }
-        return sourceStatus
+        currentStream?.hasFailed == true ? .failed : sourceStatus
     }
 
     var level: Double? {
-        lock.lock()
-        let sink = currentSink
-        lock.unlock()
-        return sink?.level
+        currentStream?.level
     }
 
     func start(at offset: TimeInterval) async throws {
@@ -179,51 +168,25 @@ nonisolated final class CoreAudioMicrophoneMeetingAudioSource: MeetingAudioSourc
     }
 
     func stop(at offset: TimeInterval) async throws -> [MeetingAudioChunk] {
-        if hasCurrentSink() {
+        if currentStream != nil {
             try finishSegment(at: offset, healthAfterStop: .unavailable)
         }
-        return takeFinishedChunks()
-    }
-
-    func cancel() async throws {
-        microphoneCapture.teardown()
-        cancelState()?.cancel()
-    }
-
-    private func prepareStartState() throws {
-        lock.lock()
-        defer { lock.unlock() }
-        guard currentSink == nil else { throw MeetingRecordingError.alreadyRecording }
-        chunks = []
-        recordingError = nil
-    }
-
-    private func hasCurrentSink() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return currentSink != nil
-    }
-
-    private func takeFinishedChunks() -> [MeetingAudioChunk] {
-        lock.lock()
-        defer { lock.unlock() }
         let finishedChunks = chunks
         chunks = []
         return finishedChunks
     }
 
-    private func cancelState() -> MeetingAudioBufferFileSink? {
-        lock.lock()
-        defer { lock.unlock() }
-        isRecording = false
-        converter = nil
-        captureFormat = nil
-        outputFormat = nil
-        let sink = currentSink
-        currentSink = nil
+    func cancel() async throws {
+        microphoneCapture.teardown()
+        currentStream?.cancel()
+        currentStream = nil
         chunks = []
         sourceStatus = .unavailable
-        return sink
+    }
+
+    private func prepareStartState() throws {
+        guard currentStream == nil else { throw MeetingRecordingError.alreadyRecording }
+        chunks = []
     }
 
     private func startSegment(at offset: TimeInterval) throws {
@@ -235,8 +198,7 @@ nonisolated final class CoreAudioMicrophoneMeetingAudioSource: MeetingAudioSourc
             let captureFormat = ActiveChannelMonoMixer.makeFloatFormat(
                 sampleRate: audioFileIO.sampleRate,
                 channelCount: inputFormat.channelCount
-            ),
-            let converter = AVAudioConverter(from: inputFormat, to: captureFormat)
+            )
         else {
             throw MeetingRecordingError.captureFailed("Microphone input format is unavailable.")
         }
@@ -248,30 +210,30 @@ nonisolated final class CoreAudioMicrophoneMeetingAudioSource: MeetingAudioSourc
             format: outputFormat,
             audioFileIO: audioFileIO
         )
+        let stream: MeetingMicrophoneStream
+        do {
+            stream = try MeetingMicrophoneStream(
+                inputFormat: inputFormat,
+                captureFormat: captureFormat,
+                outputFormat: outputFormat,
+                sink: sink
+            )
+        } catch {
+            sink.cancel()
+            throw error
+        }
 
-        lock.lock()
-        self.converter = converter
-        self.captureFormat = captureFormat
-        self.outputFormat = outputFormat
-        currentSink = sink
+        currentStream = stream
         currentSegmentStartOffset = offset
-        recordingError = nil
-        isRecording = true
-        lock.unlock()
 
         do {
-            try microphoneCapture.start(onBuffer: { [weak self] buffer in
-                self?.processInputBuffer(buffer)
+            try microphoneCapture.start(onBuffer: { [stream] buffer in
+                stream.process(buffer)
             })
-            lock.lock()
             sourceStatus = .capturing
-            lock.unlock()
         } catch {
             let error = MeetingRecordingError.captureFailed("Microphone capture could not be started.")
-            lock.lock()
-            recordingError = error
             sourceStatus = .failed
-            lock.unlock()
             cleanupRecordingFailure()
             throw error
         }
@@ -279,101 +241,92 @@ nonisolated final class CoreAudioMicrophoneMeetingAudioSource: MeetingAudioSourc
 
     private func finishSegment(at offset: TimeInterval, healthAfterStop: MeetingSourceHealth) throws {
         microphoneCapture.stop()
-        lock.lock()
-        guard let currentSink else {
-            lock.unlock()
-            return
-        }
-        isRecording = false
-        converter = nil
-        captureFormat = nil
-        outputFormat = nil
-        let recordingError = recordingError
+        guard let currentStream else { return }
         let currentSegmentStartOffset = currentSegmentStartOffset
-        self.currentSink = nil
-        lock.unlock()
+        self.currentStream = nil
 
-        if let recordingError {
-            lock.lock()
-            sourceStatus = .failed
-            lock.unlock()
-            currentSink.cancel()
-            throw recordingError
-        }
-
-        if let chunk = try currentSink.finish(startOffset: currentSegmentStartOffset, endOffset: offset) {
-            lock.lock()
-            chunks.append(chunk)
-            lock.unlock()
-        }
-        lock.lock()
-        sourceStatus = healthAfterStop
-        lock.unlock()
-    }
-
-    nonisolated private func processInputBuffer(_ buffer: AVAudioPCMBuffer) {
-        lock.lock()
-        defer { lock.unlock() }
-        guard isRecording else { return }
-        guard let converter,
-            let captureFormat,
-            let outputFormat,
-            let currentSink,
-            let captureBuffer = AVAudioPCMBuffer(
-                pcmFormat: captureFormat,
-                frameCapacity: MeetingAudioFrameCapacity.converted(
-                    inputFrames: buffer.frameLength,
-                    inputSampleRate: buffer.format.sampleRate,
-                    outputSampleRate: captureFormat.sampleRate
-                )
-            )
-        else {
-            recordingError = MeetingRecordingError.captureFailed("Microphone audio could not be converted.")
-            sourceStatus = .failed
-            return
-        }
-
-        let inputProvider = MeetingAudioSingleBufferInputProvider(buffer: buffer)
-        var conversionError: NSError?
-        let status = converter.convert(to: captureBuffer, error: &conversionError) { _, inputStatus in
-            inputProvider.next(inputStatus: inputStatus)
-        }
-
-        guard conversionError == nil, status == .haveData || status == .inputRanDry else {
-            recordingError = MeetingRecordingError.captureFailed("Microphone audio conversion failed.")
-            sourceStatus = .failed
-            return
-        }
-
-        guard captureBuffer.frameLength > 0,
-            let outputBuffer = ActiveChannelMonoMixer.makeMonoBuffer(
-                from: captureBuffer,
-                outputFormat: outputFormat
-            ),
-            outputBuffer.frameLength > 0
-        else {
-            return
-        }
         do {
-            try currentSink.append(outputBuffer)
+            if let chunk = try currentStream.finish(
+                startOffset: currentSegmentStartOffset,
+                endOffset: offset
+            ) {
+                chunks.append(chunk)
+            }
+            sourceStatus = healthAfterStop
         } catch {
-            recordingError = error
             sourceStatus = .failed
+            throw error
         }
     }
 
     private func cleanupRecordingFailure() {
         microphoneCapture.stop()
-        lock.lock()
-        isRecording = false
-        converter = nil
-        captureFormat = nil
-        outputFormat = nil
-        let sink = currentSink
-        currentSink = nil
+        currentStream?.cancel()
+        currentStream = nil
         chunks = []
-        lock.unlock()
-        sink?.cancel()
+    }
+}
+
+nonisolated private final class MeetingMicrophoneStream: @unchecked Sendable {
+    private let converter: PCMStreamConverter
+    private let outputFormat: AVAudioFormat
+    private let sink: MeetingAudioBufferFileSink
+
+    init(
+        inputFormat: AVAudioFormat,
+        captureFormat: AVAudioFormat,
+        outputFormat: AVAudioFormat,
+        sink: MeetingAudioBufferFileSink
+    ) throws {
+        do {
+            converter = try PCMStreamConverter(
+                inputFormat: inputFormat,
+                outputFormat: captureFormat
+            )
+        } catch {
+            throw MeetingRecordingError.captureFailed("Microphone audio converter is unavailable.")
+        }
+        self.outputFormat = outputFormat
+        self.sink = sink
+    }
+
+    var hasFailed: Bool {
+        sink.hasFailed
+    }
+
+    var level: Double? {
+        sink.level
+    }
+
+    func process(_ buffer: AVAudioPCMBuffer) {
+        guard !sink.hasFailed else { return }
+
+        do {
+            let captureBuffer = try converter.convert(buffer)
+            guard captureBuffer.frameLength > 0,
+                let outputBuffer = ActiveChannelMonoMixer.makeMonoBuffer(
+                    from: captureBuffer,
+                    outputFormat: outputFormat
+                ),
+                outputBuffer.frameLength > 0
+            else {
+                return
+            }
+            try sink.append(outputBuffer)
+        } catch {
+            sink.fail(
+                error as? MeetingRecordingError
+                    ?? MeetingRecordingError.captureFailed("Microphone audio could not be processed.")
+            )
+        }
+    }
+
+    func finish(startOffset: TimeInterval, endOffset: TimeInterval) throws -> MeetingAudioChunk? {
+        return try sink.finish(startOffset: startOffset, endOffset: endOffset)
+    }
+
+    func cancel() {
+        sink.cancel()
     }
 }
 
@@ -386,11 +339,11 @@ final class CoreAudioSystemOutputSource: MeetingAudioSourceClient {
     private let processResolver: MeetingSystemAudioProcessResolving
     private let audioFileIO: MeetingAudioFileIO
     private let queue = DispatchQueue(label: "voicepen.meeting.system-audio")
+    private let queueKey = DispatchSpecificKey<Void>()
     private var tap: AudioHardwareTap?
     private var aggregateDevice: AudioHardwareAggregateDevice?
     private var ioProcID: AudioDeviceIOProcID?
     private var currentSink: MeetingAudioBufferFileSink?
-    private var inputHandler: CoreAudioTapInputHandler?
     private var currentSegmentStartOffset: TimeInterval = 0
     private var chunks: [MeetingAudioChunk] = []
     private var sourceStatus = MeetingSourceHealth.unavailable
@@ -407,10 +360,11 @@ final class CoreAudioSystemOutputSource: MeetingAudioSourceClient {
         self.settingsProvider = settingsProvider
         self.processResolver = processResolver
         self.audioFileIO = audioFileIO
+        queue.setSpecific(key: queueKey, value: ())
     }
 
     var status: MeetingSourceHealth {
-        if inputHandler?.hasFailed == true {
+        if currentSink?.hasFailed == true {
             return .failed
         }
         return sourceStatus
@@ -437,9 +391,9 @@ final class CoreAudioSystemOutputSource: MeetingAudioSourceClient {
 
     func cancel() async throws {
         stopCoreAudioObjects()
+        drainCallbackQueue()
         currentSink?.cancel()
         currentSink = nil
-        inputHandler = nil
         chunks = []
         sourceStatus = .unavailable
     }
@@ -472,16 +426,32 @@ final class CoreAudioSystemOutputSource: MeetingAudioSourceClient {
         }
 
         let outputURL = tempDirectory.appendingPathComponent("voicepen-meeting-system-\(UUID().uuidString).caf")
-        let sink = try MeetingAudioBufferFileSink(
-            source: source,
-            outputURL: outputURL,
-            format: format,
-            audioFileIO: audioFileIO
-        )
-        let inputHandler = CoreAudioTapInputHandler(sink: sink, format: format)
+        let sink: MeetingAudioBufferFileSink
+        do {
+            sink = try MeetingAudioBufferFileSink(
+                source: source,
+                outputURL: outputURL,
+                format: format,
+                audioFileIO: audioFileIO
+            )
+        } catch {
+            try? AudioHardwareSystem.shared.destroyAggregateDevice(aggregateDevice)
+            try? AudioHardwareSystem.shared.destroyProcessTap(tap)
+            throw error
+        }
         var ioProcID: AudioDeviceIOProcID?
         let createStatus = AudioDeviceCreateIOProcIDWithBlock(&ioProcID, aggregateDevice.id, queue) { _, inputData, _, _, _ in
-            inputHandler.append(inputData)
+            guard
+                let buffer = AVAudioPCMBuffer(
+                    pcmFormat: format,
+                    bufferListNoCopy: inputData,
+                    deallocator: nil
+                ),
+                buffer.frameLength > 0
+            else {
+                return
+            }
+            try? sink.append(buffer)
         }
         guard createStatus == noErr, let ioProcID else {
             sink.cancel()
@@ -503,7 +473,6 @@ final class CoreAudioSystemOutputSource: MeetingAudioSourceClient {
         self.aggregateDevice = aggregateDevice
         self.ioProcID = ioProcID
         currentSink = sink
-        self.inputHandler = inputHandler
         currentSegmentStartOffset = offset
         sourceStatus = .capturing
     }
@@ -530,18 +499,20 @@ final class CoreAudioSystemOutputSource: MeetingAudioSourceClient {
     private func finishSegment(at offset: TimeInterval, healthAfterStop: MeetingSourceHealth) throws {
         guard let currentSink else { return }
         stopCoreAudioObjects()
-        if inputHandler?.hasFailed == true {
+        drainCallbackQueue()
+        do {
+            if let chunk = try currentSink.finish(
+                startOffset: currentSegmentStartOffset,
+                endOffset: offset
+            ) {
+                chunks.append(chunk)
+            }
+        } catch {
             sourceStatus = .failed
-            currentSink.cancel()
             self.currentSink = nil
-            inputHandler = nil
-            throw MeetingRecordingError.captureFailed("System audio could not be written.")
-        }
-        if let chunk = try currentSink.finish(startOffset: currentSegmentStartOffset, endOffset: offset) {
-            chunks.append(chunk)
+            throw error
         }
         self.currentSink = nil
-        inputHandler = nil
         sourceStatus = healthAfterStop
     }
 
@@ -559,6 +530,11 @@ final class CoreAudioSystemOutputSource: MeetingAudioSourceClient {
         self.ioProcID = nil
         self.aggregateDevice = nil
         self.tap = nil
+    }
+
+    private func drainCallbackQueue() {
+        guard DispatchQueue.getSpecific(key: queueKey) == nil else { return }
+        queue.sync {}
     }
 }
 
@@ -682,43 +658,4 @@ nonisolated func meetingSystemAudioProcessObjectIDs(
         processObjectIDs.append(processObjectID)
     }
     return processObjectIDs
-}
-
-nonisolated private final class CoreAudioTapInputHandler: @unchecked Sendable {
-    private let sink: MeetingAudioBufferFileSink
-    private let format: AVAudioFormat
-    private let lock = NSLock()
-    private var failed = false
-
-    init(sink: MeetingAudioBufferFileSink, format: AVAudioFormat) {
-        self.sink = sink
-        self.format = format
-    }
-
-    var hasFailed: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return failed
-    }
-
-    func append(_ inputData: UnsafePointer<AudioBufferList>?) {
-        guard let inputData,
-            let buffer = AVAudioPCMBuffer(
-                pcmFormat: format,
-                bufferListNoCopy: inputData,
-                deallocator: nil
-            ),
-            buffer.frameLength > 0
-        else {
-            return
-        }
-
-        do {
-            try sink.append(buffer)
-        } catch {
-            lock.lock()
-            failed = true
-            lock.unlock()
-        }
-    }
 }

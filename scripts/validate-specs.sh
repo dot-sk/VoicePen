@@ -32,6 +32,17 @@ section_has_list_item() {
   ' "$file"
 }
 
+test_mapping_is_automated_only() {
+  local file="$1"
+
+  awk '
+    $0 == "## Test Mapping" { inside = 1; next }
+    inside && /^## / { exit }
+    inside && /^- / && $0 !~ /^- Automated:/ { invalid = 1 }
+    END { exit invalid ? 1 : 0 }
+  ' "$file"
+}
+
 frontmatter_value() {
   local file="$1"
   local key="$2"
@@ -192,6 +203,10 @@ for file in "${spec_files[@]}"; do
 
   if ! section_has_list_item "$file" "Test Mapping"; then
     fail "$file Test Mapping must contain at least one list item"
+  fi
+
+  if ! test_mapping_is_automated_only "$file"; then
+    fail "$file Test Mapping may contain only Automated items"
   fi
 
   if [ -f "$index_file" ]; then
