@@ -1,11 +1,13 @@
 ---
 id: SPEC-002
 status: implemented
-updated: 2026-08-13
+updated: 2026-08-14
 tests:
   - VoicePenTests/App/VoicePenAppCommandTests.swift
   - VoicePenTests/App/AppControllerTests.swift
   - VoicePenTests/Transcription/WhisperCppTranscriptionClientTests.swift
+  - VoicePenTests/Transcription/VerifiedModelAssetDownloaderTests.swift
+  - VoicePenTests/Transcription/WhisperCppModelDownloadClientTests.swift
   - VoicePenTests/Transcription/ModelDownloadProxyConfigurationTests.swift
   - VoicePenTests/Transcription/RoutingTranscriptionClientTests.swift
   - VoicePenTests/Transcription/RoutingModelDownloadClientTests.swift
@@ -39,6 +41,9 @@ confirmation, or public model marketplace behavior.
 - When a Whisper.cpp model is selected, VoicePen shall require the expected model and Core ML companion artifacts before accelerated transcription.
 - When Whisper.cpp runs on Apple Silicon, VoicePen shall make the packaged Metal kernels discoverable from both the app bundle and SwiftPM runtime bundles so the decoder does not fall back to CPU because of resource lookup.
 - When a Whisper.cpp model is installed by download, VoicePen shall treat it as installed only after the full download set validates and a completed-download marker is written.
+- When VoicePen downloads a transcription model, every runtime model URL shall use the dedicated immutable GitHub model-assets release rather than Hugging Face.
+- When VoicePen downloads a transcription model artifact, it shall validate the declared byte size and SHA-256 digest before writing the artifact completion marker.
+- When a downloaded transcription model artifact is an archive, VoicePen shall extract it into a temporary directory, validate its required contents, and install it atomically so an interrupted extraction cannot replace a working artifact with a partial one.
 - When a transcription request runs, VoicePen shall route it to the backend that matches the selected model.
 - When Whisper.cpp decodes audio, VoicePen shall use the default audio context and a conservative thread count of `min(4, processorCount - 2)`, floored at `1`.
 - When a model download starts, VoicePen shall route it to the backend-specific downloader.
@@ -73,6 +78,8 @@ confirmation, or public model marketplace behavior.
 | Retry after partial success | Main GGML artifact completed but companion download failed | Retry may reuse the completed GGML artifact and continue remaining artifacts |
 | Empty artifact | Blocked download leaves an empty GGML file | GGML is not reported ready |
 | Proxy configured | `http_proxy` or `https_proxy` in settings | Download uses proxy configuration |
+| Corrupt GitHub asset | Downloaded bytes do not match the manifest size or SHA-256 | Artifact remains incomplete and retry stays available |
+| Interrupted archive install | Extraction stops before validation | Existing installed artifact is preserved and no completion marker is written |
 
 ## Test Mapping
 
@@ -82,6 +89,8 @@ confirmation, or public model marketplace behavior.
 - Automated: `VoicePenTests/Transcription/WhisperCppTranscriptionClientTests.swift` covers artifact, acceleration, empty artifact, and completed-download marker checks.
 - Automated: `VoicePenTests/Transcription/WhisperCppTranscriptionClientTests.swift` covers Whisper.cpp decoding defaults, the conservative thread cap, short-utterance single-segment behavior, timestamped segmentation behavior, benchmark configurations, and prompt-token caching.
 - Automated: `VoicePenTests/Transcription/ModelDownloadProxyConfigurationTests.swift` covers proxy configuration.
+- Automated: `VoicePenTests/Transcription/VerifiedModelAssetDownloaderTests.swift` covers GitHub-hosted asset descriptors, progress, retry classification, byte-size and SHA-256 validation, reuse of completed temporary downloads, and atomic archive installation.
+- Automated: `VoicePenTests/Transcription/WhisperCppModelDownloadClientTests.swift` covers completion markers being written only after verified model and companion artifacts are installed.
 - Automated: routing behavior belongs in `VoicePenTests/Transcription/RoutingTranscriptionClientTests.swift` and `VoicePenTests/Transcription/RoutingModelDownloadClientTests.swift` when those files are present.
 
 ## Notes
