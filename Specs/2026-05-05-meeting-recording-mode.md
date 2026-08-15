@@ -1,11 +1,12 @@
 ---
 id: SPEC-011
 status: active
-updated: 2026-08-13
+updated: 2026-08-14
 tests:
   - VoicePenTests/Meetings/MeetingRecordingStoreTests.swift
   - VoicePenTests/Meetings/MeetingRecordingStateTests.swift
   - VoicePenTests/Meetings/MeetingPipelineTests.swift
+  - VoicePenTests/Meetings/MeetingDiarizationModelDownloadTests.swift
   - VoicePenTests/AudioProcessing/SavedAudioArchiveTests.swift
   - VoicePenTests/AudioProcessing/SavedAudioArchiveSchedulerTests.swift
   - VoicePenTests/Meetings/MeetingHistoryEntryTests.swift
@@ -186,6 +187,8 @@ creation, or transcript editing.
 - When Meeting diarization is enabled and the local diarization model is installed, VoicePen shall warm the diarization model automatically at app start, after enabling the setting, and after a successful diarization model download.
 - Model settings shall keep the Meeting diarization model lifecycle limited to download, progress, status, and delete controls while warm-up remains automatic when diarization is enabled.
 - When the user starts a Meeting diarization model download, VoicePen shall expose download progress state, retry transient artifact download failures, and log the download start, model artifact stages, retry attempts, completion, cancellation, and failure.
+- Meeting diarization model installation shall download one versioned GitHub Release archive described by a bundled manifest and shall not query or download from Hugging Face at runtime.
+- VoicePen shall validate the diarization archive byte size and SHA-256 digest, extract it into a temporary directory, verify every required SpeakerKit model path, and replace the model directory atomically before writing the completion marker.
 - When proxy settings exist in the local environment settings file, Meeting diarization model downloads shall use the same proxy configuration as transcription model downloads.
 - When Meeting diarization runs, VoicePen shall log enough diagnostics to identify whether missing speaker labels came from model loading, backend pipeline execution, backend speaker-turn output, VoicePen turn postprocessing, or transcript speaker merge assignment.
 - When Meeting processing runs, VoicePen shall log diarization and complete-master transcription elapsed times so short-recording latency can be traced to the expensive stage.
@@ -326,7 +329,7 @@ creation, or transcript editing.
 - Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers ASR-first diarization sequencing, missing timestamp fallback without speaker labels, short-recording diarization with usable ASR timestamps, speaker turn postprocessing, word overlap speaker merge, segment midpoint fallback, uncovered-gap behavior, diarization failure fallback, saving detected speaker count, and transcript formatting after diarization completion.
 - Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers saving diarization elapsed time in meeting pipeline timings.
 - Automated: `VoicePenTests/Meetings/MeetingPipelineTests.swift` covers retry diarization behavior with recovery metadata only when available from recovered audio flow.
-- Automated: `VoicePenTests/Meetings/MeetingDiarizationModelDownloadTests.swift` covers diarization artifact selection, URL construction, proxy-aware download session configuration, install readiness, and artifact verification.
+- Automated: `VoicePenTests/Meetings/MeetingDiarizationModelDownloadTests.swift` covers the bundled GitHub asset descriptor, proxy-aware download session configuration, required SpeakerKit paths, verified atomic archive installation, install readiness, and completion markers.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers Meeting diarization UI/process wiring and integration when diarization is enabled.
 - Automated: `VoicePenTests/App/AppControllerTests.swift` covers AppController state transitions when push-to-talk is used during `.meetingRecording` / `.meetingProcessing` and confirms meeting state is retained.
 - Automated: `VoicePenTests/Settings/AppSettingsStoreTests.swift` covers Meeting diarization backend defaults and invalid-value fallback.

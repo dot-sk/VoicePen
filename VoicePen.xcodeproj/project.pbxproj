@@ -10,7 +10,6 @@
 		111029512FDDC57200844B60 /* STTextView in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DD12FA7600000ED707B /* STTextView */; };
 		11953DB02FA5000000ED707B /* whisper in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DB12FA5000000ED707B /* whisper */; };
 		11953DB42FA5300000ED707B /* KeyboardShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DB62FA5300000ED707B /* KeyboardShortcuts */; };
-		11953DB82FA5E00000ED707B /* Alamofire in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DB72FA5E00000ED707B /* Alamofire */; };
 		11953DBC2FA7000000ED707B /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DBB2FA7000000ED707B /* Sparkle */; };
 		11953DBE2FA7200000ED707B /* TOMLKit in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DBF2FA7200000ED707B /* TOMLKit */; };
 		11953DC12FA7200000ED707B /* Stencil in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DC22FA7200000ED707B /* Stencil */; };
@@ -68,7 +67,6 @@
 				11953DD22FA7700000ED707B /* CRNNoise in Frameworks */,
 				11953DB02FA5000000ED707B /* whisper in Frameworks */,
 				11953DB42FA5300000ED707B /* KeyboardShortcuts in Frameworks */,
-				11953DB82FA5E00000ED707B /* Alamofire in Frameworks */,
 				11953DBC2FA7000000ED707B /* Sparkle in Frameworks */,
 				11953DBE2FA7200000ED707B /* TOMLKit in Frameworks */,
 				11953DC12FA7200000ED707B /* Stencil in Frameworks */,
@@ -135,7 +133,6 @@
 			packageProductDependencies = (
 				11953DB12FA5000000ED707B /* whisper */,
 				11953DB62FA5300000ED707B /* KeyboardShortcuts */,
-				11953DB72FA5E00000ED707B /* Alamofire */,
 				11953DBB2FA7000000ED707B /* Sparkle */,
 				11953DBF2FA7200000ED707B /* TOMLKit */,
 				11953DC22FA7200000ED707B /* Stencil */,
@@ -229,7 +226,6 @@
 				11953DB22FA5000000ED707B /* XCLocalSwiftPackageReference "Vendor/whisper.spm" */,
 				11953DD42FA7700000ED707B /* XCLocalSwiftPackageReference "Vendor/rnnoise.spm" */,
 				11953DB52FA5300000ED707B /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */,
-				11953DB92FA5E00000ED707B /* XCRemoteSwiftPackageReference "Alamofire" */,
 				11953DBA2FA7000000ED707B /* XCRemoteSwiftPackageReference "Sparkle" */,
 				11953DBD2FA7200000ED707B /* XCRemoteSwiftPackageReference "TOMLKit" */,
 				11953DC02FA7200000ED707B /* XCRemoteSwiftPackageReference "Stencil" */,
@@ -383,6 +379,7 @@
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_COVERAGE_MAPPING = NO;
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				CLANG_ENABLE_OBJC_WEAK = YES;
@@ -408,9 +405,11 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				COPY_PHASE_STRIP = NO;
+				COPY_PHASE_STRIP = YES;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEPLOYMENT_POSTPROCESSING = YES;
+				ENABLE_CODE_COVERAGE = NO;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -653,14 +652,6 @@
 				minimumVersion = 2.2.0;
 			};
 		};
-		11953DB92FA5E00000ED707B /* XCRemoteSwiftPackageReference "Alamofire" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/Alamofire/Alamofire.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 5.11.2;
-			};
-		};
 		11953DBA2FA7000000ED707B /* XCRemoteSwiftPackageReference "Sparkle" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/sparkle-project/Sparkle";
@@ -713,11 +704,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 11953DB52FA5300000ED707B /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */;
 			productName = KeyboardShortcuts;
-		};
-		11953DB72FA5E00000ED707B /* Alamofire */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 11953DB92FA5E00000ED707B /* XCRemoteSwiftPackageReference "Alamofire" */;
-			productName = Alamofire;
 		};
 		11953DBB2FA7000000ED707B /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;

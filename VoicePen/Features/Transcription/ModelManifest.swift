@@ -6,7 +6,7 @@ nonisolated struct ModelManifest: Codable, Equatable {
     var compatibleModels: [ModelManifestModel]
 
     static let fallback = ModelManifest(
-        schemaVersion: 1,
+        schemaVersion: 2,
         recommendedModel: .fallback,
         compatibleModels: [.fallback]
     )
@@ -25,6 +25,8 @@ nonisolated struct ModelManifestModel: Codable, Equatable, Identifiable {
     var description: String
     var downloadURL: String?
     var artifactFileName: String?
+    var byteSize: Int64?
+    var sha256: String?
     var capabilities: ModelManifestModelCapabilities?
     var companionArtifacts: [ModelManifestArtifact]?
 
@@ -64,6 +66,17 @@ nonisolated struct ModelManifestModel: Codable, Equatable, Identifiable {
 
     var requiredCompanionArtifacts: [ModelManifestArtifact] {
         companionArtifacts ?? []
+    }
+
+    var remoteFile: ModelAssetRemoteFile? {
+        guard let downloadURL, let byteSize, let sha256 else {
+            return nil
+        }
+        return ModelAssetRemoteFile(
+            downloadURL: downloadURL,
+            byteSize: byteSize,
+            sha256: sha256
+        )
     }
 
     func requiredUserArtifactURLs(paths: AppPaths) -> [URL] {
@@ -116,17 +129,27 @@ nonisolated struct ModelManifestModel: Codable, Equatable, Identifiable {
         isQuantized: true,
         supportedLanguageCodes: ["multilingual"],
         description: "Pinned fallback model used when the bundled manifest cannot be loaded.",
-        downloadURL: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+        downloadURL: "https://github.com/dot-sk/VoicePen/releases/download/model-assets-v1/ggml-large-v3-turbo-q5_0.bin",
         artifactFileName: "ggml-large-v3-turbo-q5_0.bin",
+        byteSize: 574_041_195,
+        sha256: "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
         capabilities: ModelManifestModelCapabilities(timestamps: true),
         companionArtifacts: [
             ModelManifestArtifact(
                 id: "coreml-encoder",
                 displayName: "Core ML encoder",
-                downloadURL: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-encoder.mlmodelc.zip",
+                downloadURL: "https://github.com/dot-sk/VoicePen/releases/download/model-assets-v1/ggml-large-v3-turbo-encoder.mlmodelc.zip",
                 fileName: "ggml-large-v3-turbo-encoder.mlmodelc.zip",
                 localPath: "ggml-large-v3-turbo-encoder.mlmodelc",
-                archiveKind: .zip
+                archiveKind: .zip,
+                byteSize: 1_172_980_883,
+                sha256: "1b62109a40668c7a989564c843411b9f638f0511f97f34ad2afa7367703dfda4",
+                archiveRoot: "ggml-large-v3-turbo-encoder.mlmodelc",
+                requiredPaths: [
+                    "metadata.json",
+                    "model.mil",
+                    "weights/weight.bin"
+                ]
             )
         ]
     )
@@ -143,6 +166,29 @@ nonisolated struct ModelManifestArtifact: Codable, Equatable, Identifiable {
     var fileName: String
     var localPath: String
     var archiveKind: ModelArtifactArchiveKind
+    var byteSize: Int64?
+    var sha256: String?
+    var archiveRoot: String?
+    var requiredPaths: [String]?
+
+    var remoteFile: ModelAssetRemoteFile? {
+        guard let byteSize, let sha256 else {
+            return nil
+        }
+        return ModelAssetRemoteFile(
+            downloadURL: downloadURL,
+            byteSize: byteSize,
+            sha256: sha256
+        )
+    }
+
+    var resolvedArchiveRoot: String {
+        archiveRoot ?? localPath
+    }
+
+    var resolvedRequiredPaths: [String] {
+        requiredPaths ?? []
+    }
 }
 
 nonisolated enum ModelArtifactArchiveKind: String, Codable, Equatable {

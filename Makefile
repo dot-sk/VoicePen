@@ -14,6 +14,7 @@ PACKAGE_ZIP := $(PACKAGE_DIR)/VoicePen-macOS-unsigned.zip
 APPCAST_DIR := $(DERIVED_DATA)/Appcast
 APPCAST_FILE := $(APPCAST_DIR)/appcast.xml
 XCODEBUILD_CI_SIGNING := CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+XCODEBUILD_RELEASE_SIZE_SETTINGS := $(if $(filter Release,$(CONFIGURATION)),CLANG_COVERAGE_MAPPING=NO,)
 CODESIGN_IDENTITY ?= -
 CODESIGN_FLAGS ?= --force --deep --strict
 FORMAT_PATHS := Package.swift VoicePen VoicePenTests VoicePenIntegrationTests VoicePenUITests
@@ -56,6 +57,7 @@ build:
 		-configuration "$(CONFIGURATION)" \
 		-destination "$(DESTINATION)" \
 		-derivedDataPath "$(DERIVED_DATA)" \
+		$(XCODEBUILD_RELEASE_SIZE_SETTINGS) \
 		$(XCODEBUILD_CI_SIGNING) | if command -v "$(XCODEBUILD_FORMATTER)" >/dev/null 2>&1; then "$(XCODEBUILD_FORMATTER)"; else cat; fi
 
 package:

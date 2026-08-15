@@ -261,8 +261,14 @@ nonisolated enum MeetingSpeakerTurnPostprocessor {
 }
 
 nonisolated enum SpeakerKitDiarizationModelFiles {
-    static let repositoryId = "argmaxinc/speakerkit-coreml"
+    static let assetFileName = "speakerkit-coreml-v1.zip"
+    static let archiveRoot = "speakerkit-coreml-v1"
     static let completionMarkerFileName = ".voicepen-diarization-download-complete"
+    static let remoteFile = ModelAssetRemoteFile(
+        downloadURL: "https://github.com/dot-sk/VoicePen/releases/download/model-assets-v1/\(assetFileName)",
+        byteSize: 9_470_389,
+        sha256: "6831f93bd1f8e51d677feda70caca2183161f754aeabb198799d690685e50c3f"
+    )
 
     nonisolated enum SpeakerKitModelVariant: CaseIterable, Sendable {
         case segmenter
@@ -323,6 +329,13 @@ nonisolated enum SpeakerKitDiarizationModelFiles {
         guard fileManager.fileExists(atPath: completionMarkerURL(in: cacheDirectory).path) else {
             return false
         }
+        return hasRequiredModelDirectories(in: cacheDirectory, fileManager: fileManager)
+    }
+
+    static func hasRequiredModelDirectories(
+        in cacheDirectory: URL,
+        fileManager: FileManager = .default
+    ) -> Bool {
         for variant in SpeakerKitModelVariant.allCases {
             for directory in requiredModelDirectories(for: variant) {
                 var isDirectory: ObjCBool = false
@@ -343,53 +356,6 @@ nonisolated enum SpeakerKitDiarizationModelFiles {
 }
 
 typealias SpeakerKitModelVariant = SpeakerKitDiarizationModelFiles.SpeakerKitModelVariant
-
-nonisolated enum SpeakerKitDiarizationModelDownloadPlan {
-    static func selectedFiles(
-        from remotePaths: [String],
-        for variant: SpeakerKitModelVariant
-    ) -> [String] {
-        guard let modelRoot = SpeakerKitDiarizationModelFiles.modelRootDirectory(for: variant) else {
-            return []
-        }
-        let modelRootPrefix = "\(modelRoot.lowercased())/"
-        return
-            remotePaths
-            .filter { remotePath in
-                remotePath.lowercased().hasPrefix(modelRootPrefix)
-            }
-            .sorted()
-    }
-
-    static func containsRequiredFiles(_ files: [String], for variant: SpeakerKitModelVariant) -> Bool {
-        guard let modelRoot = SpeakerKitDiarizationModelFiles.modelRootDirectory(for: variant) else {
-            return false
-        }
-        let modelRootPrefix = "\(modelRoot.lowercased())/"
-        return files.contains { $0.lowercased().hasPrefix(modelRootPrefix) }
-    }
-}
-
-nonisolated struct HuggingFaceModelRevisionResponse: Decodable {
-    struct Sibling: Decodable {
-        let rfilename: String
-    }
-
-    let siblings: [Sibling]
-}
-
-nonisolated enum SpeakerKitDiarizationModelDownloadSessionConfiguration {
-    static func make(proxy: ModelDownloadProxyConfiguration?) -> URLSessionConfiguration {
-        let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 120
-        configuration.timeoutIntervalForResource = 60 * 60
-        configuration.waitsForConnectivity = true
-        if let proxy {
-            configuration.connectionProxyDictionary = proxy.connectionProxyDictionary
-        }
-        return configuration
-    }
-}
 
 protocol SpeakerKitDiarizationRuntime: Sendable {
     func warmUp() async throws
@@ -495,138 +461,73 @@ private actor SpeakerKitRuntime: SpeakerKitDiarizationRuntime {
 
 final class SpeakerKitDiarizationModelDownloader: @unchecked Sendable {
     private let fileManager: FileManager
-    private let proxyProvider: @Sendable () -> ModelDownloadProxyConfiguration?
-    private let metadataFetcher: @Sendable (URL, URLSession) async throws -> [String]
-    private let fileDownloader: @Sendable (URL, URL, URLSession, @escaping @Sendable (Double?) -> Void) async throws -> Void
+    private let assetDownloader: ModelAssetDownloading
+    private let archiveInstaller: ModelArchiveInstalling
 
     init(
         fileManager: FileManager = .default,
         proxyProvider: @escaping @Sendable () -> ModelDownloadProxyConfiguration? = {
             ModelDownloadProxyConfiguration.fromEnvironment()
         },
-        metadataFetcher: (@Sendable (URL, URLSession) async throws -> [String])? = nil,
-        fileDownloader: (@Sendable (URL, URL, URLSession, @escaping @Sendable (Double?) -> Void) async throws -> Void)? = nil
+        assetDownloader: ModelAssetDownloading? = nil,
+        archiveInstaller: ModelArchiveInstalling = ModelArchiveInstaller()
     ) {
         self.fileManager = fileManager
-        self.proxyProvider = proxyProvider
-        self.metadataFetcher = metadataFetcher ?? Self.defaultMetadataFetcher
-        self.fileDownloader = fileDownloader ?? Self.defaultFileDownloader
+        self.assetDownloader =
+            assetDownloader
+            ?? VerifiedModelAssetDownloader(
+                fileManager: fileManager,
+                proxyProvider: proxyProvider
+            )
+        self.archiveInstaller = archiveInstaller
     }
 
     func download(cacheDirectory: URL, events: @escaping @Sendable (ModelDownloadEvent) -> Void) async throws {
-        try fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
-        let metadataURL = SpeakerKitDiarizationModelFiles.repositoryMetadataURL()
-
-        let configuration = SpeakerKitDiarizationModelDownloadSessionConfiguration.make(proxy: proxyProvider())
-        let session = URLSession(configuration: configuration)
-        defer { session.finishTasksAndInvalidate() }
-
-        AppLogger.info("Fetching SpeakerKit model metadata from \(metadataURL.absoluteString)")
-        let remotePaths = try await metadataFetcher(metadataURL, session)
-
-        let variants: [SpeakerKitModelVariant] = [.segmenter, .embedder, .clusterer]
-        let totalFileCount = variants.reduce(0) { $0 + SpeakerKitDiarizationModelDownloadPlan.selectedFiles(from: remotePaths, for: $1).count }
-        var completed = 0
-
-        for variant in variants {
-            AppLogger.info("Downloading SpeakerKit model variant \(variant.info.name)")
-            let artifactDirectory = SpeakerKitDiarizationModelFiles.modelDirectory(for: variant, in: cacheDirectory)
-            try fileManager.createDirectory(at: artifactDirectory, withIntermediateDirectories: true)
-            let selectedFiles = SpeakerKitDiarizationModelDownloadPlan.selectedFiles(from: remotePaths, for: variant)
-            guard SpeakerKitDiarizationModelDownloadPlan.containsRequiredFiles(selectedFiles, for: variant) else {
-                throw ModelDownloadError.downloadFailed(
-                    modelId: SpeakerKitDiarizationModelFiles.repositoryId,
-                    message: "\(variant.info.name) metadata did not include files under \(variant.info.downloadPattern)."
-                )
+        let archiveURL =
+            cacheDirectory
+            .deletingLastPathComponent()
+            .appendingPathComponent(SpeakerKitDiarizationModelFiles.assetFileName)
+        AppLogger.info("Downloading SpeakerKit model archive from GitHub Releases")
+        try await assetDownloader.download(
+            SpeakerKitDiarizationModelFiles.remoteFile,
+            to: archiveURL,
+            label: "SpeakerKit diarization",
+            progress: { progress in
+                events(
+                    .downloadingArtifact(
+                        name: SpeakerKitDiarizationModelFiles.assetFileName,
+                        progress: progress
+                    ))
             }
+        )
 
-            for remotePath in selectedFiles {
-                let sourceURL = SpeakerKitDiarizationModelFiles.resolveURL(
-                    for: remotePath,
-                    repositoryId: SpeakerKitDiarizationModelFiles.repositoryId
-                )
-                let destinationURL = cacheDirectory.appendingPathComponent(remotePath)
-
-                try await downloadWithRetry(label: "\(variant.info.name)/\(remotePath)") {
-                    let currentCompleted = completed
-                    try await self.fileDownloader(sourceURL, destinationURL, session) { progress in
-                        let completedProgress = Double(currentCompleted) / Double(max(1, totalFileCount))
-                        let stageProgress = min(
-                            1,
-                            completedProgress + (progress ?? 0) / Double(max(1, totalFileCount))
-                        )
-                        events(.downloadingArtifact(name: destinationURL.lastPathComponent, progress: stageProgress))
-                    }
-                }
-                completed += 1
-                events(.downloadingArtifact(name: destinationURL.lastPathComponent, progress: nil))
-            }
+        events(.extractingArtifact(name: "SpeakerKit diarization"))
+        try await archiveInstaller.installZip(
+            at: archiveURL,
+            archiveRoot: SpeakerKitDiarizationModelFiles.archiveRoot,
+            to: cacheDirectory,
+            requiredRelativePaths: SpeakerKitDiarizationModelFiles.allRequiredModelDirectories()
+        )
+        events(.validating)
+        guard
+            SpeakerKitDiarizationModelFiles.hasRequiredModelDirectories(
+                in: cacheDirectory,
+                fileManager: fileManager
+            )
+        else {
+            throw ModelDownloadError.archiveExtractionFailed(
+                modelId: "SpeakerKit diarization",
+                artifactId: SpeakerKitDiarizationModelFiles.assetFileName,
+                message: "The verified archive did not install every required SpeakerKit model."
+            )
         }
 
         try Data("complete".utf8).write(
             to: SpeakerKitDiarizationModelFiles.completionMarkerURL(in: cacheDirectory),
             options: .atomic
         )
+        try? fileManager.removeItem(at: archiveURL)
         events(.completed)
-    }
-
-    private func downloadWithRetry(
-        label: String,
-        maxAttempts: Int = 3,
-        operation: () async throws -> Void
-    ) async throws {
-        var lastError: Error?
-        for attempt in 1...maxAttempts {
-            do {
-                if attempt > 1 {
-                    AppLogger.info("Retrying SpeakerKit download \(label), attempt \(attempt)")
-                }
-                try await operation()
-                return
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
-                lastError = error
-                if attempt < maxAttempts && error.isRetryableModelDownloadError {
-                    AppLogger.debug("SpeakerKit download attempt for \(label) failed: \(error.localizedDescription)")
-                    try await Task.sleep(for: .seconds(Double(attempt)))
-                    continue
-                }
-                throw lastError ?? TranscriptionError.transcriptionFailed("Could not download \(label).")
-            }
-        }
-    }
-
-    private static func defaultMetadataFetcher(_ metadataURL: URL, _ session: URLSession) async throws -> [String] {
-        let (data, response) = try await session.data(from: metadataURL)
-        guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else {
-            throw ModelDownloadError.downloadFailed(modelId: metadataURL.absoluteString, message: "Unexpected Hugging Face metadata response.")
-        }
-        let revision = try JSONDecoder().decode(HuggingFaceModelRevisionResponse.self, from: data)
-        return revision.siblings.map(\.rfilename)
-    }
-
-    private static func defaultFileDownloader(
-        _ sourceURL: URL,
-        _ destinationURL: URL,
-        _ session: URLSession,
-        _ progress: @escaping @Sendable (Double?) -> Void
-    ) async throws {
-        try FileManager.default.createDirectory(
-            at: destinationURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        let (temporaryURL, response) = try await session.download(from: sourceURL)
-        guard let response = response as? HTTPURLResponse,
-            (200..<300).contains(response.statusCode)
-        else {
-            throw ModelDownloadError.downloadFailed(modelId: sourceURL.lastPathComponent, message: "Could not download \(sourceURL.lastPathComponent).")
-        }
-        if FileManager.default.fileExists(atPath: destinationURL.path) {
-            try FileManager.default.removeItem(at: destinationURL)
-        }
-        try FileManager.default.moveItem(at: temporaryURL, to: destinationURL)
-        progress(1)
     }
 }
 
@@ -798,23 +699,6 @@ final class SpeakerKitMeetingDiarizationClient: MeetingDiarizationClient {
         )
     }
 
-}
-
-private extension SpeakerKitDiarizationModelFiles {
-    static func repositoryMetadataURL() -> URL {
-        URL(string: "https://huggingface.co/api/models/\(repositoryId)/revision/main")!
-    }
-
-    static func resolveURL(for remotePath: String, repositoryId: String) -> URL {
-        let encodedPath =
-            remotePath
-            .split(separator: "/", omittingEmptySubsequences: false)
-            .map { component in
-                String(component).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String(component)
-            }
-            .joined(separator: "/")
-        return URL(string: "https://huggingface.co/\(repositoryId)/resolve/main/\(encodedPath)")!
-    }
 }
 
 extension SpeakerKitMeetingDiarizationClient: MeetingDiarizationModelManaging {}
