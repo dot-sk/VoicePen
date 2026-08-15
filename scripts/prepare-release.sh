@@ -101,7 +101,7 @@ git pull --ff-only origin $branch
 make publish-release VERSION=$version
 \`\`\`
 
-Publishing verifies that this PR is open, non-draft, and green, then pushes the tag from $branch. The tag starts the Release workflow, attaches the downloadable unsigned macOS zip, and publishes the Sparkle appcast to GitHub Pages.
+Publishing verifies that this PR is open, non-draft, and green, then pushes the tag from $branch. The tag starts the Release workflow, promotes the exact candidate built by this PR, signs and attaches the downloadable macOS zip, and publishes the Sparkle appcast to GitHub Pages.
 
 After the Release workflow succeeds, merge this pull request into main."
 

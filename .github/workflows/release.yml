@@ -6,9 +6,11 @@ on:
       - "v*"
 
 permissions:
+  actions: read
   contents: write
   id-token: write
   pages: write
+  pull-requests: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -35,19 +37,81 @@ jobs:
           xcodebuild -version
           swift --version
 
-      - name: Restore Swift build cache
-        uses: actions/cache@v4
+      - name: Locate validated release candidate
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          expected_branch="release/${GITHUB_REF_NAME}"
+          pull_request_number="$(
+            gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+              | jq -r \
+                --arg branch "$expected_branch" \
+                --arg repository "$GITHUB_REPOSITORY" \
+                --arg sha "$GITHUB_SHA" \
+                '[.[] | select(
+                  .state == "open"
+                  and .base.ref == "main"
+                  and .head.ref == $branch
+                  and .head.sha == $sha
+                  and .head.repo.full_name == $repository
+                )][0].number // empty'
+          )"
+
+          if [[ -z "$pull_request_number" ]]; then
+            echo "No open release pull request found for ${expected_branch} at ${GITHUB_SHA}." >&2
+            exit 1
+          fi
+
+          run_id="$(
+            gh api --method GET "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
+              -f event=pull_request \
+              -f head_sha="$GITHUB_SHA" \
+              -f status=success \
+              -f per_page=20 \
+              | jq -r \
+                --arg branch "$expected_branch" \
+                --arg sha "$GITHUB_SHA" \
+                '[.workflow_runs[] | select(
+                  .conclusion == "success"
+                  and .event == "pull_request"
+                  and .head_branch == $branch
+                  and .head_sha == $sha
+                )][0].id // empty'
+          )"
+
+          if [[ -z "$run_id" ]]; then
+            echo "No successful release CI run found for ${GITHUB_SHA}." >&2
+            exit 1
+          fi
+
+          candidate_name="VoicePen-release-candidate-${GITHUB_SHA}"
+          artifact_id="$(
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts" \
+              | jq -r \
+                --arg name "$candidate_name" \
+                '[.artifacts[] | select(.name == $name and (.expired | not))][0].id // empty'
+          )"
+
+          if [[ -n "$artifact_id" ]]; then
+            printf "found=true\n" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::The validated candidate artifact is unavailable; rebuilding the same tested commit."
+            printf "found=false\n" >> "$GITHUB_OUTPUT"
+          fi
+          printf "name=%s\n" "$candidate_name" >> "$GITHUB_OUTPUT"
+          printf "run_id=%s\n" "$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Download validated release candidate
+        if: steps.candidate.outputs.found == 'true'
+        uses: actions/download-artifact@v5
         with:
-          path: |
-            .build
-            ~/.swiftpm
-            ~/Library/org.swift.swiftpm
-            ~/Library/Caches/org.swift.swiftpm
-            /private/tmp/VoicePenDerivedData/SourcePackages
-            /private/tmp/VoicePenDerivedData/Build/Intermediates.noindex
-          key: ${{ runner.os }}-${{ runner.arch }}-swift-${{ hashFiles('Package.swift', 'Package.resolved', 'VoicePen.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-swift-
+          name: ${{ steps.candidate.outputs.name }}
+          path: /private/tmp/VoicePenReleaseCandidate
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.candidate.outputs.run_id }}
 
       - name: Validate release secrets
         env:
@@ -84,10 +148,30 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain_path"
           security find-identity -v -p codesigning "$keychain_path"
 
-      - name: Run unit tests
-        run: make test
+      - name: Promote validated release candidate
+        if: steps.candidate.outputs.found == 'true'
+        env:
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
 
-      - name: Build downloadable app package
+          version="${GITHUB_REF_NAME#v}"
+          build="$(
+            grep -E '^[[:space:]]*CURRENT_PROJECT_VERSION = ' VoicePen.xcodeproj/project.pbxproj \
+              | sed -E 's/.*CURRENT_PROJECT_VERSION = ([^;]+);/\1/' \
+              | sort -u
+          )"
+          test "$(printf "%s\n" "$build" | sed '/^$/d' | wc -l | tr -d ' ')" = "1"
+
+          scripts/promote-release-candidate.sh \
+            /private/tmp/VoicePenReleaseCandidate/VoicePen-macOS-unsigned.zip \
+            /private/tmp/VoicePenDerivedData/Package/VoicePen-macOS-unsigned.zip \
+            "$version" \
+            "$build" \
+            "$MACOS_SIGNING_IDENTITY"
+
+      - name: Build package when candidate artifact is unavailable
+        if: steps.candidate.outputs.found != 'true'
         env:
           MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
         run: make package CODESIGN_IDENTITY="$MACOS_SIGNING_IDENTITY"

@@ -18,7 +18,9 @@ The script:
   - prints the GitHub Actions release workflow URL.
 
 The release workflow expects:
-  - repository secret SPARKLE_PRIVATE_KEY.
+  - an immutable release-candidate artifact from the green pull request CI;
+  - repository secret SPARKLE_PRIVATE_KEY;
+  - repository secrets for the stable macOS signing identity.
 USAGE
 }
 
@@ -216,6 +218,6 @@ git push origin "$tag"
 
 echo
 echo "Pushed $tag from $branch."
-echo "The Release workflow will attach the zip and publish the Sparkle appcast to GitHub Pages."
+echo "The Release workflow will promote the validated candidate, sign and attach the zip, and publish the Sparkle appcast to GitHub Pages."
 echo "Release workflow:"
 echo "https://github.com/$(gh repo view --json nameWithOwner --jq .nameWithOwner)/actions/workflows/release.yml"
