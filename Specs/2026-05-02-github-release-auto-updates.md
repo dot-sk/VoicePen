@@ -1,7 +1,7 @@
 ---
 id: SPEC-006
 status: implemented
-updated: 2026-07-24
+updated: 2026-08-15
 tests:
   - VoicePenTests/Updates/SoftwareUpdateConfigurationTests.swift
   - VoicePenTests/Updates/AppcastGenerationTests.swift
@@ -53,10 +53,13 @@ update-signing material.
 - When release publishing runs for a tagged release, it shall publish or update
   the GitHub Pages appcast/feed metadata that points to the GitHub Release
   archive.
-- When release publishing runs on GitHub Actions, it shall restore SwiftPM
-  package and build caches before testing and packaging so release jobs can
-  reuse dependency downloads and compiled intermediates when package manifests
-  are unchanged.
+- When CI runs for a release pull request, it shall build an unsigned production
+  release candidate from the pull request head commit in parallel with the
+  required quality and unit-test checks.
+- When CI finishes the release-candidate build, it shall retain the candidate as
+  an immutable workflow artifact whose identity includes the exact source commit.
+- Release-candidate builds shall not receive production signing or update-signing
+  secrets.
 - When a release tag is published, it shall be created from the release branch
   where the app version was bumped.
 - When a release tag is published, release publishing shall require an open,
@@ -66,9 +69,14 @@ update-signing material.
   marketing version to match the requested release version.
 - When a release tag is published, release publishing shall require exactly one
   numeric Xcode build number that is greater than the previous release build.
-- When release publishing builds a tagged release, it shall avoid a standalone
-  package-resolution step because the test and package builds already resolve
-  Swift packages as needed.
+- When release publishing runs for a tag, it shall require a successful release
+  pull-request CI run for the exact tagged commit before publishing any archive.
+- When the exact release-candidate artifact is available, tagged release
+  publishing shall promote that artifact instead of recompiling or rerunning the
+  unit-test suite.
+- When a validated release-candidate artifact is unavailable, tagged release
+  publishing may rebuild the package from the same commit only after confirming
+  that the exact commit already passed release pull-request CI.
 - When release publishing packages an app archive, the app bundle shall not
   contain a corrupted or stale code signature that prevents Sparkle validation.
 - When release publishing packages app archives across versions, it shall sign
@@ -96,8 +104,10 @@ update-signing material.
 | Local development run | Debug build is launched from Xcode or `make run` | macOS sees `VoicePen Dev` with a development bundle identifier and separate local data folder. |
 | Release packaging | Release build is archived for GitHub Releases | macOS sees production `VoicePen` with the production bundle identifier and local data folder. |
 | Release signing | Tagged release workflow packages the app | The app is signed with the configured identity and passes code signature verification before upload. |
+| Release candidate | CI runs for `release/v1.1.0` | Unit tests and an unsigned production candidate build run in parallel for the exact pull-request head commit. |
+| Candidate promotion | Tag `v1.1.0` points to a green release pull-request head | The tagged workflow downloads that commit's candidate, validates its version and build, signs it, and publishes it without recompiling. |
+| Candidate unavailable | The exact commit passed release pull-request CI but its artifact is unavailable | The tagged workflow rebuilds from the same commit, signs and verifies the package, and continues publishing. |
 | Release tag publishing | `make publish-release VERSION=1.1.0` after preparing `release/v1.1.0` | The `v1.1.0` tag is pushed from `release/v1.1.0`. |
-| Release build cache | Publish a tag after a prior macOS CI run with unchanged package manifests | The release workflow can restore SwiftPM package and build artifacts before tests and packaging. |
 | Release PR not green | `make publish-release VERSION=1.1.0` while the release PR has pending or failed checks | Publishing stops before creating or pushing `v1.1.0`. |
 | Release metadata mismatch | `make publish-release VERSION=1.1.0` while the branch contains another marketing version or a non-incremented build | Publishing stops before creating or pushing `v1.1.0`. |
 | Invalid release archive | Feed item lacks a valid update signature | VoicePen refuses to install that update. |
@@ -116,8 +126,13 @@ update-signing material.
   verifies the package target signs and verifies the app bundle before archiving
   it and the release workflow imports a stable macOS signing identity from GitHub
   Secrets.
-- Automated: `.github/workflows/release.yml` restores SwiftPM package and build
-  caches before release tests and packaging.
+- Automated: `VoicePenTests/Updates/SoftwareUpdateConfigurationTests.swift`
+  verifies release pull-request CI builds an unsigned candidate from the exact
+  head commit and tagged publishing locates the matching successful run and
+  promotes its immutable artifact before signing.
+- Automated: `VoicePenTests/Updates/ReleaseCandidatePromotionTests.swift`
+  verifies candidate promotion rejects mismatched version metadata and produces
+  a correctly versioned archive with a valid final code signature.
 - Automated: `VoicePenTests/Updates/SoftwareUpdateConfigurationTests.swift`
   verifies Debug and Release use separate app identity and local data build
   settings.
@@ -129,6 +144,9 @@ update-signing material.
 - GitHub Releases remain the archive host. The appcast/feed is published through
   GitHub Pages from this repository so installed apps can keep a stable HTTPS
   `SUFeedURL` across releases.
+- Release-candidate artifacts are short-lived build inputs, not public releases.
+  The tagged workflow remains the only workflow with production signing and
+  Sparkle update-signing secrets.
 - Developer ID signing and notarization are still recommended for public
   distribution. Friends & Family builds may use the configured non-Developer ID
   signing identity, but the package step must still verify the code signature
