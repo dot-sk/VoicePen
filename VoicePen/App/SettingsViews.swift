@@ -271,6 +271,13 @@ struct ConfigSettingsView: View {
         )
     }
 
+    private var audioInputSelection: Binding<AudioInputSelection> {
+        Binding(
+            get: { settingsStore.audioInputSelection },
+            set: { controller.updateAudioInputSelection($0) }
+        )
+    }
+
     private var meetingVoiceLevelingEnabled: Binding<Bool> {
         Binding(
             get: { settingsStore.meetingVoiceLevelingEnabled },
@@ -387,7 +394,14 @@ struct ConfigSettingsView: View {
             }
 
             Section {
-                CurrentMicrophoneStatusView(text: controller.currentMicrophoneStatusText)
+                Picker("Microphone", selection: audioInputSelection) {
+                    ForEach(controller.audioInputDeviceOptions) { option in
+                        Text(option.title)
+                            .tag(option.selection)
+                            .disabled(!option.isAvailable)
+                    }
+                }
+                .pickerStyle(.menu)
                 Toggle("Boost microphone level during dictation", isOn: boostDictationInputGain)
                 Toggle("Meeting voice leveling", isOn: meetingVoiceLevelingEnabled)
                 Picker("System Audio Source", selection: meetingSystemAudioSourceMode) {
@@ -441,7 +455,7 @@ struct ConfigSettingsView: View {
                 Text("Audio")
             } footer: {
                 Text(
-                    "VoicePen uses the macOS default microphone and records while connected devices have no session-level gain or routing changes. Dictation can temporarily raise supported input levels while recording. Meeting audio can use system dynamics and peak limiting before local transcription; if processing is unavailable, VoicePen continues with ordinary audio. Meeting system audio can capture all apps, only selected apps, or all apps except selected apps."
+                    "The selected microphone is used for Dictation and Meeting recording. If it is disconnected, VoicePen keeps the selection and asks you to reconnect it or choose another microphone. Dictation can temporarily raise supported input levels while recording. Meeting audio can use system dynamics and peak limiting before local transcription; if processing is unavailable, VoicePen continues with ordinary audio. Meeting system audio can capture all apps, only selected apps, or all apps except selected apps."
                 )
             }
 
@@ -581,36 +595,6 @@ struct ConfigSettingsView: View {
             Text(title)
             HelpTipButton(title: title, text: help)
         }
-    }
-}
-
-private struct CurrentMicrophoneStatusView: View {
-    @Environment(\.voicePenTheme) private var theme
-    let text: String
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: "mic")
-                .foregroundStyle(theme.textTertiary)
-                .accessibilityHidden(true)
-
-            Text(text)
-                .font(.callout)
-                .lineLimit(2)
-                .minimumScaleFactor(0.9)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.surfaceElevated, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(theme.border, lineWidth: 1)
-        }
-        .accessibilityElement(children: .combine)
     }
 }
 

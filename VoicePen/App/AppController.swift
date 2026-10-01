@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CoreAudio
 import Foundation
 import UniformTypeIdentifiers
 
@@ -84,7 +85,9 @@ final class AppController: ObservableObject {
     @Published var meetingElapsedTime: TimeInterval = 0
     @Published var meetingSourceStatus: MeetingSourceStatus = .idle
     @Published var meetingProcessingProgress: MeetingProcessingProgress?
-    @Published private(set) var currentMicrophone: DefaultAudioInputDevice = .systemDefaultFallback
+    @Published private(set) var audioInputSelection: AudioInputSelection = .systemDefault
+    @Published private(set) var audioInputDeviceOptions: [AudioInputDeviceOption] = []
+    @Published private(set) var isSelectedAudioInputAvailable = false
     @Published private(set) var mainWindowNavigationRequest: MainWindowNavigationRequest?
     @Published private(set) var userConfigLoadResult = UserConfigLoadResult(config: UserConfig())
     @Published private(set) var modelManifest: ModelManifest
@@ -113,7 +116,8 @@ final class AppController: ObservableObject {
     private let meetingCaptureStartTimeout: Duration
     private let meetingMaximumRecordingDuration: TimeInterval
     private let meetingProcessingTimeout: Duration
-    private let defaultInputDeviceProvider: DefaultAudioInputDeviceProviding
+    private let audioInputDeviceProvider: AudioInputDeviceProviding
+    private let audioInputSelectionCoordinator: AudioInputSelectionCoordinator
     private let appVersionProvider: () -> String
     let historyStore: VoiceHistoryStore
     let meetingHistoryStore: MeetingHistoryStore?
@@ -130,7 +134,7 @@ final class AppController: ObservableObject {
     private var didHandleCurrentTranscriptionCancellation = false
     private var isWaitingForCustomShortcut = false
     private var accessibilityPermissionPollingTask: Task<Void, Never>?
-    private var defaultInputDeviceObservation: DefaultAudioInputDeviceObservation?
+    private var audioInputDeviceObservation: AudioInputDeviceObservation?
     private var appActivationObserver: AnyCancellable?
     private var workspaceWakeObserver: AnyCancellable?
     private lazy var modelRuntimeStore: AppModelRuntimeStore = {
@@ -340,10 +344,6 @@ final class AppController: ObservableObject {
         Bundle.main.bundleURL.path
     }
 
-    var currentMicrophoneStatusText: String {
-        "Current microphone: \(currentMicrophone.systemDefaultDisplayText)"
-    }
-
     var menuBarSystemImage: String {
         switch appState {
         case .meetingRecording:
@@ -383,7 +383,8 @@ final class AppController: ObservableObject {
         meetingCaptureStartTimeout: Duration = VoicePenConfig.meetingCaptureStartTimeout,
         meetingMaximumRecordingDuration: TimeInterval = VoicePenConfig.meetingMaximumRecordingDuration,
         meetingProcessingTimeout: Duration = VoicePenConfig.meetingProcessingTimeout,
-        defaultInputDeviceProvider: DefaultAudioInputDeviceProviding = CoreAudioDefaultInputDeviceProvider(),
+        audioInputDeviceProvider: AudioInputDeviceProviding = CoreAudioInputDeviceProvider(),
+        audioInputSelectionCoordinator: AudioInputSelectionCoordinator? = nil,
         appVersionProvider: @escaping () -> String = { VoicePenConfig.appVersion },
         historyStore: VoiceHistoryStore,
         meetingHistoryStore: MeetingHistoryStore? = nil,
@@ -413,7 +414,13 @@ final class AppController: ObservableObject {
         self.meetingCaptureStartTimeout = meetingCaptureStartTimeout
         self.meetingMaximumRecordingDuration = meetingMaximumRecordingDuration
         self.meetingProcessingTimeout = meetingProcessingTimeout
-        self.defaultInputDeviceProvider = defaultInputDeviceProvider
+        self.audioInputDeviceProvider = audioInputDeviceProvider
+        self.audioInputSelectionCoordinator =
+            audioInputSelectionCoordinator
+            ?? AudioInputSelectionCoordinator(
+                provider: audioInputDeviceProvider,
+                selection: settingsStore.audioInputSelection
+            )
         self.appVersionProvider = appVersionProvider
         self.historyStore = historyStore
         self.meetingHistoryStore = meetingHistoryStore
@@ -422,7 +429,7 @@ final class AppController: ObservableObject {
         pipeline.setDictationInputGainEligibility { [weak self] in
             self?.appState != .meetingRecording
         }
-        currentMicrophone = defaultInputDeviceProvider.currentDefaultInputDevice()
+        refreshAudioInputDevices()
         self.meetingPipeline?.setProcessingProgressHandler { [weak self] progress in
             self?.meetingProcessingProgress = progress
         }
@@ -513,7 +520,7 @@ final class AppController: ObservableObject {
 
     deinit {
         recordingPrepareTask?.cancel()
-        defaultInputDeviceObservation?.cancel()
+        audioInputDeviceObservation?.cancel()
     }
 
     static func live() -> AppController {
@@ -524,7 +531,13 @@ final class AppController: ObservableObject {
         let historyStore = VoiceHistoryStore(historyURL: paths.historyURL)
         let meetingHistoryStore = MeetingHistoryStore(databaseURL: paths.databaseURL)
         let settingsStore = AppSettingsStore(databaseURL: paths.databaseURL)
-        let dictationMicrophoneCapture = CoreAudioMicrophoneCapture()
+        let audioInputDeviceProvider = CoreAudioInputDeviceProvider()
+        let audioInputSelectionCoordinator = AudioInputSelectionCoordinator(
+            provider: audioInputDeviceProvider
+        )
+        let dictationMicrophoneCapture = CoreAudioMicrophoneCapture(
+            inputDeviceResolver: audioInputSelectionCoordinator
+        )
         let recorder = LiveAudioRecordingClient(
             tempDirectory: paths.tempAudioDirectory,
             microphoneCapture: dictationMicrophoneCapture
@@ -580,7 +593,9 @@ final class AppController: ObservableObject {
             inserter: inserter,
             overlay: overlay,
             userConfigStore: userConfigStore,
-            inputGainController: CoreAudioDefaultInputGainController(),
+            inputGainController: CoreAudioDefaultInputGainController(
+                inputDeviceResolver: audioInputSelectionCoordinator
+            ),
             savedAudioScheduler: savedAudioScheduler,
             languageProvider: { settingsStore.transcriptionLanguage },
             boostDictationInputGainProvider: { settingsStore.boostDictationInputGain },
@@ -608,7 +623,10 @@ final class AppController: ObservableObject {
             recorder: CompositeMeetingRecordingClient(
                 microphoneSource: CoreAudioMicrophoneMeetingAudioSource(
                     tempDirectory: paths.tempAudioDirectory,
-                    audioFileIO: meetingAudioFileIO
+                    audioFileIO: meetingAudioFileIO,
+                    microphoneCapture: CoreAudioMicrophoneCapture(
+                        inputDeviceResolver: audioInputSelectionCoordinator
+                    )
                 ),
                 systemAudioSource: CoreAudioSystemOutputSource(
                     tempDirectory: paths.tempAudioDirectory,
@@ -674,6 +692,8 @@ final class AppController: ObservableObject {
             userPrompts: userPrompts,
             meetingRecordingReminderPresenter: UserNotificationMeetingRecordingReminderPresenter.shared,
             environmentSettingsStore: userConfigStore,
+            audioInputDeviceProvider: audioInputDeviceProvider,
+            audioInputSelectionCoordinator: audioInputSelectionCoordinator,
             historyStore: historyStore,
             meetingHistoryStore: meetingHistoryStore,
             settingsStore: settingsStore,
@@ -742,10 +762,11 @@ final class AppController: ObservableObject {
             try meetingHistoryStore?.load()
             try meetingHistoryStore?.cleanupExpiredRecoveryAudio()
             try settingsStore.load(defaultModelId: recommendedModel.id)
+            audioInputSelectionCoordinator.updateSelection(settingsStore.audioInputSelection)
             applyAppAppearanceMode(settingsStore.appAppearanceMode)
             try syncOpenAtLoginState()
-            refreshCurrentMicrophone()
-            startDefaultInputDeviceObservation()
+            refreshAudioInputDevices()
+            startAudioInputDeviceObservation()
             modelWarmup = modelRuntimeStore.scheduleModelWarmupIfInstalled()
             meetingDiarizationModelWarmup = modelRuntimeStore.scheduleMeetingDiarizationModelWarmupIfNeeded()
         } catch {
@@ -786,14 +807,39 @@ final class AppController: ObservableObject {
         )
     }
 
-    private func refreshCurrentMicrophone() {
-        currentMicrophone = defaultInputDeviceProvider.currentDefaultInputDevice()
+    private func refreshAudioInputDevices(_ snapshot: AudioInputDeviceSnapshot? = nil) {
+        let snapshot = snapshot ?? audioInputDeviceProvider.snapshot()
+
+        if case let .device(uid, lastKnownName) = audioInputSelectionCoordinator.currentSelection(),
+            let availableDevice = snapshot.devices.first(where: { $0.uid == uid }),
+            availableDevice.displayName != lastKnownName
+        {
+            do {
+                let renamedSelection = AudioInputSelection.device(
+                    uid: uid,
+                    name: availableDevice.displayName
+                )
+                try settingsStore.updateAudioInputSelection(renamedSelection)
+                audioInputSelectionCoordinator.updateSelection(renamedSelection)
+            } catch {
+                setError(error)
+            }
+        }
+
+        audioInputSelection = audioInputSelectionCoordinator.currentSelection()
+        audioInputDeviceOptions = audioInputSelectionCoordinator.options(snapshot: snapshot)
+        switch audioInputSelection {
+        case .systemDefault:
+            isSelectedAudioInputAvailable = snapshot.defaultDevice.id != kAudioObjectUnknown
+        case let .device(uid, _):
+            isSelectedAudioInputAvailable = snapshot.devices.contains { $0.uid == uid }
+        }
     }
 
-    private func startDefaultInputDeviceObservation() {
-        defaultInputDeviceObservation?.cancel()
-        defaultInputDeviceObservation = defaultInputDeviceProvider.observeDefaultInputDeviceChanges { [weak self] device in
-            self?.currentMicrophone = device
+    private func startAudioInputDeviceObservation() {
+        audioInputDeviceObservation?.cancel()
+        audioInputDeviceObservation = audioInputDeviceProvider.observeChanges { [weak self] snapshot in
+            self?.refreshAudioInputDevices(snapshot)
             self?.invalidatePreparedRecordingAndPrepareIfPossible()
         }
     }
@@ -1532,6 +1578,17 @@ final class AppController: ObservableObject {
     @discardableResult
     private func scheduleMeetingDiarizationModelWarmupIfNeeded() -> Task<Void, Never>? {
         modelRuntimeStore.scheduleMeetingDiarizationModelWarmupIfNeeded()
+    }
+
+    func updateAudioInputSelection(_ selection: AudioInputSelection) {
+        do {
+            try settingsStore.updateAudioInputSelection(selection)
+            audioInputSelectionCoordinator.updateSelection(settingsStore.audioInputSelection)
+            refreshAudioInputDevices()
+            invalidatePreparedRecordingAndPrepareIfPossible()
+        } catch {
+            setError(error)
+        }
     }
 
     func updateBoostDictationInputGain(_ isEnabled: Bool) {
