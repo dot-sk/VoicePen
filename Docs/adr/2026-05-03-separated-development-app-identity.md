@@ -37,6 +37,6 @@ permissions across updater installs when signed consistently.
 
 ## Links
 
-- [SPEC-006 GitHub Release Auto Updates](../../Specs/2026-05-02-github-release-auto-updates.md)
+- [GitHub Release Auto Updates](../../openspec/specs/github-release-auto-updates/spec.md)
 - `Config/VoicePen-Info.plist`
 - `VoicePen.xcodeproj/project.pbxproj`

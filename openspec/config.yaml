@@ -1,0 +1,35 @@
+schema: spec-driven
+
+context: |
+  VoicePen is a local-first macOS application written in Swift and SwiftUI.
+  Product behavior is defined in openspec/specs and changed through spec-driven
+  artifacts under openspec/changes. Automated tests use Swift Testing.
+  Keep AppController as a thin app-facing facade and put feature lifecycle,
+  async orchestration, permissions, and timeouts in feature-local types.
+  Run make test for production behavior changes and make build when app-target
+  wiring changes.
+
+rules:
+  proposal:
+    - Keep scope narrow and list affected capability paths explicitly.
+    - Separate product behavior from implementation details and durable architecture rationale.
+  specs:
+    - Capture observable behavior, edge cases, compatibility, cancellation, and error paths.
+    - Use stable requirements and scenarios that remain valid across refactors.
+    - Map every scenario to existing or planned automated coverage in the change tasks.
+    - Do not use manual verification as the only evidence for implemented behavior.
+  design:
+    - Record meaningful technical choices and rejected alternatives without narrating routine edits.
+    - Use an ADR only for decisions that are expensive to reverse.
+  tasks:
+    - Put behavior-contract and automated-test work before production implementation.
+    - Include openspec validation, make test, and make build when app-target behavior changes.
+
+operations:
+  apply:
+    guidance:
+      - Update delta specs before production behavior.
+      - Preserve unrelated working-tree changes.
+  archive:
+    guidance:
+      - Sync delta specs into main specs before moving the change to the archive.

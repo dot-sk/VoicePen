@@ -49,6 +49,6 @@ the product.
 
 ## Links
 
-- [SPEC-015 Shared Transcript Workspace](../../Specs/2026-05-15-shared-transcript-workspace.md)
+- [Shared Transcript Workspace](../../openspec/specs/shared-transcript-workspace/spec.md)
 - `VoicePen/App/TranscriptTextEditor.swift`
 - https://github.com/krzyzanowskim/STTextView

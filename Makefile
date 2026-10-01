@@ -24,6 +24,7 @@ SWIFTLINT ?= swiftlint
 SWIFTLINT_CACHE := .swiftlint-cache
 PERIPHERY ?= periphery
 XCODEBUILD_FORMATTER ?= xcbeautify
+OPENSPEC ?= openspec
 
 .PHONY: help build package appcast prepare-release publish-release generate-app-icon format format-check lint lint-fix swiftlint swiftlint-fix dead-code install-hooks check test integration-test validate-specs run clean-derived resolve-packages
 
@@ -44,7 +45,7 @@ help:
 	@printf "  make check            Run lint and unit tests\n"
 	@printf "  make test             Validate specs and run non-hosted unit tests\n"
 	@printf "  make integration-test Run hosted app integration tests\n"
-	@printf "  make validate-specs   Validate spec files and index links\n"
+	@printf "  make validate-specs   Validate OpenSpec main specs\n"
 	@printf "  make run              Build and launch the app\n"
 	@printf "  make resolve-packages Resolve Swift package dependencies\n"
 	@printf "  make clean-derived    Remove derived data used by these commands\n"
@@ -140,7 +141,8 @@ integration-test:
 		$(XCODEBUILD_CI_SIGNING) | if command -v "$(XCODEBUILD_FORMATTER)" >/dev/null 2>&1; then "$(XCODEBUILD_FORMATTER)"; else cat; fi
 
 validate-specs:
-	bash scripts/validate-specs.sh
+	@command -v "$(OPENSPEC)" >/dev/null 2>&1 || (printf "OpenSpec is required. Install it with: npm install --global @fission-ai/openspec@1.8.0\n" >&2; exit 127)
+	$(OPENSPEC) validate --specs --strict --no-interactive
 
 run: build
 	open "$(APP)"

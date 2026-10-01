@@ -48,7 +48,7 @@ the workflow-contract tests together.
 
 ## Links
 
-- `Specs/2026-05-02-github-release-auto-updates.md`
+- `openspec/specs/github-release-auto-updates/spec.md`
 - `.github/workflows/ci.yml`
 - `.github/workflows/release.yml`
 - `scripts/promote-release-candidate.sh`

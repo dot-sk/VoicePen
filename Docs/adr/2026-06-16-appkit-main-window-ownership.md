@@ -27,8 +27,8 @@ Replace the SwiftUI app entry scene with an AppKit-owned main window:
 
 ## Links
 
-- [SPEC-014 Main Window Icon Sidebar Navigation](../../Specs/2026-05-14-main-window-activity-bar-navigation.md)
-- [SPEC-016 Main Window Close Lifecycle](../../Specs/2026-06-13-main-window-close-lifecycle.md)
+- [Main Window Icon Sidebar Navigation](../../openspec/specs/main-window-activity-bar-navigation/spec.md)
+- [Main Window Close Lifecycle](../../openspec/specs/main-window-close-lifecycle/spec.md)
 - [ADR-2026-06-16 Custom Full-Height Glass Sidebar Layout](2026-06-16-main-window-glass-sidebar-layout.md)
 - [GlassMainWindow.swift](../../VoicePen/App/GlassMainWindow.swift)
 - [MainWindowController.swift](../../VoicePen/App/MainWindowController.swift)

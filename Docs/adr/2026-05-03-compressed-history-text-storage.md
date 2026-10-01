@@ -26,5 +26,5 @@ The persistence schema has to support plain, compressed, and text-evicted rows. 
 
 ## Links
 
-- [SPEC-004 History And Settings Persistence](../../Specs/2026-05-02-history-settings-persistence.md)
+- [History And Settings Persistence](../../openspec/specs/history-settings-persistence/spec.md)
 - `VoicePen/Features/History/VoiceHistoryStore.swift`

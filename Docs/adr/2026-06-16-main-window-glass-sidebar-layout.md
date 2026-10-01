@@ -30,7 +30,7 @@ We accept losing native split-view sidebar collapse and built-in split chrome in
 
 ## Links
 
-- [SPEC-014 Main Window Icon Sidebar Navigation](../../Specs/2026-05-14-main-window-activity-bar-navigation.md)
+- [Main Window Icon Sidebar Navigation](../../openspec/specs/main-window-activity-bar-navigation/spec.md)
 - [VoicePenMainWindow.swift](../../VoicePen/App/VoicePenMainWindow.swift)
 - [MainWindowSidebarNavigation.swift](../../VoicePen/Core/MainWindowSidebarNavigation.swift)
 - [MainWindowTrafficLightLayout.swift](../../VoicePen/Core/MainWindowTrafficLightLayout.swift)

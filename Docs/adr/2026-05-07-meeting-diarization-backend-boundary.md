@@ -38,5 +38,5 @@ so migration is tolerant and automatic.
 
 ## Links
 
-- `Specs/2026-05-05-meeting-recording-mode.md`
+- `openspec/specs/meeting-recording-mode/spec.md`
 - `VoicePen/Features/Meetings/MeetingDiarization.swift`
