@@ -9,6 +9,7 @@ final class AppSettingsStore: ObservableObject {
     @Published private(set) var hotkeyPreference: HotkeyPreference
     @Published private(set) var audioInputSelection: AudioInputSelection
     @Published private(set) var boostDictationInputGain: Bool
+    @Published private(set) var dictationDenoisingEnabled: Bool
     @Published private(set) var meetingVoiceLevelingEnabled: Bool
     @Published private(set) var saveDictationAudioEnabled: Bool
     @Published private(set) var saveMeetingAudioEnabled: Bool
@@ -35,6 +36,7 @@ final class AppSettingsStore: ObservableObject {
         self.hotkeyPreference = .option
         self.audioInputSelection = .systemDefault
         self.boostDictationInputGain = true
+        self.dictationDenoisingEnabled = true
         self.meetingVoiceLevelingEnabled = true
         self.saveDictationAudioEnabled = false
         self.saveMeetingAudioEnabled = false
@@ -60,6 +62,9 @@ final class AppSettingsStore: ObservableObject {
             let audioInputSelection = try fetchValue(forKey: Self.audioInputSelectionKey, from: database)
             let boostDictationInputGain =
                 try fetchValue(forKey: Self.boostDictationInputGainKey, from: database)
+                ?? "true"
+            let dictationDenoisingEnabled =
+                try fetchValue(forKey: Self.dictationDenoisingEnabledKey, from: database)
                 ?? "true"
             let meetingVoiceLeveling =
                 try fetchValue(forKey: Self.meetingVoiceLevelingEnabledKey, from: database)
@@ -99,6 +104,7 @@ final class AppSettingsStore: ObservableObject {
                 hotkey: hotkey,
                 audioInputSelection: audioInputSelection,
                 boostDictationInputGain: boostDictationInputGain,
+                dictationDenoisingEnabled: dictationDenoisingEnabled,
                 meetingVoiceLeveling: meetingVoiceLeveling,
                 saveDictationAudio: saveDictationAudio,
                 saveMeetingAudio: saveMeetingAudio,
@@ -120,6 +126,7 @@ final class AppSettingsStore: ObservableObject {
         hotkeyPreference = Self.normalizeHotkeyPreference(values.hotkey)
         audioInputSelection = Self.normalizeAudioInputSelection(values.audioInputSelection)
         boostDictationInputGain = Self.normalizeBoolean(values.boostDictationInputGain)
+        dictationDenoisingEnabled = Self.normalizeBoolean(values.dictationDenoisingEnabled)
         meetingVoiceLevelingEnabled = Self.normalizeBoolean(values.meetingVoiceLeveling)
         saveDictationAudioEnabled = Self.normalizeBoolean(values.saveDictationAudio)
         saveMeetingAudioEnabled = Self.normalizeBoolean(values.saveMeetingAudio)
@@ -179,6 +186,13 @@ final class AppSettingsStore: ObservableObject {
             String(isEnabled),
             forKey: Self.boostDictationInputGainKey
         ) { boostDictationInputGain = isEnabled }
+    }
+
+    func updateDictationDenoisingEnabled(_ isEnabled: Bool) throws {
+        try persistAndApply(
+            String(isEnabled),
+            forKey: Self.dictationDenoisingEnabledKey
+        ) { dictationDenoisingEnabled = isEnabled }
     }
 
     func updateMeetingVoiceLevelingEnabled(_ isEnabled: Bool) throws {
@@ -452,6 +466,7 @@ final class AppSettingsStore: ObservableObject {
     private static let selectedModelKey = "transcription.selectedModelId"
     private static let audioInputSelectionKey = "audio.inputSelection"
     private static let boostDictationInputGainKey = "audio.boostDictationInputGain"
+    private static let dictationDenoisingEnabledKey = "audio.dictationDenoisingEnabled"
     private static let meetingVoiceLevelingEnabledKey = "audio.meetingVoiceLevelingEnabled"
     private static let saveDictationAudioEnabledKey = "audio.saveDictationAudioEnabled"
     private static let saveMeetingAudioEnabledKey = "audio.saveMeetingAudioEnabled"
@@ -485,6 +500,7 @@ private struct LoadedSettings {
     let hotkey: String
     let audioInputSelection: String?
     let boostDictationInputGain: String
+    let dictationDenoisingEnabled: String
     let meetingVoiceLeveling: String
     let saveDictationAudio: String
     let saveMeetingAudio: String

@@ -553,7 +553,10 @@ final class AppController: ObservableObject {
         }
         let dictationAudioPreprocessor = LiveAudioPreprocessingClient(
             outputDirectory: paths.tempAudioDirectory,
-            audioDenoiser: microphoneDenoiser
+            audioDenoiserProvider: { [weak settingsStore] in
+                settingsStore?.dictationDenoisingEnabled == true ? microphoneDenoiser : nil
+            },
+            clarityProcessor: WhisperOptimalAudioProcessor()
         )
         let meetingAudioPreprocessor = LiveAudioPreprocessingClient(
             outputDirectory: paths.tempAudioDirectory
@@ -1594,6 +1597,14 @@ final class AppController: ObservableObject {
     func updateBoostDictationInputGain(_ isEnabled: Bool) {
         do {
             try settingsStore.updateBoostDictationInputGain(isEnabled)
+        } catch {
+            setError(error)
+        }
+    }
+
+    func updateDictationDenoisingEnabled(_ isEnabled: Bool) {
+        do {
+            try settingsStore.updateDictationDenoisingEnabled(isEnabled)
         } catch {
             setError(error)
         }

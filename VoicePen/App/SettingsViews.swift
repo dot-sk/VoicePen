@@ -271,6 +271,13 @@ struct ConfigSettingsView: View {
         )
     }
 
+    private var dictationDenoisingEnabled: Binding<Bool> {
+        Binding(
+            get: { settingsStore.dictationDenoisingEnabled },
+            set: { controller.updateDictationDenoisingEnabled($0) }
+        )
+    }
+
     private var audioInputSelection: Binding<AudioInputSelection> {
         Binding(
             get: { settingsStore.audioInputSelection },
@@ -403,6 +410,13 @@ struct ConfigSettingsView: View {
                 }
                 .pickerStyle(.menu)
                 Toggle("Boost microphone level during dictation", isOn: boostDictationInputGain)
+                Toggle(isOn: dictationDenoisingEnabled) {
+                    configSettingLabel(
+                        "Dictation noise cancelling",
+                        help:
+                            "Runs real-time RNNoise neural network filtering to eliminate background chatter and mechanical keyboard noise. Recommended in open spaces to prevent Whisper hallucinations; disable in quiet environments for cleaner, artifact-free voice acoustics."
+                    )
+                }
                 Toggle("Meeting voice leveling", isOn: meetingVoiceLevelingEnabled)
                 Picker("System Audio Source", selection: meetingSystemAudioSourceMode) {
                     ForEach(MeetingSystemAudioSourceMode.allCases) { mode in
