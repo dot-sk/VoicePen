@@ -9,6 +9,7 @@ nonisolated final class LiveAudioRecordingClient: NSObject, AudioRecordingClient
     private let recordingMeter = LiveRecordingMeter()
     private var preparedCapture: PreparedAudioCapture?
     private var session: LiveAudioRecordingSession?
+    private var shouldInvalidatePreparedCaptureAfterRecording = false
 
     init(
         tempDirectory: URL,
@@ -63,7 +64,10 @@ nonisolated final class LiveAudioRecordingClient: NSObject, AudioRecordingClient
     }
 
     private func invalidatePreparedRecordingOnWorker() {
-        guard session == nil else { return }
+        guard session == nil else {
+            shouldInvalidatePreparedCaptureAfterRecording = true
+            return
+        }
         preparedCapture?.teardown()
         preparedCapture = nil
         recordingMeter.reset()
@@ -120,6 +124,11 @@ nonisolated final class LiveAudioRecordingClient: NSObject, AudioRecordingClient
         guard let session else { return nil }
         self.session = nil
         defer {
+            if shouldInvalidatePreparedCaptureAfterRecording {
+                preparedCapture?.teardown()
+                preparedCapture = nil
+                shouldInvalidatePreparedCaptureAfterRecording = false
+            }
             recordingMeter.reset()
         }
         return try session.stop()

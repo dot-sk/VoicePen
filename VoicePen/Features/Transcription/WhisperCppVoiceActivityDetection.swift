@@ -30,7 +30,20 @@ nonisolated enum WhisperCppVoiceActivityDetection {
         modelPath: String?,
         decode: (String?) -> Int32
     ) -> Int32 {
-        let initialStatus = decode(modelPath)
+        runDecode(
+            modelPath: modelPath,
+            decodingProfile: .standard
+        ) { path, _ in
+            decode(path)
+        }
+    }
+
+    static func runDecode(
+        modelPath: String?,
+        decodingProfile: LocalDecodingProfile,
+        decode: (String?, LocalDecodingProfile) -> Int32
+    ) -> Int32 {
+        let initialStatus = decode(modelPath, decodingProfile)
         guard initialStatus != 0, modelPath != nil else {
             return initialStatus
         }
@@ -38,6 +51,6 @@ nonisolated enum WhisperCppVoiceActivityDetection {
         AppLogger.info(
             "Whisper VAD decoding failed with status \(initialStatus); retrying without VAD."
         )
-        return decode(nil)
+        return decode(nil, decodingProfile)
     }
 }

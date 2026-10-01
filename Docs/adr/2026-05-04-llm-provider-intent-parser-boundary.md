@@ -54,7 +54,7 @@ explicitly, but the failure mode is predictable and testable.
 
 ## Links
 
-- [SPEC-010 Structured LLM Provider Layer](../../Specs/2026-05-04-structured-llm-provider-layer.md)
-- [SPEC-009 Experimental LLM Intent Parser](../../Specs/2026-05-04-experimental-llm-intent-parser.md)
+- [Structured LLM Provider Layer](../../openspec/specs/structured-llm-provider-layer/spec.md)
+- [Experimental LLM Intent Parser](../../openspec/specs/experimental-llm-intent-parser/spec.md)
 - `VoicePen/Features/LLM`
 - `VoicePen/Features/DeveloperMode`

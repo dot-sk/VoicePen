@@ -71,15 +71,17 @@ test guidance lives in [`Docs/testing.md`](Docs/testing.md).
 ## Development Workflow
 
 VoicePen uses a spec-driven workflow for product behavior. Before changing how
-the app behaves, update or create the relevant spec in [`Specs/`](Specs/).
+the app behaves, create or update an OpenSpec change under
+[`openspec/changes/`](openspec/changes/).
 
 The short version:
 
-1. Find the relevant spec in [`Specs/index.md`](Specs/index.md).
-2. Update acceptance criteria before implementation.
+1. Find the relevant capability in [`openspec/specs/`](openspec/specs/).
+2. Create or resume a change and update its delta requirements and scenarios.
 3. Add or update focused tests for the changed behavior.
 4. Implement the smallest useful change.
 5. Run `make test` before handoff for production behavior changes.
+6. Sync the delta specs and archive the change after verification.
 
 Presentation-only and README changes do not need a spec.
 
@@ -116,4 +118,4 @@ should stay useful without paying for it.
 - Release and signing notes: [`Docs/releasing.md`](Docs/releasing.md)
 - Audio capture and transcription architecture: [`Docs/audio-transcription-architecture.md`](Docs/audio-transcription-architecture.md)
 - Architecture decisions: [`Docs/adr/`](Docs/adr/)
-- Product specs: [`Specs/`](Specs/)
+- Product specs: [`openspec/specs/`](openspec/specs/)

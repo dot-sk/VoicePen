@@ -37,6 +37,6 @@ decision.
 
 ## Links
 
-- `Specs/2026-05-02-local-transcription-model-handling.md`
-- `Specs/2026-05-05-meeting-recording-mode.md`
+- `openspec/specs/local-transcription-model-handling/spec.md`
+- `openspec/specs/meeting-recording-mode/spec.md`
 - `VoicePen/Resources/model-manifest.json`

@@ -27,10 +27,15 @@ nonisolated final class NoOpDefaultInputGainController: DefaultInputGainControll
 
 nonisolated final class CoreAudioDefaultInputGainController: DefaultInputGainControlling, @unchecked Sendable {
     private let audioSystem: CoreAudioInputGainSystem
+    private let inputDeviceResolver: AudioInputDeviceResolving?
     private let workerQueue = DispatchQueue(label: "voicepen.default-input-gain", qos: .userInitiated)
 
-    init(audioSystem: CoreAudioInputGainSystem = LiveCoreAudioInputGainSystem()) {
+    init(
+        audioSystem: CoreAudioInputGainSystem = LiveCoreAudioInputGainSystem(),
+        inputDeviceResolver: AudioInputDeviceResolving? = nil
+    ) {
         self.audioSystem = audioSystem
+        self.inputDeviceResolver = inputDeviceResolver
     }
 
     func boostDefaultInputGain() async -> DefaultInputGainRestoreToken? {
@@ -51,7 +56,13 @@ nonisolated final class CoreAudioDefaultInputGainController: DefaultInputGainCon
     }
 
     private func boostDefaultInputGainOnWorker() -> DefaultInputGainRestoreToken? {
-        guard let deviceID = audioSystem.defaultInputDeviceID() else {
+        let deviceID: AudioDeviceID?
+        if let inputDeviceResolver {
+            deviceID = try? inputDeviceResolver.resolveSelectedInputDevice().id
+        } else {
+            deviceID = audioSystem.defaultInputDeviceID()
+        }
+        guard let deviceID else {
             return nil
         }
 

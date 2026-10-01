@@ -190,6 +190,10 @@ jobs:
           files: /private/tmp/VoicePenDerivedData/Package/VoicePen-macOS-unsigned.zip
           prerelease: true
 
+      - name: Prepare Sparkle update signing tools
+        if: steps.candidate.outputs.found == 'true'
+        run: make resolve-packages
+
       - name: Generate Sparkle appcast
         if: startsWith(github.ref, 'refs/tags/')
         env:

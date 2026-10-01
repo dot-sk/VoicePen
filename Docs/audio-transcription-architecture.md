@@ -6,9 +6,9 @@ that behavior to runtime objects, local files, queues, and model boundaries.
 
 Related behavior and decisions:
 
-- [Push-To-Talk Dictation Pipeline](../Specs/2026-05-02-push-to-talk-dictation-pipeline.md)
-- [Meeting Recording Mode](../Specs/2026-05-05-meeting-recording-mode.md)
-- [Audio Settings And Voice Processing](../Specs/2026-05-05-audio-settings-voice-processing.md)
+- [Push-To-Talk Dictation Pipeline](../openspec/specs/push-to-talk-dictation-pipeline/spec.md)
+- [Meeting Recording Mode](../openspec/specs/meeting-recording-mode/spec.md)
+- [Audio Settings And Voice Processing](../openspec/specs/audio-settings-voice-processing/spec.md)
 - [Meeting Recording Capture And Privacy ADR](adr/2026-05-05-meeting-recording-capture-and-privacy.md)
 
 ## System Context

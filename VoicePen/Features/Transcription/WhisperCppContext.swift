@@ -25,6 +25,7 @@ nonisolated struct WhisperCppTimings: Equatable {
     let noTimestamps: Bool
     let tokenTimestamps: Bool
     let maxSegmentLength: Int32
+    let decodingProfile: LocalDecodingProfile
 }
 
 nonisolated private struct WhisperCppRunResult {
@@ -54,36 +55,59 @@ actor WhisperCppContext {
 
     func transcribe(
         _ request: TranscriptionRequest,
+        decodingProfile: LocalDecodingProfile,
         voiceActivityDetectionModelPath: String?
     ) throws -> TranscriptionClientResult {
-        let context = handle.pointer
+        let start = Date()
+        let profileLabel = WhisperCppDecodeDiagnostics.profileLabel(for: decodingProfile)
+        AppLogger.info("Whisper decoding started: profile=\(profileLabel)")
 
-        let samples = try Self.readAudioSamples(request.audioURL)
-        let options = WhisperCppDecodingOptions.resolve(
-            sampleCount: samples.count,
-            includeTimestamps: request.options.contains(.timestamps)
-        )
-        let result = try runWhisper(
-            context: context,
-            samples: samples,
-            prompt: request.glossaryPrompt,
-            language: request.language,
-            options: options,
-            voiceActivityDetectionModelPath: voiceActivityDetectionModelPath
-        )
+        do {
+            let context = handle.pointer
+            let samples = try Self.readAudioSamples(request.audioURL)
+            let options = WhisperCppDecodingOptions.resolve(
+                sampleCount: samples.count,
+                includeTimestamps: request.options.contains(.timestamps),
+                decodingProfile: decodingProfile
+            )
+            let result = try runWhisper(
+                context: context,
+                samples: samples,
+                prompt: request.glossaryPrompt,
+                language: request.language,
+                options: options,
+                voiceActivityDetectionModelPath: voiceActivityDetectionModelPath
+            )
 
-        let trimmedText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedText.isEmpty else {
-            throw TranscriptionError.emptyResult
+            let trimmedText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedText.isEmpty else {
+                throw TranscriptionError.emptyResult
+            }
+            AppLogger.info(
+                String(
+                    format: "Whisper decoding completed: profile=%@, elapsed=%.3fs",
+                    profileLabel,
+                    Date().timeIntervalSince(start)
+                )
+            )
+            return TranscriptionClientResult(text: trimmedText, segments: result.segments)
+        } catch {
+            AppLogger.error(
+                "Whisper decoding failed: profile=\(profileLabel), error=\(error.localizedDescription)"
+            )
+            throw error
         }
-        return TranscriptionClientResult(text: trimmedText, segments: result.segments)
     }
 
     func warmUp(language: String) throws {
         let context = handle.pointer
 
         let samples = [Float](repeating: 0, count: 16_000)
-        let options = WhisperCppDecodingOptions.resolve(sampleCount: samples.count, isWarmup: true)
+        let options = WhisperCppDecodingOptions.resolve(
+            sampleCount: samples.count,
+            isWarmup: true,
+            decodingProfile: .standard
+        )
         _ = try runWhisper(
             context: context,
             samples: samples,
@@ -111,7 +135,10 @@ actor WhisperCppContext {
                 maxSegmentLength: options.maxSegmentLength,
                 splitOnWord: options.splitOnWord,
                 audioContext: options.audioContext,
-                threadCount: configuration.threadCount
+                threadCount: configuration.threadCount,
+                suppressNonSpeechTokens: options.suppressNonSpeechTokens,
+                temperature: options.temperature,
+                decodingProfile: options.decodingProfile
             )
             let start = Date()
             let result = try runWhisper(
@@ -138,7 +165,14 @@ actor WhisperCppContext {
         options: WhisperCppDecodingOptions,
         voiceActivityDetectionModelPath: String? = nil
     ) throws -> WhisperCppRunResult {
-        var parameters = whisper_full_default_params(WHISPER_SAMPLING_GREEDY)
+        let nativeSamplingStrategy: whisper_sampling_strategy
+        switch options.samplingStrategy {
+        case .greedy:
+            nativeSamplingStrategy = WHISPER_SAMPLING_GREEDY
+        case .beamSearch:
+            nativeSamplingStrategy = WHISPER_SAMPLING_BEAM_SEARCH
+        }
+        var parameters = whisper_full_default_params(nativeSamplingStrategy)
 
         let languageConfiguration = WhisperCppLanguageConfiguration.resolve(language: language)
         let languageCString = languageConfiguration.languageCode.map { Array($0.utf8CString) }
@@ -167,8 +201,8 @@ actor WhisperCppContext {
         parameters.split_on_word = options.splitOnWord
         parameters.no_context = true
         parameters.single_segment = options.singleSegment
-        parameters.suppress_nst = true
-        parameters.temperature = 0.0
+        parameters.suppress_nst = options.suppressNonSpeechTokens
+        parameters.temperature = options.temperature
         parameters.audio_ctx = options.audioContext
         parameters.n_threads = options.threadCount
         parameters.vad_params = whisper_vad_default_params()
@@ -220,8 +254,9 @@ actor WhisperCppContext {
         }
 
         let decodeStatus = WhisperCppVoiceActivityDetection.runDecode(
-            modelPath: voiceActivityDetectionModelPath
-        ) { modelPath in
+            modelPath: voiceActivityDetectionModelPath,
+            decodingProfile: options.decodingProfile
+        ) { modelPath, _ in
             runAttempt(voiceActivityDetectionModelPath: modelPath)
         }
 
@@ -249,15 +284,9 @@ actor WhisperCppContext {
             }
         }
 
-        let timings = WhisperCppTimings(
+        let timings = options.timings(
             elapsedMilliseconds: Date().timeIntervalSince(start) * 1_000,
-            sampleCount: samples.count,
-            threadCount: options.threadCount,
-            audioContext: options.audioContext,
-            singleSegment: options.singleSegment,
-            noTimestamps: options.noTimestamps,
-            tokenTimestamps: options.tokenTimestamps,
-            maxSegmentLength: options.maxSegmentLength
+            sampleCount: samples.count
         )
 
         return WhisperCppRunResult(text: text, segments: segments, timings: timings)

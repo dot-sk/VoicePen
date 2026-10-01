@@ -4,9 +4,12 @@ import Foundation
 @MainActor
 final class AppSettingsStore: ObservableObject {
     @Published private(set) var transcriptionLanguage: String
+    @Published private(set) var localDecodingProfile: LocalDecodingProfile
     @Published private(set) var selectedModelId: String
     @Published private(set) var hotkeyPreference: HotkeyPreference
+    @Published private(set) var audioInputSelection: AudioInputSelection
     @Published private(set) var boostDictationInputGain: Bool
+    @Published private(set) var dictationDenoisingEnabled: Bool
     @Published private(set) var meetingVoiceLevelingEnabled: Bool
     @Published private(set) var saveDictationAudioEnabled: Bool
     @Published private(set) var saveMeetingAudioEnabled: Bool
@@ -28,9 +31,12 @@ final class AppSettingsStore: ObservableObject {
         self.databaseURL = databaseURL
         self.fileManager = fileManager
         self.transcriptionLanguage = VoicePenConfig.defaultLanguage
+        self.localDecodingProfile = .standard
         self.selectedModelId = VoicePenConfig.modelId
         self.hotkeyPreference = .option
+        self.audioInputSelection = .systemDefault
         self.boostDictationInputGain = true
+        self.dictationDenoisingEnabled = true
         self.meetingVoiceLevelingEnabled = true
         self.saveDictationAudioEnabled = false
         self.saveMeetingAudioEnabled = false
@@ -50,10 +56,15 @@ final class AppSettingsStore: ObservableObject {
         let values = try withDatabase { database in
             try DatabaseMigrator.migrate(database)
             let language = try fetchValue(forKey: Self.languageKey, from: database) ?? VoicePenConfig.defaultLanguage
+            let localDecodingProfile = try fetchValue(forKey: Self.localDecodingProfileKey, from: database)
             let modelId = try fetchValue(forKey: Self.selectedModelKey, from: database) ?? defaultModelId
             let hotkey = try fetchValue(forKey: Self.hotkeyPreferenceKey, from: database) ?? HotkeyPreference.option.rawValue
+            let audioInputSelection = try fetchValue(forKey: Self.audioInputSelectionKey, from: database)
             let boostDictationInputGain =
                 try fetchValue(forKey: Self.boostDictationInputGainKey, from: database)
+                ?? "true"
+            let dictationDenoisingEnabled =
+                try fetchValue(forKey: Self.dictationDenoisingEnabledKey, from: database)
                 ?? "true"
             let meetingVoiceLeveling =
                 try fetchValue(forKey: Self.meetingVoiceLevelingEnabledKey, from: database)
@@ -88,9 +99,12 @@ final class AppSettingsStore: ObservableObject {
             let meetingConsent = try fetchValue(forKey: Self.meetingConsentKey, from: database) ?? "false"
             return LoadedSettings(
                 language: language,
+                localDecodingProfile: localDecodingProfile,
                 modelId: modelId,
                 hotkey: hotkey,
+                audioInputSelection: audioInputSelection,
                 boostDictationInputGain: boostDictationInputGain,
+                dictationDenoisingEnabled: dictationDenoisingEnabled,
                 meetingVoiceLeveling: meetingVoiceLeveling,
                 saveDictationAudio: saveDictationAudio,
                 saveMeetingAudio: saveMeetingAudio,
@@ -107,9 +121,12 @@ final class AppSettingsStore: ObservableObject {
             )
         }
         transcriptionLanguage = Self.normalizeLanguage(values.language)
+        localDecodingProfile = Self.normalizeLocalDecodingProfile(values.localDecodingProfile)
         selectedModelId = Self.normalizeModelId(values.modelId, fallback: defaultModelId)
         hotkeyPreference = Self.normalizeHotkeyPreference(values.hotkey)
+        audioInputSelection = Self.normalizeAudioInputSelection(values.audioInputSelection)
         boostDictationInputGain = Self.normalizeBoolean(values.boostDictationInputGain)
+        dictationDenoisingEnabled = Self.normalizeBoolean(values.dictationDenoisingEnabled)
         meetingVoiceLevelingEnabled = Self.normalizeBoolean(values.meetingVoiceLeveling)
         saveDictationAudioEnabled = Self.normalizeBoolean(values.saveDictationAudio)
         saveMeetingAudioEnabled = Self.normalizeBoolean(values.saveMeetingAudio)
@@ -133,6 +150,13 @@ final class AppSettingsStore: ObservableObject {
         ) { transcriptionLanguage = normalizedLanguage }
     }
 
+    func updateLocalDecodingProfile(_ profile: LocalDecodingProfile) throws {
+        try persistAndApply(
+            profile.rawValue,
+            forKey: Self.localDecodingProfileKey
+        ) { localDecodingProfile = profile }
+    }
+
     func updateSelectedModelId(_ modelId: String) throws {
         let normalizedModelId = Self.normalizeModelId(modelId, fallback: selectedModelId)
         try persistAndApply(
@@ -148,11 +172,27 @@ final class AppSettingsStore: ObservableObject {
         ) { hotkeyPreference = preference }
     }
 
+    func updateAudioInputSelection(_ selection: AudioInputSelection) throws {
+        let normalizedSelection = Self.normalizeAudioInputSelection(selection)
+        let encodedSelection = try Self.encodeAudioInputSelection(normalizedSelection)
+        try persistAndApply(
+            encodedSelection,
+            forKey: Self.audioInputSelectionKey
+        ) { audioInputSelection = normalizedSelection }
+    }
+
     func updateBoostDictationInputGain(_ isEnabled: Bool) throws {
         try persistAndApply(
             String(isEnabled),
             forKey: Self.boostDictationInputGainKey
         ) { boostDictationInputGain = isEnabled }
+    }
+
+    func updateDictationDenoisingEnabled(_ isEnabled: Bool) throws {
+        try persistAndApply(
+            String(isEnabled),
+            forKey: Self.dictationDenoisingEnabledKey
+        ) { dictationDenoisingEnabled = isEnabled }
     }
 
     func updateMeetingVoiceLevelingEnabled(_ isEnabled: Bool) throws {
@@ -286,6 +326,13 @@ final class AppSettingsStore: ObservableObject {
             : VoicePenConfig.defaultLanguage
     }
 
+    private static func normalizeLocalDecodingProfile(_ value: String?) -> LocalDecodingProfile {
+        guard let value else { return .standard }
+        return LocalDecodingProfile(
+            rawValue: value.trimmingCharacters(in: .whitespacesAndNewlines)
+        ) ?? .standard
+    }
+
     private static func normalizeModelId(_ modelId: String, fallback: String) -> String {
         let normalizedModelId = modelId.trimmingCharacters(in: .whitespacesAndNewlines)
         return normalizedModelId.isEmpty ? fallback : normalizedModelId
@@ -293,6 +340,45 @@ final class AppSettingsStore: ObservableObject {
 
     private static func normalizeHotkeyPreference(_ preference: String) -> HotkeyPreference {
         HotkeyPreference(rawValue: preference.trimmingCharacters(in: .whitespacesAndNewlines)) ?? .option
+    }
+
+    private static func normalizeAudioInputSelection(_ value: String?) -> AudioInputSelection {
+        guard
+            let value,
+            let data = value.data(using: .utf8),
+            let storedSelection = try? JSONDecoder().decode(StoredAudioInputSelection.self, from: data)
+        else {
+            return .systemDefault
+        }
+
+        switch storedSelection.mode {
+        case .systemDefault:
+            return .systemDefault
+        case .device:
+            guard
+                let uid = storedSelection.uid?.trimmingCharacters(in: .whitespacesAndNewlines),
+                let name = storedSelection.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+            else {
+                return .systemDefault
+            }
+            return AudioInputSelection.device(uid: uid, name: name).normalized
+        }
+    }
+
+    private static func normalizeAudioInputSelection(_ selection: AudioInputSelection) -> AudioInputSelection {
+        selection.normalized
+    }
+
+    private static func encodeAudioInputSelection(_ selection: AudioInputSelection) throws -> String {
+        let storedSelection: StoredAudioInputSelection
+        switch selection {
+        case .systemDefault:
+            storedSelection = StoredAudioInputSelection(mode: .systemDefault, uid: nil, name: nil)
+        case let .device(uid, name):
+            storedSelection = StoredAudioInputSelection(mode: .device, uid: uid, name: name)
+        }
+        let data = try JSONEncoder().encode(storedSelection)
+        return String(decoding: data, as: UTF8.self)
     }
 
     private static func normalizeBoolean(_ value: String) -> Bool {
@@ -373,10 +459,14 @@ final class AppSettingsStore: ObservableObject {
         TranscriptionLanguage(code: "ru", name: "Russian"),
         TranscriptionLanguage(code: "en", name: "English")
     ]
+    static let supportedLocalDecodingProfiles = LocalDecodingProfile.allCases
 
     private static let languageKey = "transcription.language"
+    private static let localDecodingProfileKey = "transcription.decodingProfile"
     private static let selectedModelKey = "transcription.selectedModelId"
+    private static let audioInputSelectionKey = "audio.inputSelection"
     private static let boostDictationInputGainKey = "audio.boostDictationInputGain"
+    private static let dictationDenoisingEnabledKey = "audio.dictationDenoisingEnabled"
     private static let meetingVoiceLevelingEnabledKey = "audio.meetingVoiceLevelingEnabled"
     private static let saveDictationAudioEnabledKey = "audio.saveDictationAudioEnabled"
     private static let saveMeetingAudioEnabledKey = "audio.saveMeetingAudioEnabled"
@@ -405,9 +495,12 @@ struct TranscriptionLanguage: Identifiable, Equatable {
 
 private struct LoadedSettings {
     let language: String
+    let localDecodingProfile: String?
     let modelId: String
     let hotkey: String
+    let audioInputSelection: String?
     let boostDictationInputGain: String
+    let dictationDenoisingEnabled: String
     let meetingVoiceLeveling: String
     let saveDictationAudio: String
     let saveMeetingAudio: String
@@ -421,6 +514,17 @@ private struct LoadedSettings {
     let openAtLogin: String
     let developerModeOverride: String?
     let meetingConsent: String
+}
+
+private struct StoredAudioInputSelection: Codable {
+    enum Mode: String, Codable {
+        case systemDefault
+        case device
+    }
+
+    let mode: Mode
+    let uid: String?
+    let name: String?
 }
 
 nonisolated enum AppAppearanceMode: String, CaseIterable, Identifiable, Sendable {

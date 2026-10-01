@@ -4,17 +4,20 @@ This repository uses a strict spec-driven workflow for AI-assisted changes.
 
 ## Quick Path
 
-- Read `AGENTS.md` and `Specs/index.md` before behavior work.
-- If the change affects behavior, update or create a spec first.
+- Read `AGENTS.md`, the relevant main specs under `openspec/specs/`, and any
+  active change artifacts before behavior work.
+- If the change affects behavior, create or update an OpenSpec change first.
 - If the change is presentation-only, no spec is needed.
 - Make the smallest local change that satisfies the spec or request.
-- Verify with the narrowest useful check; run `make test` for production behavior changes.
+- Verify with the narrowest useful check; run `make test` for production
+  behavior changes.
 
 ## Start Or Resume
 
 After any `CompactContext`, resume, or handoff, re-read `AGENTS.md` and
-`Specs/index.md` before changing or reviewing behavior. Treat this file as the
-repository contract, not the compacted summary.
+the selected change's current OpenSpec instructions and context files before
+changing or reviewing behavior. Treat these files as the repository contract,
+not the compacted summary.
 
 ## Behavior Changes
 
@@ -47,19 +50,22 @@ verification context only.
 
 Before changing behavior:
 
-1. Find the relevant spec in `Specs/index.md`; if none exists, create one from `Specs/templates/feature-spec.md` or `Specs/templates/bug-spec.md`.
-2. Capture intended behavior as acceptance criteria before editing production code.
-3. Map each acceptance criterion to an automated test or a planned automated test scenario. Do not add manual verification to specs.
-4. Implement the smallest change that satisfies the spec.
-5. Update the spec in the same change when behavior, edge cases, or tests change.
-6. Run `make test` before handoff when local tooling is available.
+1. Find the relevant capability under `openspec/specs/`.
+2. Create or resume a spec-driven change under `openspec/changes/`.
+3. Capture intended behavior in delta requirements and scenarios before editing
+   production code.
+4. Map every scenario to an automated test or a planned automated test task. Do
+   not use manual verification as the only coverage.
+5. Implement the smallest change that satisfies the delta spec.
+6. Run strict OpenSpec validation and `make test` before handoff when local
+   tooling is available.
+7. Sync the delta into the main specs before archiving the completed change.
 
-Work spec first even for small behavior moves: update the relevant acceptance
-criteria and test mapping before changing production behavior.
+Work spec first even for small behavior moves: update the relevant delta
+requirements, scenarios, and test tasks before changing production behavior.
 
-When changing behavior covered by an `implemented` spec, update its acceptance
-criteria and test mapping first. Keep or return the status to `implemented`
-only after code and verification match the updated behavior.
+When changing behavior already covered by a main spec, express only the delta in
+the change spec. Keep unchanged requirements and scenarios in the main spec.
 
 Write an ADR in `Docs/adr/` only for technical decisions that are expensive to
 reverse: architecture, persistence shape, model/backend strategy,
@@ -151,7 +157,9 @@ Write commit messages using Conventional Commits: `type(scope): summary` or
 
 ## Guardrails
 
-- Do not treat code as the only source of truth for product behavior. Specs describe intended behavior; tests and code implement it.
+- Do not treat code as the only source of truth for product behavior. OpenSpec
+  main specs describe intended behavior; change specs describe deltas; tests and
+  code implement them.
 - Do not add hidden product behavior without updating a spec.
 - Do not leave `Open Questions` unresolved when the answer changes implementation behavior.
 - Do not rewrite unrelated files or revert uncommitted user changes.
@@ -159,12 +167,14 @@ Write commit messages using Conventional Commits: `type(scope): summary` or
 - Keep specs resilient to refactoring. Capture stable product behavior and meaningful constraints, not incidental constants, exact copy, or implementation details unless those exact values are themselves the requirement.
 - Keep rationale in ADRs, not specs, when the "why" is a durable technical decision.
 
-## Spec Status
+## OpenSpec lifecycle
 
-- `draft`: intent is still being shaped; implementation should not begin unless the user explicitly asks for a spike.
-- `active`: ready for implementation and test mapping.
-- `implemented`: behavior is present in code and automated tests are mapped.
-- `superseded`: retained for history; link to the replacing spec.
+- `openspec/specs/` contains the current behavior contract.
+- `openspec/changes/<change>/` contains active proposals, delta specs, designs,
+  and tasks.
+- `openspec/changes/archive/` contains completed changes after their delta specs
+  have been synced.
+- Do not edit an archived change to introduce new behavior. Start another change.
 
 ## Test Expectations
 
@@ -178,11 +188,10 @@ persistence, routing, permissions, pipeline decisions, parsing, model selection,
 and domain logic. Use UI tests only when behavior depends on the macOS UI
 surface, and keep view-level tests focused on stable product contracts.
 
-Specs are an automated test model, not a manual QA checklist. Every `Test
-Mapping` item must describe automated coverage or a planned automated scenario.
-Do not add manual verification steps to specs, and do not use a manual check to
-justify `implemented` status. One-off manual validation may still be reported
-in a task handoff, but it belongs outside the spec.
+OpenSpec requirements and scenarios are an automated test model, not a manual QA
+checklist. Every scenario must map to automated coverage or a planned automated
+test task. One-off manual validation may still be reported in a task handoff,
+but it belongs outside the main spec.
 
 Do not unit-test presentation-only details: SwiftUI hierarchy, exact layout,
 colors, fonts, icon names, sizes, spacing, padding, corner radii, hover chrome,

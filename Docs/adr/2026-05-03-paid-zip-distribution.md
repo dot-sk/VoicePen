@@ -45,5 +45,5 @@ used for paid builds without confusing customers.
 
 ## Links
 
-- [SPEC-006 GitHub Release Auto Updates](../../Specs/2026-05-02-github-release-auto-updates.md)
+- [GitHub Release Auto Updates](../../openspec/specs/github-release-auto-updates/spec.md)
 - `VoicePen/App/SettingsViews.swift`

@@ -14,6 +14,7 @@ nonisolated protocol CoreAudioMicrophoneCapturing: AnyObject, Sendable {
 
 nonisolated enum CoreAudioMicrophoneCaptureError: LocalizedError, Equatable {
     case missingDefaultInputDevice
+    case selectedInputDeviceUnavailable(String)
     case couldNotCreateComponent
     case componentInstance
     case invalidInputFormat
@@ -30,6 +31,8 @@ nonisolated enum CoreAudioMicrophoneCaptureError: LocalizedError, Equatable {
         switch self {
         case .missingDefaultInputDevice:
             return "No default input device is available for microphone capture."
+        case let .selectedInputDeviceUnavailable(name):
+            return "The selected microphone \"\(name)\" is unavailable. Reconnect it or choose another microphone in Settings."
         case .couldNotCreateComponent:
             return "Failed to create HAL Audio Unit component."
         case .componentInstance:
@@ -41,7 +44,7 @@ nonisolated enum CoreAudioMicrophoneCaptureError: LocalizedError, Equatable {
         case .failedToDisableOutput:
             return "Failed to disable HAL output bus."
         case .failedToSetCurrentDevice:
-            return "Failed to select default input device for HAL capture."
+            return "Failed to select the input device for HAL capture."
         case .failedToSetInputFormat:
             return "Failed to configure HAL input format."
         case .failedToConfigureCallback:
@@ -176,7 +179,7 @@ nonisolated final class CoreAudioMicrophoneCapture: CoreAudioMicrophoneCapturing
     private let callbackQueue: DispatchQueue
     private let callbackQueueKey = DispatchSpecificKey<Void>()
     private let callbackSubmissionGroup = DispatchGroup()
-    private let defaultInputDeviceProvider: DefaultAudioInputDeviceProviding
+    private let inputDeviceResolver: AudioInputDeviceResolving
     private let componentFinder: CoreAudioMicrophoneComponentFinding
     private let audioUnitManager: CoreAudioMicrophoneAudioUnitManaging
     private let lock = NSLock()
@@ -189,12 +192,14 @@ nonisolated final class CoreAudioMicrophoneCapture: CoreAudioMicrophoneCapturing
     private(set) var inputFormat: AVAudioFormat
 
     init(
-        defaultInputDeviceProvider: DefaultAudioInputDeviceProviding = CoreAudioDefaultInputDeviceProvider(),
+        inputDeviceResolver: AudioInputDeviceResolving = AudioInputSelectionCoordinator(
+            provider: CoreAudioInputDeviceProvider()
+        ),
         componentFinder: CoreAudioMicrophoneComponentFinding = DefaultCoreAudioMicrophoneComponentFinder(),
         audioUnitManager: CoreAudioMicrophoneAudioUnitManaging = LiveCoreAudioMicrophoneAudioUnitManager(),
         callbackQueue: DispatchQueue = DispatchQueue(label: "voicepen.core-audio-microphone-capture")
     ) {
-        self.defaultInputDeviceProvider = defaultInputDeviceProvider
+        self.inputDeviceResolver = inputDeviceResolver
         self.componentFinder = componentFinder
         self.audioUnitManager = audioUnitManager
         self.callbackQueue = callbackQueue
@@ -221,7 +226,7 @@ nonisolated final class CoreAudioMicrophoneCapture: CoreAudioMicrophoneCapturing
             return
         }
 
-        let inputDeviceID = try resolveDefaultInputDeviceID()
+        let inputDeviceID = try resolveSelectedInputDeviceID()
         guard let component = componentFinder.findHALOutputComponent() else {
             throw CoreAudioMicrophoneCaptureError.couldNotCreateComponent
         }
@@ -348,12 +353,19 @@ nonisolated final class CoreAudioMicrophoneCapture: CoreAudioMicrophoneCapturing
         callbackQueue.sync {}
     }
 
-    private func resolveDefaultInputDeviceID() throws -> AudioDeviceID {
-        let device = defaultInputDeviceProvider.currentDefaultInputDevice().id
-        guard device != kAudioObjectUnknown else {
+    private func resolveSelectedInputDeviceID() throws -> AudioDeviceID {
+        let device: AudioInputDevice
+        do {
+            device = try inputDeviceResolver.resolveSelectedInputDevice()
+        } catch AudioInputSelectionError.missingSystemDefault {
+            throw CoreAudioMicrophoneCaptureError.missingDefaultInputDevice
+        } catch let AudioInputSelectionError.selectedDeviceUnavailable(name) {
+            throw CoreAudioMicrophoneCaptureError.selectedInputDeviceUnavailable(name)
+        }
+        guard device.id != kAudioObjectUnknown else {
             throw CoreAudioMicrophoneCaptureError.missingDefaultInputDevice
         }
-        return device
+        return device.id
     }
 
     private func resolveInputFormat(on unit: AudioUnit) throws -> AudioStreamBasicDescription {
