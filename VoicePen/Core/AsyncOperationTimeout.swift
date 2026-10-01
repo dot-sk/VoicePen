@@ -55,8 +55,8 @@ private final class AsyncOperationTimeoutController: @unchecked Sendable {
                 return
             }
 
-            operationTask.cancel()
             await self.state.finish(.failure(timeoutError()))
+            operationTask.cancel()
         }
 
         lock.lock()

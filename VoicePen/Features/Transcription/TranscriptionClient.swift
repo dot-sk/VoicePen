@@ -68,6 +68,29 @@ nonisolated struct TranscriptionRequest: Equatable, Sendable {
     }
 }
 
+nonisolated struct PreparedTranscription: @unchecked Sendable {
+    typealias Operation = (TranscriptionRequest) async throws -> TranscriptionClientResult
+
+    private let operation: Operation
+
+    init(operation: @escaping Operation) {
+        self.operation = operation
+    }
+
+    func transcribe(_ request: TranscriptionRequest) async throws -> TranscriptionClientResult {
+        try await operation(request)
+    }
+}
+
 protocol TranscriptionClient: AnyObject {
+    func prepareTranscription() async throws -> PreparedTranscription
     func transcribe(_ request: TranscriptionRequest) async throws -> TranscriptionClientResult
+}
+
+extension TranscriptionClient {
+    func prepareTranscription() async throws -> PreparedTranscription {
+        PreparedTranscription { [self] request in
+            try await transcribe(request)
+        }
+    }
 }

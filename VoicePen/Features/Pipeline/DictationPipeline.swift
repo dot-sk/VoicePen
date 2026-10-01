@@ -1,6 +1,6 @@
 import Foundation
 
-struct DictationPipelineResult: Equatable {
+struct DictationPipelineResult: Equatable, Sendable {
     let rawText: String
     let finalText: String
     let recording: RecordingResult?
@@ -54,6 +54,7 @@ final class DictationPipeline {
     private let activeApplicationProvider: () -> ActiveApplicationInfo?
     private let llmIntentParserFactory: LLMIntentParserFactory
     private let minimumRecordingDuration: TimeInterval
+    private let processingTimeout: Duration
     private var activeInputGainRestoreToken: DefaultInputGainRestoreToken?
 
     init(
@@ -75,7 +76,8 @@ final class DictationPipeline {
         developerModeOverrideProvider: @escaping () -> DeveloperMode? = { nil },
         activeApplicationProvider: @escaping () -> ActiveApplicationInfo? = { nil },
         llmIntentParserFactory: @escaping LLMIntentParserFactory = DictationPipeline.defaultLLMIntentParserFactory,
-        minimumRecordingDuration: TimeInterval = VoicePenConfig.minimumRecordingDuration
+        minimumRecordingDuration: TimeInterval = VoicePenConfig.minimumRecordingDuration,
+        processingTimeout: Duration = VoicePenConfig.dictationProcessingTimeout
     ) {
         self.recorder = recorder
         self.audioPreprocessor = audioPreprocessor
@@ -97,6 +99,7 @@ final class DictationPipeline {
         self.activeApplicationProvider = activeApplicationProvider
         self.llmIntentParserFactory = llmIntentParserFactory
         self.minimumRecordingDuration = minimumRecordingDuration
+        self.processingTimeout = processingTimeout
     }
 
     func start() async throws {
@@ -146,13 +149,38 @@ final class DictationPipeline {
             overlay.hide(after: 0.1)
             return DictationPipelineResult(rawText: "", finalText: "")
         }
-        var timings = VoicePipelineTimings(recording: recording.duration)
 
         guard recording.duration >= minimumRecordingDuration else {
             overlay.hide(after: 0.1)
             return DictationPipelineResult(rawText: "", finalText: "")
         }
 
+        await overlay.update(.transcribing(stage: .loadingModel, progress: nil))
+        let preparedTranscription = try await transcriber.prepareTranscription()
+        try Task.checkCancellation()
+
+        return try await AsyncOperationTimeout.run(
+            timeout: processingTimeout,
+            timeoutError: {
+                AppLogger.error("Dictation processing timed out after model readiness")
+                return TranscriptionError.transcriptionTimedOut
+            },
+            operation: {
+                try await self.processReadyDictation(
+                    preparedTranscription,
+                    recording: recording,
+                    archiveOwner: archiveOwner
+                )
+            }
+        )
+    }
+
+    private func processReadyDictation(
+        _ preparedTranscription: PreparedTranscription,
+        recording: RecordingResult,
+        archiveOwner: SavedAudioArchiveOwner?
+    ) async throws -> DictationPipelineResult {
+        var timings = VoicePipelineTimings(recording: recording.duration)
         await overlay.update(.transcribing(stage: .preparingAudio, progress: nil))
         let transcriptionAudioURL: URL
         do {
@@ -178,12 +206,30 @@ final class DictationPipeline {
         try Task.checkCancellation()
         let language = TranscriptionLanguageResolver.resolve(languageProvider())
         let glossary = try glossaryPrompt(language: language)
+        return try await processPreparedTranscription(
+            preparedTranscription,
+            recording: recording,
+            transcriptionAudioURL: transcriptionAudioURL,
+            language: language,
+            glossary: glossary,
+            timings: timings
+        )
+    }
 
+    private func processPreparedTranscription(
+        _ preparedTranscription: PreparedTranscription,
+        recording: RecordingResult,
+        transcriptionAudioURL: URL,
+        language: String,
+        glossary: String,
+        timings initialTimings: VoicePipelineTimings
+    ) async throws -> DictationPipelineResult {
+        var timings = initialTimings
         await overlay.update(.transcribing(stage: .transcribing, progress: nil))
         let transcriptionResult: TranscriptionClientResult
         do {
             let measured = try await measure {
-                try await transcriber.transcribe(
+                try await preparedTranscription.transcribe(
                     TranscriptionRequest(
                         audioURL: transcriptionAudioURL,
                         glossaryPrompt: glossary,

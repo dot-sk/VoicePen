@@ -108,7 +108,6 @@ final class AppController: ObservableObject {
     private let meetingRecordingReminderPresenter: MeetingRecordingReminderPresenter
     private let environmentSettingsStore: AppEnvironmentSettingsStore
     private let meetingRunningApplicationBundleIdentifiersProvider: () -> Set<String>
-    private let dictationProcessingTimeout: Duration
     private let modelDownloadTimeout: Duration
     private let modelWarmupTimeout: Duration
     private let meetingCaptureStartTimeout: Duration
@@ -122,7 +121,6 @@ final class AppController: ObservableObject {
 
     private var didStart = false
     private var transcriptionTask: Task<Void, Never>?
-    private var transcriptionTimeoutTask: Task<Void, Never>?
     private var recordingStartTask: Task<Void, Never>?
     private var activeRecordingStartID: UUID?
     private var pendingStopAfterRecordingStart = false
@@ -380,7 +378,6 @@ final class AppController: ObservableObject {
         meetingRunningApplicationBundleIdentifiersProvider: @escaping () -> Set<String> = {
             Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
         },
-        dictationProcessingTimeout: Duration = VoicePenConfig.dictationProcessingTimeout,
         modelDownloadTimeout: Duration = VoicePenConfig.modelDownloadTimeout,
         modelWarmupTimeout: Duration = VoicePenConfig.modelWarmupTimeout,
         meetingCaptureStartTimeout: Duration = VoicePenConfig.meetingCaptureStartTimeout,
@@ -411,7 +408,6 @@ final class AppController: ObservableObject {
         self.meetingRecordingReminderPresenter = meetingRecordingReminderPresenter
         self.environmentSettingsStore = environmentSettingsStore ?? AppEnvironmentSettingsStore()
         self.meetingRunningApplicationBundleIdentifiersProvider = meetingRunningApplicationBundleIdentifiersProvider
-        self.dictationProcessingTimeout = dictationProcessingTimeout
         self.modelDownloadTimeout = modelDownloadTimeout
         self.modelWarmupTimeout = modelWarmupTimeout
         self.meetingCaptureStartTimeout = meetingCaptureStartTimeout
@@ -966,7 +962,6 @@ final class AppController: ObservableObject {
                 transcriptionCancellationKeyMonitor.install { [weak self] in
                     self?.cancelTranscription()
                 }
-                startTranscriptionTimeoutMonitor(id: transcriptionID)
                 let result = try await pipeline.stopAndProcess(archiveOwner: .voiceHistory(historyEntryID))
                 try Task.checkCancellation()
                 guard activeTranscriptionID == transcriptionID else { return }
@@ -1766,39 +1761,10 @@ final class AppController: ObservableObject {
         dictationRuntimeState = .idle
     }
 
-    private func startTranscriptionTimeoutMonitor(id: UUID) {
-        transcriptionTimeoutTask?.cancel()
-        let timeout = dictationProcessingTimeout
-        transcriptionTimeoutTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(for: timeout)
-            } catch {
-                return
-            }
-
-            self?.handleTranscriptionTimeout(id: id)
-        }
-    }
-
-    private func handleTranscriptionTimeout(id: UUID) {
-        guard activeTranscriptionID == id,
-            dictationRuntimeState == .transcribing
-        else { return }
-
-        AppLogger.error("Dictation processing timed out")
-        didHandleCurrentTranscriptionCancellation = true
-        transcriptionTask?.cancel()
-        let historyEntryID = activeTranscriptionHistoryEntryID ?? UUID()
-        finishTranscriptionProcessing(id: id)
-        handleTranscriptionError(.transcriptionTimedOut, historyEntryID: historyEntryID)
-    }
-
     private func finishTranscriptionProcessing(id: UUID?) {
         guard activeTranscriptionID == id else { return }
 
         transcriptionCancellationKeyMonitor.uninstall()
-        transcriptionTimeoutTask?.cancel()
-        transcriptionTimeoutTask = nil
         transcriptionTask = nil
         activeTranscriptionID = nil
         activeTranscriptionHistoryEntryID = nil
