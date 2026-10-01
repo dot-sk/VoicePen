@@ -68,39 +68,6 @@
       ]
     },
     {
-      "id": "ggml-large-v3-turbo-q5_1",
-      "displayName": "Balanced Quality Multilingual (Whisper Q5_1)",
-      "version": "large-v3-turbo-q5_1",
-      "sizeLabel": "1.8 GB",
-      "sourceRepo": "Pomni/whisper-large-v3-turbo-ggml-allquants",
-      "sourceKind": "whisper.cpp GGML",
-      "backend": "whisperCpp",
-      "isQuantized": true,
-      "supportedLanguageCodes": ["multilingual"],
-      "description": "Balanced multilingual Whisper large-v3 turbo option. Q5_1 is slightly larger than Q5_0 and keeps a little more quality margin.",
-      "downloadURL": "https://github.com/dot-sk/VoicePen/releases/download/model-assets-v1/ggml-large-v3-turbo-q5_1.bin",
-      "artifactFileName": "ggml-large-v3-turbo-q5_1.bin",
-      "byteSize": 624065675,
-      "sha256": "05265418cae607e28c62db4095612e2c1967885d87cbda5a104834414b563ac8",
-      "capabilities": {
-        "timestamps": true
-      },
-      "companionArtifacts": [
-        {
-          "id": "coreml-encoder",
-          "displayName": "Core ML encoder",
-          "downloadURL": "https://github.com/dot-sk/VoicePen/releases/download/model-assets-v1/ggml-large-v3-turbo-encoder.mlmodelc.zip",
-          "fileName": "ggml-large-v3-turbo-encoder.mlmodelc.zip",
-          "localPath": "ggml-large-v3-turbo-encoder.mlmodelc",
-          "archiveKind": "zip",
-          "byteSize": 1172980883,
-          "sha256": "1b62109a40668c7a989564c843411b9f638f0511f97f34ad2afa7367703dfda4",
-          "archiveRoot": "ggml-large-v3-turbo-encoder.mlmodelc",
-          "requiredPaths": ["metadata.json", "model.mil", "weights/weight.bin"]
-        }
-      ]
-    },
-    {
       "id": "ggml-large-v3-turbo-q8_0",
       "displayName": "High Quality Multilingual (Whisper Q8_0)",
       "version": "large-v3-turbo-q8_0",

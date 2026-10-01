@@ -165,6 +165,12 @@ nonisolated struct AppPaths: @unchecked Sendable {
         ModelArtifactPresence.exists(at: userModelCompletionMarker(for: modelId), fileManager: fileManager)
     }
 
+    func removeUserModelDirectory(for modelId: String) throws {
+        let directory = userModelDirectory(for: modelId)
+        guard fileManager.fileExists(atPath: directory.path) else { return }
+        try fileManager.removeItem(at: directory)
+    }
+
     func cleanOldTemporaryAudioFiles(olderThan maxAge: TimeInterval = 24 * 60 * 60) throws {
         guard fileManager.fileExists(atPath: tempAudioDirectory.path) else { return }
 

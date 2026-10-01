@@ -119,6 +119,8 @@ final class AppController: ObservableObject {
     private let audioInputDeviceProvider: AudioInputDeviceProviding
     private let audioInputSelectionCoordinator: AudioInputSelectionCoordinator
     private let appVersionProvider: () -> String
+    private let retiredModelCleanup: () throws -> Void
+    private let retiredModelCleanupFailureHandler: (Error) -> Void
     let historyStore: VoiceHistoryStore
     let meetingHistoryStore: MeetingHistoryStore?
     let settingsStore: AppSettingsStore
@@ -386,6 +388,10 @@ final class AppController: ObservableObject {
         audioInputDeviceProvider: AudioInputDeviceProviding = CoreAudioInputDeviceProvider(),
         audioInputSelectionCoordinator: AudioInputSelectionCoordinator? = nil,
         appVersionProvider: @escaping () -> String = { VoicePenConfig.appVersion },
+        retiredModelCleanup: (() throws -> Void)? = nil,
+        retiredModelCleanupFailureHandler: @escaping (Error) -> Void = { error in
+            AppLogger.error("Failed to remove retired transcription model: \(error.localizedDescription)")
+        },
         historyStore: VoiceHistoryStore,
         meetingHistoryStore: MeetingHistoryStore? = nil,
         settingsStore: AppSettingsStore,
@@ -422,6 +428,12 @@ final class AppController: ObservableObject {
                 selection: settingsStore.audioInputSelection
             )
         self.appVersionProvider = appVersionProvider
+        self.retiredModelCleanup =
+            retiredModelCleanup
+            ?? {
+                try paths.removeUserModelDirectory(for: VoicePenConfig.retiredTranscriptionModelId)
+            }
+        self.retiredModelCleanupFailureHandler = retiredModelCleanupFailureHandler
         self.historyStore = historyStore
         self.meetingHistoryStore = meetingHistoryStore
         self.settingsStore = settingsStore
@@ -758,6 +770,7 @@ final class AppController: ObservableObject {
         let meetingDiarizationModelWarmup: Task<Void, Never>?
         do {
             try paths.createRequiredDirectories()
+            cleanupRetiredModel()
             try paths.cleanOldTemporaryAudioFiles()
             reloadUserConfig()
             try dictionaryStore.load()
@@ -765,6 +778,7 @@ final class AppController: ObservableObject {
             try meetingHistoryStore?.load()
             try meetingHistoryStore?.cleanupExpiredRecoveryAudio()
             try settingsStore.load(defaultModelId: recommendedModel.id)
+            try reconcileSelectedModel()
             audioInputSelectionCoordinator.updateSelection(settingsStore.audioInputSelection)
             applyAppAppearanceMode(settingsStore.appAppearanceMode)
             try syncOpenAtLoginState()
@@ -808,6 +822,22 @@ final class AppController: ObservableObject {
             modelWarmup: modelWarmup,
             meetingDiarizationModelWarmup: meetingDiarizationModelWarmup
         )
+    }
+
+    private func cleanupRetiredModel() {
+        do {
+            try retiredModelCleanup()
+        } catch {
+            retiredModelCleanupFailureHandler(error)
+        }
+    }
+
+    private func reconcileSelectedModel() throws {
+        let compatibleModelIds = Set(modelManifest.compatibleModels.map(\.id))
+        guard compatibleModelIds.contains(settingsStore.selectedModelId) else {
+            try settingsStore.updateSelectedModelId(recommendedModel.id)
+            return
+        }
     }
 
     private func refreshAudioInputDevices(_ snapshot: AudioInputDeviceSnapshot? = nil) {

@@ -3,6 +3,7 @@ import Foundation
 nonisolated enum VoicePenConfig {
     static let modelDisplayName = "Fast Multilingual (Whisper Q5_0)"
     static let modelId = "ggml-large-v3-turbo-q5_0"
+    static let retiredTranscriptionModelId = "ggml-large-v3-turbo-q5_1"
     static let modelVersion = "large-v3-turbo-q5_0"
     static let modelSizeLabel = "1.7 GB"
     static let modelSourceRepo = "ggerganov/whisper.cpp"
