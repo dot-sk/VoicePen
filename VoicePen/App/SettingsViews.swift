@@ -676,6 +676,13 @@ struct ModelSettingsView: View {
         )
     }
 
+    private var localDecodingProfileSelection: Binding<LocalDecodingProfile> {
+        Binding(
+            get: { settingsStore.localDecodingProfile },
+            set: { controller.updateLocalDecodingProfile($0) }
+        )
+    }
+
     private var modelSelection: Binding<String> {
         Binding(
             get: { settingsStore.selectedModelId },
@@ -764,6 +771,19 @@ struct ModelSettingsView: View {
                     recognitionSettingLabel(
                         "Primary language",
                         help: "Auto-detect is recommended for multilingual dictation. Choosing one language can be faster and more predictable when you know what you will speak."
+                    )
+                }
+                .pickerStyle(.menu)
+
+                Picker(selection: localDecodingProfileSelection) {
+                    ForEach(AppSettingsStore.supportedLocalDecodingProfiles) { profile in
+                        Text(profile.displayName)
+                            .tag(profile)
+                    }
+                } label: {
+                    recognitionSettingLabel(
+                        "Decoding",
+                        help: "Standard is faster. Maximum quality uses beam search to consider more transcript candidates and can take longer."
                     )
                 }
                 .pickerStyle(.menu)

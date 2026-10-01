@@ -569,6 +569,7 @@ final class AppController: ObservableObject {
                 modelManifest.compatibleModels.first { $0.id == settingsStore.selectedModelId }
                     ?? recommendedModel
             },
+            decodingProfileProvider: { settingsStore.localDecodingProfile },
             whisperCppClient: whisperCppTranscriber
         )
         let pipeline = DictationPipeline(
@@ -1492,6 +1493,14 @@ final class AppController: ObservableObject {
     func updateTranscriptionLanguage(_ language: String) {
         do {
             try settingsStore.updateTranscriptionLanguage(language)
+        } catch {
+            setError(error)
+        }
+    }
+
+    func updateLocalDecodingProfile(_ profile: LocalDecodingProfile) {
+        do {
+            try settingsStore.updateLocalDecodingProfile(profile)
         } catch {
             setError(error)
         }

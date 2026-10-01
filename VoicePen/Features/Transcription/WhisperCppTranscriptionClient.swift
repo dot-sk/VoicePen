@@ -27,7 +27,7 @@ nonisolated struct WhisperCppRuntimeState: Equatable {
 
 nonisolated struct WhisperCppLoadedContext: @unchecked Sendable {
     typealias TranscribeOperation =
-        (TranscriptionRequest, String?) async throws -> TranscriptionClientResult
+        (TranscriptionRequest, LocalDecodingProfile, String?) async throws -> TranscriptionClientResult
     typealias WarmUpOperation = (String) async throws -> Void
     typealias BenchmarkOperation =
         (URL, String, String) async throws -> [WhisperCppBenchmarkResult]
@@ -48,9 +48,10 @@ nonisolated struct WhisperCppLoadedContext: @unchecked Sendable {
 
     init(context: WhisperCppContext) {
         self.init(
-            transcribe: { request, voiceActivityDetectionModelPath in
+            transcribe: { request, decodingProfile, voiceActivityDetectionModelPath in
                 try await context.transcribe(
                     request,
+                    decodingProfile: decodingProfile,
                     voiceActivityDetectionModelPath: voiceActivityDetectionModelPath
                 )
             },
@@ -69,10 +70,12 @@ nonisolated struct WhisperCppLoadedContext: @unchecked Sendable {
 
     func transcribe(
         _ request: TranscriptionRequest,
+        decodingProfile: LocalDecodingProfile,
         voiceActivityDetectionModelPath: String?
     ) async throws -> TranscriptionClientResult {
         try await transcribeOperation(
             request,
+            decodingProfile,
             voiceActivityDetectionModelPath
         )
     }
@@ -167,7 +170,8 @@ actor WhisperCppTranscriptionClient {
     }
 
     func prepareTranscription(
-        model: ModelManifestModel
+        model: ModelManifestModel,
+        decodingProfile: LocalDecodingProfile
     ) async throws -> PreparedTranscription {
         let context = try await loadContextIfNeeded(for: model)
         let voiceActivityDetectionModelURLProvider = voiceActivityDetectionModelURLProvider
@@ -183,6 +187,7 @@ actor WhisperCppTranscriptionClient {
             do {
                 let result = try await context.transcribe(
                     request,
+                    decodingProfile: decodingProfile,
                     voiceActivityDetectionModelPath: voiceActivityDetectionModelPath
                 )
                 markWarmedIfCurrent(modelId: model.id)
@@ -196,17 +201,20 @@ actor WhisperCppTranscriptionClient {
 
     func transcribe(
         _ request: TranscriptionRequest,
-        model: ModelManifestModel
+        model: ModelManifestModel,
+        decodingProfile: LocalDecodingProfile
     ) async throws -> TranscriptionClientResult {
         let prepared = try await prepareTranscription(
-            model: model
+            model: model,
+            decodingProfile: decodingProfile
         )
         return try await prepared.transcribe(request)
     }
 
     func warmUp(
         model: ModelManifestModel,
-        language: String
+        language: String,
+        decodingProfile _: LocalDecodingProfile
     ) async throws {
         guard runtimeState.shouldWarmUp(modelId: model.id) else {
             return

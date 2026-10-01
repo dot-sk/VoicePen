@@ -119,16 +119,29 @@ nonisolated final class RNNoiseAudioDenoiser: AudioDenoising, @unchecked Sendabl
         }
         let resampleOutDuration = elapsedTime(since: resampleOutStart)
 
+        let conditioned: RNNoiseOutputConditioningResult
+        do {
+            conditioned = try RNNoiseOutputConditioner.condition(output)
+        } catch {
+            AppLogger.info(
+                "RNNoise output conditioning failed: \(error.localizedDescription)"
+            )
+            throw error
+        }
+
         AppLogger.info(
             String(
                 format:
-                    "RNNoise timings: resample-in=%.3fs, rnnoise=%.3fs, resample-out=%.3fs",
+                    "RNNoise timings: resample-in=%.3fs, rnnoise=%.3fs, resample-out=%.3fs, input-peak=%.6f, output-peak=%.6f, attenuation-applied=%@",
                 resampleInDuration,
                 rnnoiseDuration,
-                resampleOutDuration
+                resampleOutDuration,
+                conditioned.inputPeak,
+                conditioned.outputPeak,
+                conditioned.attenuationApplied ? "true" : "false"
             )
         )
-        return output
+        return conditioned.samples
     }
 
     static func bundledModelURL() -> URL? {

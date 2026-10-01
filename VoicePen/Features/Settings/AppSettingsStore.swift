@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 final class AppSettingsStore: ObservableObject {
     @Published private(set) var transcriptionLanguage: String
+    @Published private(set) var localDecodingProfile: LocalDecodingProfile
     @Published private(set) var selectedModelId: String
     @Published private(set) var hotkeyPreference: HotkeyPreference
     @Published private(set) var boostDictationInputGain: Bool
@@ -28,6 +29,7 @@ final class AppSettingsStore: ObservableObject {
         self.databaseURL = databaseURL
         self.fileManager = fileManager
         self.transcriptionLanguage = VoicePenConfig.defaultLanguage
+        self.localDecodingProfile = .standard
         self.selectedModelId = VoicePenConfig.modelId
         self.hotkeyPreference = .option
         self.boostDictationInputGain = true
@@ -50,6 +52,7 @@ final class AppSettingsStore: ObservableObject {
         let values = try withDatabase { database in
             try DatabaseMigrator.migrate(database)
             let language = try fetchValue(forKey: Self.languageKey, from: database) ?? VoicePenConfig.defaultLanguage
+            let localDecodingProfile = try fetchValue(forKey: Self.localDecodingProfileKey, from: database)
             let modelId = try fetchValue(forKey: Self.selectedModelKey, from: database) ?? defaultModelId
             let hotkey = try fetchValue(forKey: Self.hotkeyPreferenceKey, from: database) ?? HotkeyPreference.option.rawValue
             let boostDictationInputGain =
@@ -88,6 +91,7 @@ final class AppSettingsStore: ObservableObject {
             let meetingConsent = try fetchValue(forKey: Self.meetingConsentKey, from: database) ?? "false"
             return LoadedSettings(
                 language: language,
+                localDecodingProfile: localDecodingProfile,
                 modelId: modelId,
                 hotkey: hotkey,
                 boostDictationInputGain: boostDictationInputGain,
@@ -107,6 +111,7 @@ final class AppSettingsStore: ObservableObject {
             )
         }
         transcriptionLanguage = Self.normalizeLanguage(values.language)
+        localDecodingProfile = Self.normalizeLocalDecodingProfile(values.localDecodingProfile)
         selectedModelId = Self.normalizeModelId(values.modelId, fallback: defaultModelId)
         hotkeyPreference = Self.normalizeHotkeyPreference(values.hotkey)
         boostDictationInputGain = Self.normalizeBoolean(values.boostDictationInputGain)
@@ -131,6 +136,13 @@ final class AppSettingsStore: ObservableObject {
             normalizedLanguage,
             forKey: Self.languageKey
         ) { transcriptionLanguage = normalizedLanguage }
+    }
+
+    func updateLocalDecodingProfile(_ profile: LocalDecodingProfile) throws {
+        try persistAndApply(
+            profile.rawValue,
+            forKey: Self.localDecodingProfileKey
+        ) { localDecodingProfile = profile }
     }
 
     func updateSelectedModelId(_ modelId: String) throws {
@@ -286,6 +298,13 @@ final class AppSettingsStore: ObservableObject {
             : VoicePenConfig.defaultLanguage
     }
 
+    private static func normalizeLocalDecodingProfile(_ value: String?) -> LocalDecodingProfile {
+        guard let value else { return .standard }
+        return LocalDecodingProfile(
+            rawValue: value.trimmingCharacters(in: .whitespacesAndNewlines)
+        ) ?? .standard
+    }
+
     private static func normalizeModelId(_ modelId: String, fallback: String) -> String {
         let normalizedModelId = modelId.trimmingCharacters(in: .whitespacesAndNewlines)
         return normalizedModelId.isEmpty ? fallback : normalizedModelId
@@ -373,8 +392,10 @@ final class AppSettingsStore: ObservableObject {
         TranscriptionLanguage(code: "ru", name: "Russian"),
         TranscriptionLanguage(code: "en", name: "English")
     ]
+    static let supportedLocalDecodingProfiles = LocalDecodingProfile.allCases
 
     private static let languageKey = "transcription.language"
+    private static let localDecodingProfileKey = "transcription.decodingProfile"
     private static let selectedModelKey = "transcription.selectedModelId"
     private static let boostDictationInputGainKey = "audio.boostDictationInputGain"
     private static let meetingVoiceLevelingEnabledKey = "audio.meetingVoiceLevelingEnabled"
@@ -405,6 +426,7 @@ struct TranscriptionLanguage: Identifiable, Equatable {
 
 private struct LoadedSettings {
     let language: String
+    let localDecodingProfile: String?
     let modelId: String
     let hotkey: String
     let boostDictationInputGain: String

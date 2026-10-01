@@ -1,5 +1,21 @@
 import Foundation
 
+nonisolated enum WhisperCppSamplingStrategy: Equatable, Sendable {
+    case greedy
+    case beamSearch
+}
+
+nonisolated enum WhisperCppDecodeDiagnostics {
+    static func profileLabel(for profile: LocalDecodingProfile) -> String {
+        switch profile {
+        case .standard:
+            return "standard-greedy"
+        case .maximumQuality:
+            return "maximum-quality-beam-search"
+        }
+    }
+}
+
 nonisolated struct WhisperCppDecodingOptions: Equatable {
     static let defaultSampleRate: Double = 16_000
     static let shortUtteranceMaximumDuration: TimeInterval = 10
@@ -11,16 +27,30 @@ nonisolated struct WhisperCppDecodingOptions: Equatable {
     let splitOnWord: Bool
     let audioContext: Int32
     let threadCount: Int32
+    let suppressNonSpeechTokens: Bool
+    let temperature: Float
+    let decodingProfile: LocalDecodingProfile
+
+    var samplingStrategy: WhisperCppSamplingStrategy {
+        switch decodingProfile {
+        case .standard:
+            return .greedy
+        case .maximumQuality:
+            return .beamSearch
+        }
+    }
 
     static func resolve(
         sampleCount: Int,
         sampleRate: Double = defaultSampleRate,
         isWarmup: Bool = false,
         includeTimestamps: Bool = false,
+        decodingProfile: LocalDecodingProfile = .standard,
         processorCount: Int = ProcessInfo.processInfo.processorCount,
         audioContext: Int32 = 0
     ) -> WhisperCppDecodingOptions {
         let threadCount = defaultThreadCount(processorCount: processorCount)
+        let effectiveDecodingProfile: LocalDecodingProfile = isWarmup ? .standard : decodingProfile
 
         guard !isWarmup else {
             return WhisperCppDecodingOptions(
@@ -30,7 +60,10 @@ nonisolated struct WhisperCppDecodingOptions: Equatable {
                 maxSegmentLength: 0,
                 splitOnWord: false,
                 audioContext: audioContext,
-                threadCount: threadCount
+                threadCount: threadCount,
+                suppressNonSpeechTokens: true,
+                temperature: 0,
+                decodingProfile: effectiveDecodingProfile
             )
         }
 
@@ -42,7 +75,10 @@ nonisolated struct WhisperCppDecodingOptions: Equatable {
                 maxSegmentLength: 0,
                 splitOnWord: false,
                 audioContext: audioContext,
-                threadCount: threadCount
+                threadCount: threadCount,
+                suppressNonSpeechTokens: true,
+                temperature: 0,
+                decodingProfile: effectiveDecodingProfile
             )
         }
 
@@ -54,7 +90,27 @@ nonisolated struct WhisperCppDecodingOptions: Equatable {
             maxSegmentLength: includeTimestamps ? 80 : 0,
             splitOnWord: includeTimestamps,
             audioContext: audioContext,
-            threadCount: threadCount
+            threadCount: threadCount,
+            suppressNonSpeechTokens: true,
+            temperature: 0,
+            decodingProfile: effectiveDecodingProfile
+        )
+    }
+
+    func timings(
+        elapsedMilliseconds: Double,
+        sampleCount: Int
+    ) -> WhisperCppTimings {
+        WhisperCppTimings(
+            elapsedMilliseconds: elapsedMilliseconds,
+            sampleCount: sampleCount,
+            threadCount: threadCount,
+            audioContext: audioContext,
+            singleSegment: singleSegment,
+            noTimestamps: noTimestamps,
+            tokenTimestamps: tokenTimestamps,
+            maxSegmentLength: maxSegmentLength,
+            decodingProfile: decodingProfile
         )
     }
 
