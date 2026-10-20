@@ -51,6 +51,7 @@ help:
 	@printf "  make install-hooks    Install Lefthook Git hooks\n"
 	@printf "  make check            Run lint and unit tests\n"
 	@printf "  make test             Validate specs and run non-hosted unit tests\n"
+	@printf "  make test-asr-quality Run local ASR dataset tooling tests\n"
 	@printf "  make asr-dataset      Prepare private long-dictation review drafts\n"
 	@printf "  make asr-review       Open a loopback audio/reference review server\n"
 	@printf "  make asr-export       Export manually confirmed golden examples\n"
@@ -138,7 +139,7 @@ install-hooks:
 
 check: lint test
 
-test: validate-specs test-asr-quality
+test: validate-specs
 	DEVELOPER_DIR="$(DEVELOPER_DIR)" SDKROOT="$(MACOS_SDKROOT)" xcrun swift test --jobs "$(TEST_JOBS)" $(if $(TEST_FILTER),--filter "$(TEST_FILTER)",)
 
 test-asr-quality:
