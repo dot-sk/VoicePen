@@ -1,4 +1,3 @@
-import CoreML
 import Foundation
 
 nonisolated struct WhisperCppRuntimeState: Equatable {
@@ -136,6 +135,7 @@ nonisolated private enum WhisperCppModelLoadWaitError: Error {
 
 private struct WhisperCppActiveModelLoad {
     let modelId: String
+    let identity: String
     let generation: UInt64
     let task: Task<WhisperCppLoadedContext, Error>
     var waiters: [UUID: CheckedContinuation<WhisperCppLoadedContext, Error>] = [:]
@@ -148,8 +148,12 @@ actor WhisperCppTranscriptionClient {
     private let modelLoadEventHandler: @Sendable (WhisperCppModelLoadEvent) -> Void
     private var runtimeState = WhisperCppRuntimeState()
     private var context: WhisperCppLoadedContext?
+    private var contextIdentity: String?
     private var activeLoad: WhisperCppActiveModelLoad?
     private var loadGeneration: UInt64 = 0
+    private let executionGate = NativeExecutionGate.shared
+    private var owners: [String: Int] = [:]
+    private var inactiveModelIDs = Set<String>()
 
     init(
         paths: AppPaths,
@@ -173,10 +177,15 @@ actor WhisperCppTranscriptionClient {
         model: ModelManifestModel,
         decodingProfile: LocalDecodingProfile
     ) async throws -> PreparedTranscription {
+        inactiveModelIDs.remove(model.id)
         let context = try await loadContextIfNeeded(for: model)
+        owners[model.id, default: 0] += 1
+        let lease = NativeContextLease { [weak self] in Task { await self?.releaseOwner(model.id) } }
         let voiceActivityDetectionModelURLProvider = voiceActivityDetectionModelURLProvider
+        let gate = executionGate
 
         return PreparedTranscription { [self] request in
+            _ = lease
             let isVoiceActivityDetectionRequested = request.options.contains(.voiceActivityDetection)
             let voiceActivityDetectionModelPath = WhisperCppVoiceActivityDetection.existingModelPath(
                 requested: isVoiceActivityDetectionRequested,
@@ -185,11 +194,9 @@ actor WhisperCppTranscriptionClient {
                     : nil
             )
             do {
-                let result = try await context.transcribe(
-                    request,
-                    decodingProfile: decodingProfile,
-                    voiceActivityDetectionModelPath: voiceActivityDetectionModelPath
-                )
+                let result = try await gate.run {
+                    try await context.transcribe(request, decodingProfile: decodingProfile, voiceActivityDetectionModelPath: voiceActivityDetectionModelPath)
+                }
                 markWarmedIfCurrent(modelId: model.id)
                 return result
             } catch TranscriptionError.emptyResult {
@@ -216,12 +223,12 @@ actor WhisperCppTranscriptionClient {
         language: String,
         decodingProfile _: LocalDecodingProfile
     ) async throws {
+        let context = try await loadContextIfNeeded(for: model)
         guard runtimeState.shouldWarmUp(modelId: model.id) else {
             return
         }
 
-        let context = try await loadContextIfNeeded(for: model)
-        try await context.warmUp(language: language)
+        try await executionGate.run { try await context.warmUp(language: language) }
         markWarmedIfCurrent(modelId: model.id)
     }
 
@@ -240,9 +247,13 @@ actor WhisperCppTranscriptionClient {
     }
 
     private func loadContextIfNeeded(for model: ModelManifestModel) async throws -> WhisperCppLoadedContext {
+        let modelPath = try validatedModelPath(for: model)
+        let canonicalURL = URL(fileURLWithPath: modelPath).resolvingSymlinksInPath()
+        let attributes = try FileManager.default.attributesOfItem(atPath: canonicalURL.path)
+        let identity = "\(model.id)|\(canonicalURL.path)|\(model.sha256 ?? "")|\(attributes[.size] ?? "")|\(attributes[.modificationDate] ?? "")"
         while true {
             if let activeLoad {
-                if activeLoad.modelId == model.id {
+                if activeLoad.identity == identity {
                     modelLoadEventHandler(
                         .joined(modelId: model.id, generation: activeLoad.generation)
                     )
@@ -262,7 +273,7 @@ actor WhisperCppTranscriptionClient {
                         loadingModelId: activeLoad.modelId,
                         generation: activeLoad.generation
                     )
-                    if activeLoad.modelId == model.id {
+                    if activeLoad.identity == identity {
                         return loadedContext
                     }
                     try Task.checkCancellation()
@@ -272,7 +283,7 @@ actor WhisperCppTranscriptionClient {
                 } catch WhisperCppModelLoadWaitError.loadChanged {
                     continue
                 } catch {
-                    if activeLoad.modelId == model.id {
+                    if activeLoad.identity == identity {
                         throw error
                     }
                     try Task.checkCancellation()
@@ -280,18 +291,19 @@ actor WhisperCppTranscriptionClient {
                 }
             }
 
-            if runtimeState.loadedModelId == model.id, let context {
+            if contextIdentity == identity, let context {
                 return context
             }
 
-            let modelPath = try validatedModelPath(for: model)
             let generation = nextLoadGeneration()
             let contextLoader = contextLoader
+            let gate = executionGate
             let loadTask = Task.detached(priority: .utility) {
-                try contextLoader(modelPath)
+                try await gate.run { try contextLoader(modelPath) }
             }
             activeLoad = WhisperCppActiveModelLoad(
                 modelId: model.id,
+                identity: identity,
                 generation: generation,
                 task: loadTask
             )
@@ -387,8 +399,12 @@ actor WhisperCppTranscriptionClient {
         self.activeLoad = nil
         switch result {
         case let .success(loadedContext):
-            context = loadedContext
-            runtimeState.markLoaded(modelId: modelId)
+            if !inactiveModelIDs.contains(modelId) {
+                if contextIdentity != activeLoad.identity { runtimeState = WhisperCppRuntimeState() }
+                context = loadedContext
+                contextIdentity = activeLoad.identity
+                runtimeState.markLoaded(modelId: modelId)
+            }
             modelLoadEventHandler(.completed(modelId: modelId, generation: generation))
             activeLoad.waiters.values.forEach { $0.resume(returning: loadedContext) }
         case let .failure(error):
@@ -407,14 +423,37 @@ actor WhisperCppTranscriptionClient {
         runtimeState.markWarmed(modelId: modelId)
     }
 
+    func releaseResources(except modelID: String?) async {
+        if let loadedID = runtimeState.loadedModelId, loadedID != modelID {
+            inactiveModelIDs.insert(loadedID)
+            context = nil
+            contextIdentity = nil
+            runtimeState = WhisperCppRuntimeState()
+        }
+        if let loadingID = activeLoad?.modelId, loadingID != modelID { inactiveModelIDs.insert(loadingID) }
+    }
+
+    func releaseResourcesForDeletion(modelID: String) async -> Bool {
+        guard owners[modelID, default: 0] == 0, activeLoad?.modelId != modelID else { return false }
+        if runtimeState.loadedModelId == modelID {
+            context = nil
+            contextIdentity = nil
+            runtimeState = WhisperCppRuntimeState()
+        }
+        return true
+    }
+
+    private func releaseOwner(_ modelID: String) {
+        owners[modelID, default: 0] -= 1
+        if owners[modelID] == 0 { owners[modelID] = nil }
+    }
+
     private func nextLoadGeneration() -> UInt64 {
         loadGeneration &+= 1
         return loadGeneration
     }
 
     private func validatedModelPath(for model: ModelManifestModel) throws -> String {
-        try validateAcceleration(for: model)
-
         let missingArtifactPaths = model.missingArtifactURLs(paths: paths).map(\.path)
         guard missingArtifactPaths.isEmpty else {
             throw TranscriptionError.modelMissing(expectedPaths: missingArtifactPaths)
@@ -431,36 +470,4 @@ actor WhisperCppTranscriptionClient {
         return modelURL.path
     }
 
-    private func validateAcceleration(for model: ModelManifestModel) throws {
-        let status = ModelAccelerationStatus.inspect(model: model, paths: paths)
-        let requiresCoreMLEncoder = model.requiredCompanionArtifacts.contains { $0.id == "coreml-encoder" }
-        guard !requiresCoreMLEncoder || status.isCoreMLReady else {
-            let expectedPaths = model.requiredCompanionArtifacts
-                .filter { $0.id == "coreml-encoder" }
-                .map { paths.userModelArtifact(for: model.id, localPath: $0.localPath).path }
-                .joined(separator: "\n")
-            throw TranscriptionError.accelerationUnavailable(
-                modelId: model.id,
-                message: "Core ML encoder is required and was not found.\n\(expectedPaths)"
-            )
-        }
-
-        for artifact in model.requiredCompanionArtifacts where artifact.id == "coreml-encoder" {
-            guard let url = paths.existingModelArtifact(for: model.id, localPath: artifact.localPath) else {
-                throw TranscriptionError.accelerationUnavailable(
-                    modelId: model.id,
-                    message: "Core ML encoder is missing at \(artifact.localPath)."
-                )
-            }
-
-            do {
-                _ = try MLModel(contentsOf: url)
-            } catch {
-                throw TranscriptionError.accelerationUnavailable(
-                    modelId: model.id,
-                    message: "Core ML encoder exists but could not be loaded: \(error.localizedDescription)"
-                )
-            }
-        }
-    }
 }

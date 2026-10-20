@@ -502,7 +502,7 @@ struct ConfigSettingsView: View {
                 Text("Saved recordings")
             } footer: {
                 Text(
-                    "When enabled, VoicePen copies local audio files into Application Support so you can open or copy them later. Saving audio never changes transcription or history behavior."
+                    "When enabled, VoicePen saves captured audio before software filters. Meeting recordings contain one mix of microphone and system audio. Saving audio does not change transcription or history behavior."
                 )
             }
 
@@ -513,12 +513,18 @@ struct ConfigSettingsView: View {
                         help: "Adds meeting-relative timecodes to the transcript."
                     )
                 }
+                .disabled(!controller.recognitionCapabilities.timestamps)
 
                 Toggle(isOn: meetingDiarizationEnabled) {
                     configSettingLabel(
                         "Meeting diarization",
                         help: "Adds experimental offline speaker labels for Meeting Mode with a separate local diarization model."
                     )
+                }
+                .disabled(!controller.recognitionCapabilities.timestamps)
+                if !controller.recognitionCapabilities.timestamps {
+                    Text("The selected model produces plain text. Saved timecode and speaker preferences apply again with Whisper.")
+                        .foregroundStyle(.secondary)
                 }
             } header: {
                 Text("Meeting features")
@@ -733,7 +739,7 @@ struct ModelSettingsView: View {
                         } label: {
                             Label("Download Model", systemImage: "arrow.down.circle")
                         }
-                        .disabled(controller.isModelInstalled)
+                        .disabled(controller.isModelInstalled || controller.selectedModel.remoteFile == nil)
                     }
 
                     Button {
@@ -772,6 +778,7 @@ struct ModelSettingsView: View {
                     )
                 }
                 .pickerStyle(.menu)
+                .disabled(!controller.recognitionCapabilities.forcedLanguage)
 
                 Picker(selection: localDecodingProfileSelection) {
                     ForEach(AppSettingsStore.supportedLocalDecodingProfiles) { profile in
@@ -785,6 +792,10 @@ struct ModelSettingsView: View {
                     )
                 }
                 .pickerStyle(.menu)
+                .disabled(!controller.recognitionCapabilities.configurableDecoding)
+                if !controller.recognitionCapabilities.configurableDecoding {
+                    LabeledContent("Effective recognition", value: "Automatic multilingual, greedy CTC, text only")
+                }
 
             } header: {
                 Text("Recognition")

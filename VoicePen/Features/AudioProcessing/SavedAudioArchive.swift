@@ -6,7 +6,8 @@ nonisolated protocol SavedAudioArchiving: AnyObject, Sendable {
 }
 
 nonisolated protocol SavedAudioArchiveScheduling: AnyObject, Sendable {
-    func archiveBestEffort(_ request: SavedAudioArchiveRequest, storageLimitGB: Int)
+    @discardableResult
+    func archiveBestEffort(_ request: SavedAudioArchiveRequest, storageLimitGB: Int) -> Task<Void, Never>
 }
 
 nonisolated enum SavedAudioArchiveOwner: Equatable, Sendable {
@@ -103,7 +104,10 @@ nonisolated final class SavedAudioArchive: SavedAudioArchiving, @unchecked Senda
             baseName: fileBaseName(for: request),
             pathExtension: request.sourceURL.pathExtension
         )
-        try fileManager.copyItem(at: request.sourceURL, to: destination)
+        let staging = directory.appendingPathComponent(".\(UUID().uuidString)-staging")
+        defer { try? fileManager.removeItem(at: staging) }
+        try fileManager.copyItem(at: request.sourceURL, to: staging)
+        try fileManager.moveItem(at: staging, to: destination)
         try fileManager.setAttributes(
             [
                 .creationDate: request.capturedAt,
@@ -264,18 +268,24 @@ nonisolated final class AsyncSavedAudioArchiveScheduler: SavedAudioArchiveSchedu
         )
     }
 
-    func archiveBestEffort(_ request: SavedAudioArchiveRequest, storageLimitGB: Int) {
-        let job = SavedAudioArchiveJob(request: request, storageLimitGB: storageLimitGB)
-        guard queue.enqueueAndStartDrainingIfNeeded(job) else { return }
-
-        Task.detached(priority: .utility) { [queue, worker] in
-            await worker.drain(queue)
+    @discardableResult
+    func archiveBestEffort(_ request: SavedAudioArchiveRequest, storageLimitGB: Int) -> Task<Void, Never> {
+        let completion = SavedAudioArchiveCompletionLatch()
+        let job = SavedAudioArchiveJob(request: request, storageLimitGB: storageLimitGB, completion: completion)
+        if queue.enqueueAndStartDrainingIfNeeded(job) {
+            Task.detached(priority: .utility) { [queue, worker] in
+                await worker.drain(queue)
+            }
+        }
+        return Task.detached(priority: .utility) {
+            await completion.wait()
         }
     }
 }
 
 nonisolated final class NoOpSavedAudioArchiveScheduler: SavedAudioArchiveScheduling {
-    func archiveBestEffort(_: SavedAudioArchiveRequest, storageLimitGB _: Int) {}
+    @discardableResult
+    func archiveBestEffort(_: SavedAudioArchiveRequest, storageLimitGB _: Int) -> Task<Void, Never> { Task {} }
 }
 
 nonisolated final class NoOpSavedAudioArchive: SavedAudioArchiving {
@@ -304,6 +314,7 @@ private actor SavedAudioArchiveWorker {
     }
 
     private func archive(_ job: SavedAudioArchiveJob) {
+        defer { job.completion.finish() }
         do {
             let archivedURL = try archiver.archive(job.request, storageLimitGB: job.storageLimitGB)
             if let owner = job.request.owner {
@@ -318,6 +329,35 @@ private actor SavedAudioArchiveWorker {
 nonisolated private struct SavedAudioArchiveJob: Sendable {
     let request: SavedAudioArchiveRequest
     let storageLimitGB: Int
+    let completion: SavedAudioArchiveCompletionLatch
+}
+
+nonisolated private final class SavedAudioArchiveCompletionLatch: @unchecked Sendable {
+    private let lock = NSLock()
+    private var finished = false
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if finished {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                self.continuation = continuation
+                lock.unlock()
+            }
+        }
+    }
+
+    func finish() {
+        lock.lock()
+        finished = true
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume()
+    }
 }
 
 nonisolated private final class SavedAudioArchiveJobQueue: @unchecked Sendable {

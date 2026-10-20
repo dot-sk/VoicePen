@@ -22,6 +22,10 @@ build/
 *.xcarchive
 
 # Local runtime data
+.envrc
+.local/
+.local/asr-quality/
+Tools/ASRQuality/__pycache__/
 VoicePen.sqlite
 *.sqlite
 *.sqlite-shm

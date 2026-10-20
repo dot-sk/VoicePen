@@ -76,12 +76,12 @@ or public model marketplace behavior.
 #### Scenario: Whisper.cpp model is selected
 
 - **WHEN** a Whisper.cpp model is selected
-- **THEN** VoicePen shall require the expected model and Core ML companion artifacts before accelerated transcription.
+- **THEN** VoicePen shall require the validated selected weights for readiness without requiring, validating, compiling, or loading a Core ML ASR companion.
 
 #### Scenario: Whisper.cpp runs on Apple Silicon
 
 - **WHEN** Whisper.cpp runs on Apple Silicon
-- **THEN** VoicePen shall make the packaged Metal kernels discoverable from both the app bundle and SwiftPM runtime bundles so the decoder does not fall back to CPU because of resource lookup.
+- **THEN** both ASR encoder and decoder shall use Metal, including when legacy Core ML encoder files remain installed, with packaged kernels discoverable from app and SwiftPM runtime bundles.
 
 #### Scenario: Whisper.cpp model is installed by download
 
@@ -156,7 +156,7 @@ or public model marketplace behavior.
 #### Scenario: Diagnostics are copied
 
 - **WHEN** diagnostics are copied
-- **THEN** VoicePen shall report installed state, language support, timestamp support, backend/source, version, size, and artifact status.
+- **THEN** VoicePen shall report installed state, language support, timestamp support, backend/source, version, size, required artifact status, and actual ASR encoder/decoder acceleration without treating a legacy Core ML companion as required or inferring execution from compiled-in features.
 
 ### Requirement: User can select a local decoding profile
 
@@ -202,3 +202,45 @@ compared without recording transcript or audio content in logs.
 
 - **WHEN** a local transcription request starts and then completes or fails
 - **THEN** its diagnostics identify whether standard greedy or maximum-quality beam-search decoding was used
+
+### Requirement: Existing Whisper weights migrate without another download
+
+VoicePen SHALL reuse valid existing Whisper weights and completion state when switching to Metal-only ASR. Legacy Core ML ASR companions SHALL not affect readiness or execution. Unrelated model files and separate Meeting diarization assets SHALL remain intact.
+
+#### Scenario: Valid Whisper weights exist without an encoder companion
+
+- **WHEN** VoicePen starts with valid installed Whisper weights and no Core ML encoder
+- **THEN** the selected model is installed and can prepare Metal ASR without another download or a change to the saved model selection
+
+#### Scenario: Legacy encoder files remain beside the weights
+
+- **WHEN** valid Whisper weights and legacy Core ML encoder files are both present
+- **THEN** VoicePen uses the same weights through Metal ASR and leaves those legacy files and diarization assets untouched
+
+#### Scenario: Whisper installation is new or incomplete
+
+- **WHEN** the user installs Whisper or resumes an interrupted installation
+- **THEN** the required download set contains the selected weights only, preserves verified-artifact reuse, and marks readiness only after required validation completes
+
+### Requirement: Metal ASR availability is explicit
+
+VoicePen SHALL surface Metal initialization failures rather than silently execute Whisper ASR on CPU or report the model ready without the required acceleration.
+
+#### Scenario: Metal ASR cannot initialize
+
+- **WHEN** the selected model's Metal encoder or decoder cannot initialize because the GPU or packaged kernels are unavailable
+- **THEN** VoicePen reports an actionable initialization error and allows retry through the existing model-loading path without claiming successful CPU ASR as Metal execution
+
+### Requirement: GigaAM effective timing capability is distinct from native timestamp output
+
+VoicePen SHALL allow Meeting timecodes and speaker labeling with GigaAM when its accepted native package provides aligned token positions, while continuing to report that the native backend has no direct segment or word timestamp output. Unsupported GigaAM decoding controls SHALL remain unavailable.
+
+#### Scenario: GigaAM selected with saved Meeting timing preferences
+
+- **WHEN** GigaAM is selected and Meeting timecodes or diarization are enabled
+- **THEN** those preferences are effective for new Meeting recognition requests without enabling forced language, decoder prompting, beam search, or VAD
+
+#### Scenario: GigaAM dictation without timing request
+
+- **WHEN** push-to-talk dictation uses GigaAM without a timing request
+- **THEN** it returns the same recognized text without additional alignment processing or speaker analysis

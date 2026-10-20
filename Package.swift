@@ -12,6 +12,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "Vendor/whisper.spm"),
+        .package(path: "Vendor/transcribe.spm"),
         .package(path: "Vendor/rnnoise.spm"),
         .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", from: "2.2.0"),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.1"),
@@ -25,6 +26,7 @@ let package = Package(
             name: "VoicePenCore",
             dependencies: [
                 .product(name: "whisper", package: "whisper.spm"),
+                .product(name: "VoicePenGigaAM", package: "transcribe.spm"),
                 .product(name: "CRNNoise", package: "rnnoise.spm"),
                 .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts"),
                 .product(name: "Sparkle", package: "Sparkle"),

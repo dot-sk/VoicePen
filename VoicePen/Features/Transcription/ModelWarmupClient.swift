@@ -1,7 +1,14 @@
 import Foundation
 
-@preconcurrency protocol ModelWarmupClient: AnyObject {
+nonisolated protocol ModelWarmupClient: AnyObject, Sendable {
     func warmUp(model: ModelManifestModel, language: String) async throws
+    func releaseInactiveResources(selectedModelID: String?) async
+    func releaseResourcesForDeletion(modelID: String) async -> Bool
+}
+
+extension ModelWarmupClient {
+    func releaseInactiveResources(selectedModelID: String?) async {}
+    func releaseResourcesForDeletion(modelID: String) async -> Bool { true }
 }
 
 nonisolated enum ModelRuntimeState: Equatable, Sendable {

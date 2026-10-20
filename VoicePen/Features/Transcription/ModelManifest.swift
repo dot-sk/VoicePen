@@ -12,7 +12,7 @@ nonisolated struct ModelManifest: Codable, Equatable {
     )
 }
 
-nonisolated struct ModelManifestModel: Codable, Equatable, Identifiable {
+nonisolated struct ModelManifestModel: Codable, Equatable, Identifiable, Sendable {
     var id: String
     var displayName: String
     var version: String
@@ -29,6 +29,7 @@ nonisolated struct ModelManifestModel: Codable, Equatable, Identifiable {
     var sha256: String?
     var capabilities: ModelManifestModelCapabilities?
     var companionArtifacts: [ModelManifestArtifact]?
+    var runtimePackageID: String?
 
     var backendKind: ModelBackend {
         ModelBackend(rawValue: backend) ?? .unsupported
@@ -38,6 +39,8 @@ nonisolated struct ModelManifestModel: Codable, Equatable, Identifiable {
         switch backendKind {
         case .whisperCpp:
             return true
+        case .gigaAM:
+            return false
         case .unsupported:
             return capabilities?.timestamps ?? false
         }
@@ -65,7 +68,7 @@ nonisolated struct ModelManifestModel: Codable, Equatable, Identifiable {
     }
 
     var requiredCompanionArtifacts: [ModelManifestArtifact] {
-        companionArtifacts ?? []
+        (companionArtifacts ?? []).filter { backendKind != .whisperCpp || $0.id != "coreml-encoder" }
     }
 
     var remoteFile: ModelAssetRemoteFile? {
@@ -112,7 +115,10 @@ nonisolated struct ModelManifestModel: Codable, Equatable, Identifiable {
     }
 
     func isInstalled(paths: AppPaths) -> Bool {
-        paths.existingModelFile(for: id, fileName: localArtifactFileName) != nil
+        if backendKind == .gigaAM {
+            return GigaAMInstallationIdentity(model: self).isInstalled(paths: paths, model: self)
+        }
+        return paths.existingModelFile(for: id, fileName: localArtifactFileName) != nil
             && requiredCompanionArtifacts.allSatisfy { artifact in
                 paths.existingModelArtifact(for: id, localPath: artifact.localPath) != nil
             }
@@ -134,32 +140,15 @@ nonisolated struct ModelManifestModel: Codable, Equatable, Identifiable {
         byteSize: 574_041_195,
         sha256: "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
         capabilities: ModelManifestModelCapabilities(timestamps: true),
-        companionArtifacts: [
-            ModelManifestArtifact(
-                id: "coreml-encoder",
-                displayName: "Core ML encoder",
-                downloadURL: "https://github.com/dot-sk/VoicePen/releases/download/model-assets-v1/ggml-large-v3-turbo-encoder.mlmodelc.zip",
-                fileName: "ggml-large-v3-turbo-encoder.mlmodelc.zip",
-                localPath: "ggml-large-v3-turbo-encoder.mlmodelc",
-                archiveKind: .zip,
-                byteSize: 1_172_980_883,
-                sha256: "1b62109a40668c7a989564c843411b9f638f0511f97f34ad2afa7367703dfda4",
-                archiveRoot: "ggml-large-v3-turbo-encoder.mlmodelc",
-                requiredPaths: [
-                    "metadata.json",
-                    "model.mil",
-                    "weights/weight.bin"
-                ]
-            )
-        ]
+        companionArtifacts: []
     )
 }
 
-nonisolated struct ModelManifestModelCapabilities: Codable, Equatable {
+nonisolated struct ModelManifestModelCapabilities: Codable, Equatable, Sendable {
     var timestamps: Bool
 }
 
-nonisolated struct ModelManifestArtifact: Codable, Equatable, Identifiable {
+nonisolated struct ModelManifestArtifact: Codable, Equatable, Identifiable, Sendable {
     var id: String
     var displayName: String
     var downloadURL: String
@@ -191,12 +180,13 @@ nonisolated struct ModelManifestArtifact: Codable, Equatable, Identifiable {
     }
 }
 
-nonisolated enum ModelArtifactArchiveKind: String, Codable, Equatable {
+nonisolated enum ModelArtifactArchiveKind: String, Codable, Equatable, Sendable {
     case none
     case zip
 }
 
-nonisolated enum ModelBackend: String, Equatable {
+nonisolated enum ModelBackend: String, Equatable, Sendable {
     case whisperCpp
+    case gigaAM
     case unsupported
 }

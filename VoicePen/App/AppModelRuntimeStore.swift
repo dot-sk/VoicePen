@@ -72,6 +72,7 @@ final class AppModelRuntimeStore {
 
     private(set) var state: State
     private let environment: Environment
+    private var warmupGeneration = UUID()
 
     init(state: State = State(), environment: Environment) {
         self.state = state
@@ -103,7 +104,7 @@ final class AppModelRuntimeStore {
         environment.setErrorMessage(nil)
         environment.showOverlay(.transcribing(stage: .loadingModel, progress: nil))
 
-        let task = Task {
+        let task = Task { [self] in
             do {
                 let modelURL = try await AsyncOperationTimeout.run(
                     timeout: modelDownloadTimeout,
@@ -175,7 +176,7 @@ final class AppModelRuntimeStore {
         environment.setErrorMessage(nil)
         AppLogger.info("Starting meeting diarization model download to \(meetingDiarizationModelManager.modelDirectory.path)")
 
-        let task = Task {
+        let task = Task { [self] in
             do {
                 try await AsyncOperationTimeout.run(
                     timeout: modelDownloadTimeout,
@@ -267,22 +268,29 @@ final class AppModelRuntimeStore {
         return Task {}
     }
 
-    func deleteDownloadedModelFiles() {
-        guard environment.canDeleteModelFiles() else { return }
+    @discardableResult
+    func deleteDownloadedModelFiles() -> Task<Void, Never>? {
+        guard environment.canDeleteModelFiles() else { return nil }
 
         let modelDirectory = environment.userModelDirectory()
-        do {
-            if FileManager.default.fileExists(atPath: modelDirectory.path) {
-                try FileManager.default.removeItem(at: modelDirectory)
-            }
+        let modelID = environment.selectedModel().id
+        return Task {
+            guard await environment.modelWarmupClient()?.releaseResourcesForDeletion(modelID: modelID) ?? true,
+                environment.canDeleteModelFiles(), environment.selectedModel().id == modelID
+            else { return }
+            do {
+                if FileManager.default.fileExists(atPath: modelDirectory.path) {
+                    try FileManager.default.removeItem(at: modelDirectory)
+                }
 
-            send(.setModelDownloadProgress(nil))
-            environment.setErrorMessage(nil)
-            environment.showOverlay(.done(message: "Model removed"))
-            environment.hideOverlayAfter(1.0)
-            environment.updateStateAfterModelChange()
-        } catch {
-            environment.setError(error)
+                send(.setModelDownloadProgress(nil))
+                environment.setErrorMessage(nil)
+                environment.showOverlay(.done(message: "Model removed"))
+                environment.hideOverlayAfter(1.0)
+                environment.updateStateAfterModelChange()
+            } catch {
+                environment.setError(error)
+            }
         }
     }
 
@@ -305,6 +313,14 @@ final class AppModelRuntimeStore {
     @discardableResult
     func scheduleModelWarmupIfInstalled() -> Task<Void, Never>? {
         guard environment.canStartDictationRuntime() else { return nil }
+        state.modelWarmupTask?.cancel()
+        warmupGeneration = UUID()
+        let generation = warmupGeneration
+        send(.modelWarmupTask(nil))
+        let selectedModelID = environment.selectedModel().id
+        if let client = environment.modelWarmupClient() {
+            Task { await client.releaseInactiveResources(selectedModelID: selectedModelID) }
+        }
         guard environment.isModelInstalled(), let modelWarmupClient = environment.modelWarmupClient() else {
             environment.setModelRuntimeState(.notLoaded)
             return nil
@@ -340,20 +356,20 @@ final class AppModelRuntimeStore {
                         )
                     }
                 )
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, warmupGeneration == generation, environment.selectedModel().id == warmupJob.model.id else { return }
                 AppLogger.info("Model warmup completed for \(warmupJob.model.id)")
                 environment.setModelRuntimeState(.ready(modelId: warmupJob.model.id))
             } catch is CancellationError {
                 AppLogger.info("Model warmup canceled for \(warmupJob.model.id)")
             } catch {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, warmupGeneration == generation, environment.selectedModel().id == warmupJob.model.id else { return }
                 AppLogger.error("Model warmup failed for \(warmupJob.model.id): \(error.localizedDescription)")
                 environment.setModelRuntimeState(
                     .failed(modelId: warmupJob.model.id, message: error.localizedDescription)
                 )
                 environment.setError(error)
             }
-            send(.modelWarmupFinished)
+            if warmupGeneration == generation { send(.modelWarmupFinished) }
         }
         send(.modelWarmupTask(task))
         return task
@@ -364,6 +380,7 @@ final class AppModelRuntimeStore {
 
         AppLogger.info("Canceling model warmup because recording started")
         state.modelWarmupTask?.cancel()
+        warmupGeneration = UUID()
         send(.modelWarmupFinished)
     }
 

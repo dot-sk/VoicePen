@@ -25,8 +25,15 @@ SWIFTLINT_CACHE := .swiftlint-cache
 PERIPHERY ?= periphery
 XCODEBUILD_FORMATTER ?= xcbeautify
 OPENSPEC ?= openspec
+ASR_DATASET_DIR ?= $(CURDIR)/.local/asr-quality
+TEST_FILTER ?=
+TEST_JOBS ?= 2
+XCODEBUILD_JOBS ?= 2
+INTEGRATION_TEST_ACTION ?= test
+INTEGRATION_TEST_RUN ?=
+UV_PYTHON := uv --native-tls run --no-project --python 3.13
 
-.PHONY: help build package appcast prepare-release publish-release generate-app-icon format format-check lint lint-fix swiftlint swiftlint-fix dead-code install-hooks check test integration-test validate-specs run clean-derived resolve-packages
+.PHONY: help build package appcast prepare-release publish-release generate-app-icon format format-check lint lint-fix swiftlint swiftlint-fix dead-code install-hooks check test integration-test validate-specs run clean-derived resolve-packages asr-dataset asr-review asr-export test-asr-quality
 
 help:
 	@printf "VoicePen commands:\n"
@@ -44,6 +51,10 @@ help:
 	@printf "  make install-hooks    Install Lefthook Git hooks\n"
 	@printf "  make check            Run lint and unit tests\n"
 	@printf "  make test             Validate specs and run non-hosted unit tests\n"
+	@printf "  make test-asr-quality Run local ASR dataset tooling tests\n"
+	@printf "  make asr-dataset      Prepare private long-dictation review drafts\n"
+	@printf "  make asr-review       Open a loopback audio/reference review server\n"
+	@printf "  make asr-export       Export manually confirmed golden examples\n"
 	@printf "  make integration-test Run hosted app integration tests\n"
 	@printf "  make validate-specs   Validate OpenSpec main specs\n"
 	@printf "  make run              Build and launch the app\n"
@@ -58,6 +69,7 @@ build:
 		-configuration "$(CONFIGURATION)" \
 		-destination "$(DESTINATION)" \
 		-derivedDataPath "$(DERIVED_DATA)" \
+		-jobs "$(XCODEBUILD_JOBS)" \
 		$(XCODEBUILD_RELEASE_SIZE_SETTINGS) \
 		$(XCODEBUILD_CI_SIGNING) | if command -v "$(XCODEBUILD_FORMATTER)" >/dev/null 2>&1; then "$(XCODEBUILD_FORMATTER)"; else cat; fi
 
@@ -128,16 +140,29 @@ install-hooks:
 check: lint test
 
 test: validate-specs
-	DEVELOPER_DIR="$(DEVELOPER_DIR)" SDKROOT="$(MACOS_SDKROOT)" xcrun swift test
+	DEVELOPER_DIR="$(DEVELOPER_DIR)" SDKROOT="$(MACOS_SDKROOT)" xcrun swift test --jobs "$(TEST_JOBS)" $(if $(TEST_FILTER),--filter "$(TEST_FILTER)",)
+
+test-asr-quality:
+	$(UV_PYTHON) -m unittest discover -s Tools/ASRQuality -p 'test_*.py'
+
+asr-dataset:
+	$(UV_PYTHON) Tools/ASRQuality/asr_dataset.py prepare --data "$(ASR_DATASET_DIR)" --min-duration 20 --count 27
+
+asr-review:
+	$(UV_PYTHON) Tools/ASRQuality/asr_dataset.py serve --data "$(ASR_DATASET_DIR)"
+
+asr-export:
+	$(UV_PYTHON) Tools/ASRQuality/asr_dataset.py export --data "$(ASR_DATASET_DIR)"
 
 integration-test:
 	@set -o pipefail; \
-	DEVELOPER_DIR="$(DEVELOPER_DIR)" xcodebuild test \
-		-project "$(PROJECT)" \
-		-scheme "$(SCHEME)" \
+	DEVELOPER_DIR="$(DEVELOPER_DIR)" xcodebuild $(INTEGRATION_TEST_ACTION) \
+		$(if $(INTEGRATION_TEST_RUN),-xctestrun "$(INTEGRATION_TEST_RUN)",-project "$(PROJECT)" -scheme "$(SCHEME)") \
 		-destination "$(DESTINATION)" \
 		-derivedDataPath "$(DERIVED_DATA)" \
 		-only-testing:VoicePenIntegrationTests \
+		-jobs "$(XCODEBUILD_JOBS)" \
+		-parallel-testing-enabled NO \
 		$(XCODEBUILD_CI_SIGNING) | if command -v "$(XCODEBUILD_FORMATTER)" >/dev/null 2>&1; then "$(XCODEBUILD_FORMATTER)"; else cat; fi
 
 validate-specs:

@@ -208,7 +208,7 @@ struct TranscriptTextEditor: View {
     }
 }
 
-private struct StatusLineSegmentShape: Shape {
+nonisolated private struct StatusLineSegmentShape: Shape {
     let chevronWidth: CGFloat
 
     func path(in rect: CGRect) -> Path {

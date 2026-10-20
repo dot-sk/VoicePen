@@ -4,7 +4,7 @@
     "id": "ggml-large-v3-turbo-q5_0",
     "displayName": "Fast Multilingual (Whisper Q5_0)",
     "version": "large-v3-turbo-q5_0",
-    "sizeLabel": "1.7 GB",
+    "sizeLabel": "574 MB",
     "sourceRepo": "ggerganov/whisper.cpp",
     "sourceKind": "whisper.cpp GGML",
     "backend": "whisperCpp",
@@ -18,27 +18,14 @@
     "capabilities": {
       "timestamps": true
     },
-    "companionArtifacts": [
-      {
-        "id": "coreml-encoder",
-        "displayName": "Core ML encoder",
-        "downloadURL": "https://github.com/dot-sk/VoicePen/releases/download/model-assets-v1/ggml-large-v3-turbo-encoder.mlmodelc.zip",
-        "fileName": "ggml-large-v3-turbo-encoder.mlmodelc.zip",
-        "localPath": "ggml-large-v3-turbo-encoder.mlmodelc",
-        "archiveKind": "zip",
-        "byteSize": 1172980883,
-        "sha256": "1b62109a40668c7a989564c843411b9f638f0511f97f34ad2afa7367703dfda4",
-        "archiveRoot": "ggml-large-v3-turbo-encoder.mlmodelc",
-        "requiredPaths": ["metadata.json", "model.mil", "weights/weight.bin"]
-      }
-    ]
+    "companionArtifacts": []
   },
   "compatibleModels": [
     {
       "id": "ggml-large-v3-turbo-q5_0",
       "displayName": "Fast Multilingual (Whisper Q5_0)",
       "version": "large-v3-turbo-q5_0",
-      "sizeLabel": "1.7 GB",
+      "sizeLabel": "574 MB",
       "sourceRepo": "ggerganov/whisper.cpp",
       "sourceKind": "whisper.cpp GGML",
       "backend": "whisperCpp",
@@ -52,26 +39,13 @@
       "capabilities": {
         "timestamps": true
       },
-      "companionArtifacts": [
-        {
-          "id": "coreml-encoder",
-          "displayName": "Core ML encoder",
-          "downloadURL": "https://github.com/dot-sk/VoicePen/releases/download/model-assets-v1/ggml-large-v3-turbo-encoder.mlmodelc.zip",
-          "fileName": "ggml-large-v3-turbo-encoder.mlmodelc.zip",
-          "localPath": "ggml-large-v3-turbo-encoder.mlmodelc",
-          "archiveKind": "zip",
-          "byteSize": 1172980883,
-          "sha256": "1b62109a40668c7a989564c843411b9f638f0511f97f34ad2afa7367703dfda4",
-          "archiveRoot": "ggml-large-v3-turbo-encoder.mlmodelc",
-          "requiredPaths": ["metadata.json", "model.mil", "weights/weight.bin"]
-        }
-      ]
+      "companionArtifacts": []
     },
     {
       "id": "ggml-large-v3-turbo-q8_0",
       "displayName": "High Quality Multilingual (Whisper Q8_0)",
       "version": "large-v3-turbo-q8_0",
-      "sizeLabel": "2.0 GB",
+      "sizeLabel": "874 MB",
       "sourceRepo": "ggerganov/whisper.cpp",
       "sourceKind": "whisper.cpp GGML",
       "backend": "whisperCpp",
@@ -85,20 +59,34 @@
       "capabilities": {
         "timestamps": true
       },
-      "companionArtifacts": [
-        {
-          "id": "coreml-encoder",
-          "displayName": "Core ML encoder",
-          "downloadURL": "https://github.com/dot-sk/VoicePen/releases/download/model-assets-v1/ggml-large-v3-turbo-encoder.mlmodelc.zip",
-          "fileName": "ggml-large-v3-turbo-encoder.mlmodelc.zip",
-          "localPath": "ggml-large-v3-turbo-encoder.mlmodelc",
-          "archiveKind": "zip",
-          "byteSize": 1172980883,
-          "sha256": "1b62109a40668c7a989564c843411b9f638f0511f97f34ad2afa7367703dfda4",
-          "archiveRoot": "ggml-large-v3-turbo-encoder.mlmodelc",
-          "requiredPaths": ["metadata.json", "model.mil", "weights/weight.bin"]
-        }
-      ]
+      "companionArtifacts": []
+    },
+    {
+      "id": "gigaam-multilingual-600m-f16",
+      "displayName": "GigaAM Multilingual 600M F16",
+      "version": "multilingual-600m-f16-stock25-v1",
+      "sizeLabel": "1.17 GB",
+      "sourceRepo": "ai-sage/GigaAM-Multilingual",
+      "sourceKind": "GigaAM transcribe.cpp GGUF",
+      "backend": "gigaAM",
+      "isQuantized": false,
+      "supportedLanguageCodes": [
+        "ru",
+        "en",
+        "kk",
+        "ky",
+        "uz"
+      ],
+      "description": "Automatic multilingual recognition with greedy CTC. Text only; requires Apple Silicon and Metal.",
+      "downloadURL": "https://github.com/dot-sk/VoicePen/releases/download/model-assets-gigaam-600m-f16-v1/gigaam-600m-F16.gguf",
+      "artifactFileName": "gigaam-600m-F16.gguf",
+      "byteSize": 1172222176,
+      "sha256": "06b1224edb7eb9b9b797c5d25539b6aa852e6a069fbfdce706760a3135e26cae",
+      "capabilities": {
+        "timestamps": false
+      },
+      "companionArtifacts": [],
+      "runtimePackageID": "voicepen-gigaam-600m-0.1.0-candidate.2"
     }
   ]
 }

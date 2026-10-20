@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VoicePen · эталонный датасет</title>
+<style>
+:root{color-scheme:light;--paper:#f7f8f6;--ink:#202b25;--muted:#63716a;--line:#dce3dc;--green:#247651;--pale:#e9f3ec;font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink)}button,textarea,input,select{font:inherit}button,select{cursor:pointer}button{border:1px solid var(--line);border-radius:9px;background:white;color:var(--ink);padding:9px 14px}button:hover{background:#f0f4ef}button:disabled{opacity:.45;cursor:default}button.primary{background:var(--green);border-color:var(--green);color:white}button.primary:hover{background:#1d6344}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid #8bbfa1;outline-offset:2px}header{padding:22px 32px;background:white;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:20px}h1{font-size:21px;letter-spacing:-.5px;margin:0}header p{font-size:13px;color:var(--muted);margin:4px 0 0}.workspace{display:grid;grid-template-columns:260px minmax(0,1fr);max-width:1300px;margin:auto;min-height:calc(100vh - 100px)}aside{border-right:1px solid var(--line);padding:23px 18px}select,input{border:1px solid var(--line);border-radius:7px;padding:7px;background:white;color:var(--ink)}#filter{width:100%;margin-bottom:16px}.progress-label{display:flex;justify-content:space-between;font-size:13px;color:var(--muted);margin-bottom:7px}progress{appearance:none;width:100%;height:6px;border:0;margin-bottom:22px}progress::-webkit-progress-bar{background:#e2e8e1;border-radius:9px}progress::-webkit-progress-value{background:var(--green);border-radius:9px}#entries{display:grid;gap:6px;max-height:calc(100vh - 280px);overflow:auto}.entry{text-align:left;padding:11px;border:1px solid transparent;background:transparent;display:flex;justify-content:space-between;align-items:center}.entry small{display:block;color:var(--muted);font-size:11px}.entry.active{background:white;border-color:var(--line);box-shadow:0 2px 4px #15371b06}.dot{width:8px;height:8px;border-radius:50%;background:#bdc7bf;flex-shrink:0}.dot.confirmed{background:var(--green)}.dot.excluded{background:#c7a686}main{padding:30px 40px 50px;max-width:1000px;min-width:0}.eyebrow{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.1em}h2{font-size:27px;letter-spacing:-.6px;margin:5px 0 4px}.subline{font-size:13px;color:var(--muted);margin-bottom:22px}.hint{background:#fff8e9;border:1px solid #ebdfc0;border-radius:9px;padding:11px 15px;color:#705a29;font-size:13px;margin-bottom:18px}.audio-card{border:1px solid var(--line);border-radius:12px;background:white;padding:18px;margin:0 0 24px}audio{width:100%;display:block}.audio-tools{display:flex;gap:10px;align-items:center;margin-top:12px;font-size:13px;color:var(--muted)}.audio-tools button{padding:5px 9px}.rules{font-size:13px;color:var(--muted);margin-bottom:21px}.rules summary{cursor:pointer;color:var(--ink)}.rules p{margin:9px 0}.field-label{display:flex;justify-content:space-between;align-items:center;font-weight:600;margin:18px 0 8px}.badge{font-size:11px;line-height:1.5;font-weight:500;background:#e9ede8;color:var(--muted);border-radius:20px;padding:4px 9px}.badge.confirmed{background:var(--pale);color:var(--green)}textarea{width:100%;resize:vertical;border:1px solid #c8d4ca;border-radius:10px;padding:15px;color:var(--ink);line-height:1.7;background:white}#reference{min-height:210px}#notes{min-height:70px;font-size:13px}.secondary-row{display:flex;align-items:center;justify-content:space-between;gap:15px;font-size:13px;margin:10px 0 16px}input[type=checkbox]{accent-color:var(--green);width:16px;height:16px;vertical-align:middle;margin-right:6px}#tags{width:100%;font-size:13px}.draft{white-space:pre-wrap;font-size:13px;color:var(--muted);background:#eef1ec;padding:14px;border-radius:9px;margin:9px 0}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:20px}.navigation{display:flex;justify-content:space-between;align-items:center;margin:26px 0 0;border-top:1px solid var(--line);padding-top:18px;font-size:12px;color:var(--muted)}#notice{white-space:pre-wrap;overflow-wrap:anywhere;min-height:24px;margin-top:12px;font-size:13px;color:var(--green)}#notice.error{color:#aa3d34}#export-result{white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0;font-size:12px;color:var(--muted)}.export-area{max-width:400px;text-align:right}.empty{padding:20px;color:var(--muted)}@media(max-width:760px){header{padding:18px;align-items:flex-start;flex-direction:column}.workspace{grid-template-columns:1fr}aside{border-right:0;border-bottom:1px solid var(--line);padding:18px}#entries{max-height:145px;grid-template-columns:repeat(3,minmax(0,1fr))}main{padding:24px 18px}.export-area{text-align:left}.navigation span{display:none}}
+</style>
+<header>
+  <div><h1>Эталонный датасет</h1><p>VoicePen · ручная проверка длинных диктовок</p></div>
+  <div class="export-area"><button id="export" disabled>Экспорт подтверждённых</button><div id="export-result" aria-live="polite"></div></div>
+</header>
+<div class="workspace">
+  <aside>
+    <div class="progress-label"><span>Подтверждено</span><strong id="count">0 / 0</strong></div>
+    <progress id="progress" max="1" value="0"></progress>
+    <label for="filter" class="eyebrow">Записи</label>
+    <select id="filter"><option value="all">Все кандидаты</option><option value="draft">Не проверены</option><option value="confirmed">Подтверждены</option><option value="excluded">Исключены</option></select>
+    <nav id="entries" aria-label="Записи датасета"></nav>
+  </aside>
+  <main>
+    <div class="eyebrow" id="position">Загрузка</div>
+    <h2 id="title">Диктовка</h2>
+    <div class="subline" id="metadata"></div>
+    <div class="hint" id="repeat-hint" hidden></div>
+    <section class="audio-card" aria-label="Прослушивание">
+      <audio id="audio" controls preload="metadata"></audio>
+      <div class="audio-tools"><button id="rewind" type="button">Назад на 3 с</button><label for="speed">Скорость</label><select id="speed"><option value="0.75">0,75×</option><option value="1" selected>1×</option><option value="1.25">1,25×</option></select></div>
+    </section>
+    <details class="rules" open><summary>Как проверять эталон</summary>
+      <p>Прослушай аудио и запиши произнесённое. Сохраняй реальные повторы и самоисправления говорящего. Не добавляй слова по смыслу. Технические термины пиши в принятом виде, например PostgreSQL.</p>
+      <p>Это уже обработанный звук, который подавался в ASR. Текст ниже взят из истории и может содержать ошибки. Если запись без ошибок, не подходит для сложного набора или неразборчива, её можно исключить и указать причину.</p>
+    </details>
+    <label class="field-label" for="reference">Эталонный текст <span class="badge" id="status">Не проверен</span></label>
+    <textarea id="reference" spellcheck="false" aria-describedby="save-help"></textarea>
+    <div class="secondary-row"><label><input type="checkbox" id="no-speech">Речи нет, эталон пустой</label><span id="save-help">Правки сохраняются кнопкой ниже</span></div>
+    <details class="rules"><summary>Исходный черновик ASR</summary><div id="draft" class="draft"></div></details>
+    <label class="field-label" for="tags">Метки</label><input id="tags" placeholder="термины, повторы, неверные слова">
+    <label class="field-label" for="notes">Заметка</label><textarea id="notes" placeholder="Что распознано неправильно или почему запись исключена"></textarea>
+    <div class="actions"><button class="primary" id="confirm">Подтвердить и дальше</button><button id="save">Сохранить черновик</button><button id="exclude">Исключить</button></div>
+    <div id="notice" role="status" aria-live="polite"></div>
+    <div class="navigation"><button id="previous">← Предыдущая</button><span>⌘ / Ctrl + Enter: подтвердить</span><button id="next">Следующая →</button></div>
+  </main>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const statusNames = {draft:'Не проверен',confirmed:'Подтверждён',excluded:'Исключён'};
+const saveMessages = {confirmed:'Эталон подтверждён и сохранён.',excluded:'Запись исключена из golden-набора.',draft:'Черновик сохранён.'};
+let dataset, selectedId, dirty = false, busy = false;
+const current = () => dataset.entries.find(e => e.id === selectedId);
+const visible = () => dataset.entries.filter(e => $('filter').value === 'all' || e.reference.status === $('filter').value);
+const duration = seconds => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2,'0')}`;
+function notice(text, error = false) { $('notice').textContent = text; $('notice').classList.toggle('error',error); }
+function markDirty() { dirty = true; $('status').textContent = 'Не сохранено'; $('status').className = 'badge'; $('export').disabled = true; notice(''); }
+function allowNavigation() { return !busy && (!dirty || confirm('Есть несохранённые правки. Перейти без сохранения?')); }
+function drawSidebar() {
+  const confirmed = dataset.entries.filter(e => e.reference.status === 'confirmed').length;
+  $('count').textContent = `${confirmed} / ${dataset.entries.length}`;
+  $('progress').max = dataset.entries.length || 1; $('progress').value = confirmed;
+  $('export').disabled = busy || dirty || !confirmed;
+  $('entries').replaceChildren();
+  for (const entry of visible()) {
+    const button = document.createElement('button'); button.className = 'entry' + (entry.id === selectedId ? ' active' : '');
+    const label = document.createElement('span'); label.textContent = entry.id.replace('sample-','Запись ');
+    const detail = document.createElement('small'); detail.textContent = duration(entry.duration) + (entry.repeated_four_word_sequences ? ' · проверить повторы' : ''); label.append(detail);
+    const dot = document.createElement('span'); dot.className = 'dot ' + entry.reference.status; dot.title = statusNames[entry.reference.status];
+    button.append(label,dot); button.onclick = () => { if (allowNavigation()) { selectedId = entry.id; draw(); } }; $('entries').append(button);
+  }
+  if (!visible().length) { const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = 'Нет записей с таким статусом'; $('entries').append(empty); }
+}
+function draw() {
+  dirty = false; const entry = current(), reference = entry.reference;
+  drawSidebar();
+  const index = dataset.entries.indexOf(entry);
+  $('position').textContent = `Запись ${index + 1} из ${dataset.entries.length}`;
+  $('title').textContent = `Диктовка · ${duration(entry.duration)}`;
+  const date = entry.captured_at ? new Date(entry.captured_at * 1000).toLocaleString('ru-RU') : '';
+  $('metadata').textContent = [date, entry.model_metadata.displayName || '', 'Сохранённый вход ASR'].filter(Boolean).join(' · ');
+  $('audio').pause(); $('audio').src = '/audio/' + entry.id + '.wav'; $('audio').playbackRate = Number($('speed').value);
+  $('reference').value = reference.text; $('notes').value = reference.notes; $('tags').value = reference.tags.join(', '); $('no-speech').checked = reference.no_speech;
+  $('draft').textContent = entry.draft_text; $('status').textContent = statusNames[reference.status]; $('status').className = 'badge ' + reference.status;
+  $('repeat-hint').hidden = !entry.repeated_four_word_sequences;
+  $('repeat-hint').textContent = 'В черновике есть повторяющиеся сочетания слов. Проверь по аудио, произносил ли их говорящий. Это подсказка, а не доказанная ошибка.';
+  $('previous').disabled = index === 0; $('next').disabled = index === dataset.entries.length - 1; notice('');
+}
+async function post(path, payload) {
+  const response = await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  const result = await response.json(); if (!response.ok) throw new Error(result.error || 'Не удалось сохранить'); return result;
+}
+function setBusy(value) { busy = value; for (const id of ['save','confirm','exclude','export']) $(id).disabled = value; if (!value) drawSidebar(); }
+async function save(status) {
+  if (busy) return;
+  const entry = current();
+  const payload = {revision:entry.reference.revision,text:$('reference').value,status,no_speech:$('no-speech').checked,notes:$('notes').value,tags:$('tags').value.split(',').map(t => t.trim()).filter(Boolean)};
+  setBusy(true);
+  try {
+    entry.reference = await post('/api/references/' + entry.id,payload); dirty = false;
+    if (status !== 'draft') {
+      const next = dataset.entries.slice(dataset.entries.indexOf(entry) + 1).find(e => e.reference.status === 'draft');
+      if (next) selectedId = next.id;
+    }
+    draw(); notice(saveMessages[status] || saveMessages.draft);
+  } catch (error) { notice(error.message,true); } finally { setBusy(false); }
+}
+for (const id of ['reference','notes','tags']) $(id).addEventListener('input',markDirty);
+$('no-speech').onchange = () => { if ($('no-speech').checked) $('reference').value = ''; markDirty(); };
+$('filter').onchange = drawSidebar;
+$('save').onclick = () => save('draft'); $('confirm').onclick = () => save('confirmed'); $('exclude').onclick = () => save('excluded');
+function move(offset) { if (allowNavigation()) { const index = dataset.entries.indexOf(current()) + offset; if (dataset.entries[index]) { selectedId = dataset.entries[index].id; draw(); } } }
+$('previous').onclick = () => move(-1); $('next').onclick = () => move(1);
+$('rewind').onclick = () => { $('audio').currentTime = Math.max(0,$('audio').currentTime - 3); };
+$('speed').onchange = () => { $('audio').playbackRate = Number($('speed').value); };
+$('export').onclick = async () => {
+  if (busy || dirty) return; setBusy(true);
+  try { const result = await post('/api/export',{}); $('export-result').textContent = `Golden: ${result.count} записей\n${result.path}`; }
+  catch (error) { notice(error.message,true); } finally { setBusy(false); }
+};
+window.addEventListener('beforeunload',event => { if (dirty) { event.preventDefault(); event.returnValue = ''; } });
+document.addEventListener('keydown',event => { if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); save('confirmed'); } });
+fetch('/api/dataset').then(async response => { const result = await response.json(); if (!response.ok) throw new Error(result.error); return result; }).then(result => {
+  dataset = result; if (!dataset.entries.length) throw new Error('Датасет пуст'); selectedId = dataset.entries.find(e => e.reference.status === 'draft')?.id || dataset.entries[0].id; draw();
+}).catch(error => notice(error.message,true));
+</script>
+</html>

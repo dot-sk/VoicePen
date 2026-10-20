@@ -1,6 +1,6 @@
 import Foundation
 
-final class WhisperCppModelDownloadClient: ModelDownloadClient {
+nonisolated final class WhisperCppModelDownloadClient: ModelDownloadClient, @unchecked Sendable {
     private let paths: AppPaths
     private let fileManager: FileManager
     private let assetDownloader: ModelAssetDownloading
@@ -38,15 +38,17 @@ final class WhisperCppModelDownloadClient: ModelDownloadClient {
 
         try fileManager.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
 
-        if isArtifactDownloadComplete(
-            targetFile,
-            marker: artifactCompletionMarker(in: targetDirectory, id: "model")
-        ) {
+        if hasCompletedWeights(model) {
+            try markArtifactDownloadComplete(in: targetDirectory, id: "model")
             completedUnits += 1
             events(.downloadingArtifact(name: model.localArtifactFileName, progress: completedUnits / totalUnits))
         } else {
             guard let remoteFile = model.remoteFile else {
                 throw ModelDownloadError.missingDownloadURL(model.id)
+            }
+
+            for marker in [paths.userModelCompletionMarker(for: model.id), artifactCompletionMarker(in: targetDirectory, id: "model")] {
+                if fileManager.fileExists(atPath: marker.path) { try fileManager.removeItem(at: marker) }
             }
 
             try await assetDownloader.download(
@@ -175,10 +177,7 @@ final class WhisperCppModelDownloadClient: ModelDownloadClient {
         var missingPaths: [String] = []
 
         let modelURL = paths.userModelFile(for: model.id, fileName: model.localArtifactFileName)
-        if !isArtifactDownloadComplete(
-            modelURL,
-            marker: artifactCompletionMarker(in: targetDirectory, id: "model")
-        ) {
+        if !hasCompletedWeights(model) {
             missingPaths.append(modelURL.path)
         }
 
@@ -201,6 +200,16 @@ final class WhisperCppModelDownloadClient: ModelDownloadClient {
         targetDirectory
             .appendingPathComponent(".voicepen-artifacts", isDirectory: true)
             .appendingPathComponent("\(id).complete")
+    }
+
+    private func hasCompletedWeights(_ model: ModelManifestModel) -> Bool {
+        let url = paths.userModelFile(for: model.id, fileName: model.localArtifactFileName)
+        let marker = artifactCompletionMarker(in: paths.userModelDirectory(for: model.id), id: "model")
+        guard isArtifactDownloadComplete(url, marker: marker) || paths.hasCompletedUserModelDownload(for: model.id),
+            ModelArtifactPresence.exists(at: url, fileManager: fileManager)
+        else { return false }
+        guard let expectedSize = model.byteSize else { return true }
+        return (try? fileManager.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value == expectedSize
     }
 
     private func isArtifactDownloadComplete(_ artifactURL: URL, marker: URL) -> Bool {

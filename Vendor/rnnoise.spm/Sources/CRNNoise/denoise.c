@@ -254,7 +254,7 @@ RNNModel *rnnoise_model_from_file(FILE *f) {
   model->file = NULL;
 
   fseek(f, 0, SEEK_END);
-  model->blob_len = ftell(f);
+  model->blob_len = (int)ftell(f);
   fseek(f, 0, SEEK_SET);
 
   model->const_blob = NULL;

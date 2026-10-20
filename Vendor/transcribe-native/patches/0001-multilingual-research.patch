@@ -1,0 +1,240 @@
+--- a/src/arch/gigaam/encoder.cpp
++++ b/src/arch/gigaam/encoder.cpp
+@@ -243,6 +243,7 @@
+     }
+     if (out_after_attn != nullptr) {
+         *out_after_attn = x;
++        transcribe::debug::mark_tensor_for_dump(x);
+     }
+ 
+     // Conv module residual: x + conv(LN(x)).
+@@ -263,6 +264,7 @@
+     }
+     if (out_after_conv != nullptr) {
+         *out_after_conv = x;
++        transcribe::debug::mark_tensor_for_dump(x);
+     }
+ 
+     // Macaron FF2.
+@@ -290,7 +292,8 @@
+                                  ggml_type /*kv_type*/,
+                                  const char * backend_name,
+                                  int          n_batch,
+-                                 bool         batch_var_len) {
++                                 bool         batch_var_len,
++                                 bool         gpu_ctc) {
+     EncoderBuild eb{};
+     if (ctx == nullptr || n_mel_frames <= 0) {
+         log_msg(TRANSCRIBE_LOG_LEVEL_ERROR,
+@@ -417,7 +420,9 @@
+     // before the final transpose.
+     // The driver reads it back after compute, so it must be a graph output.
+     ggml_set_name(x, "rnnt.encoded");
+-    ggml_set_output(x);
++    if (!gpu_ctc || transcribe::debug::enabled()) {
++        ggml_set_output(x);
++    }
+     eb.dumps.rnnt_encoded = x;
+     eb.out                = x;
+ 
+@@ -435,8 +440,21 @@
+         transcribe::debug::mark_tensor_for_dump(enc_out_t);
+     }
+ 
++    if (gpu_ctc) {
++        ggml_tensor * kernel     = ggml_reshape_2d(ctx, w.ctc_head.weight, hp.enc_d_model, hp.head_n_classes);
++        ggml_tensor * projection = ggml_mul_mat(ctx, kernel, x);
++        ggml_prec_set_acc(projection, GGML_PREC_F32);
++        eb.ctc_logits = ggml_add(ctx, projection, w.ctc_head.bias);
++        ggml_set_name(eb.ctc_logits, "ctc.gpu_logits");
++        ggml_set_output(eb.ctc_logits);
++        eb.out = eb.ctc_logits;
++    }
++
+     eb.graph = ggml_new_graph_custom(ctx, /*size=*/8192, /*grads=*/false);
+     ggml_build_forward_expand(eb.graph, eb.out);
++    if (gpu_ctc && eb.dumps.final_out != nullptr) {
++        ggml_build_forward_expand(eb.graph, eb.dumps.final_out);
++    }
+     return eb;
+ }
+ 
+--- a/src/arch/gigaam/encoder.h
++++ b/src/arch/gigaam/encoder.h
+@@ -40,9 +40,10 @@
+ };
+ 
+ struct EncoderBuild {
+-    ggml_tensor * mel_in = nullptr;
++    ggml_tensor * mel_in     = nullptr;
++    ggml_tensor * ctc_logits = nullptr;
+     // Graph root: `enc.out` when debug dumps are enabled, else `rnnt.encoded`.
+-    ggml_tensor * out    = nullptr;
++    ggml_tensor * out        = nullptr;
+ 
+     // Variable-length offline batch masks. All null for single-shot and
+     // same-length batches; allocated only when build_encoder_graph is
+@@ -86,6 +87,7 @@
+                                  ggml_type             kv_type       = GGML_TYPE_COUNT,
+                                  const char *          backend_name  = "",
+                                  int                   n_batch       = 1,
+-                                 bool                  batch_var_len = false);
++                                 bool                  batch_var_len = false,
++                                 bool                  gpu_ctc       = false);
+ 
+ }  // namespace transcribe::gigaam
+--- a/src/arch/gigaam/decoder.cpp
++++ b/src/arch/gigaam/decoder.cpp
+@@ -480,10 +480,23 @@
+                                          2, "decoder.ctc.log_probs");
+     }
+ 
+-    // Greedy collapse: drop runs of the same label, then drop blanks.
+-    int prev_label = -1;
++    return collapse_ctc_logits(logits.data(), T_enc, n_classes, out_tokens, out_frames);
++}
++
++transcribe_status collapse_ctc_logits(const float *      logits,
++                                      int                T_enc,
++                                      int                n_classes,
++                                      std::vector<int> & out_tokens,
++                                      std::vector<int> & out_frames) {
++    out_tokens.clear();
++    out_frames.clear();
++    if (logits == nullptr || T_enc <= 0 || n_classes <= 0) {
++        return TRANSCRIBE_ERR_INVALID_ARG;
++    }
++    const int blank_id   = n_classes - 1;
++    int       prev_label = -1;
+     for (int t = 0; t < T_enc; ++t) {
+-        const float * row    = logits.data() + static_cast<size_t>(t) * n_classes;
++        const float * row    = logits + static_cast<size_t>(t) * n_classes;
+         int           best   = 0;
+         float         best_v = row[0];
+         for (int c = 1; c < n_classes; ++c) {
+--- a/src/arch/gigaam/decoder.h
++++ b/src/arch/gigaam/decoder.h
+@@ -67,4 +67,10 @@
+                                     std::vector<int> &         out_tokens,
+                                     std::vector<int> &         out_frames);
+ 
++transcribe_status collapse_ctc_logits(const float *      logits,
++                                      int                T_enc,
++                                      int                n_classes,
++                                      std::vector<int> & out_tokens,
++                                      std::vector<int> & out_frames);
++
+ }  // namespace transcribe::gigaam
+--- a/src/arch/gigaam/model.cpp
++++ b/src/arch/gigaam/model.cpp
+@@ -96,6 +96,11 @@
+ // hardcode the upstream 25 s limit.
+ constexpr int64_t k_safe_audio_ms = 25000;
+ 
++bool research_gpu_ctc(const GigaamModel * gm) {
++    return gm->variant == "gigaam-multilingual-large-ctc" && gm->hparams.head_kind == HeadKind::CTC &&
++           transcribe::env::flag("TRANSCRIBE_GIGAAM_WHOLE_INPUT") && transcribe::env::flag("TRANSCRIBE_GIGAAM_GPU_CTC");
++}
++
+ transcribe_status load(Loader & loader, const transcribe_model_load_params * params, transcribe_model ** out_model) {
+     const int64_t t_load_start = ggml_time_us();
+ 
+@@ -336,7 +341,8 @@
+     }
+ 
+     EncoderBuild eb = build_encoder_graph(gc->compute_ctx, gm->weights, gm->hparams, n_frames,
+-                                          /*kv_type=*/GGML_TYPE_F32, gm->backend.c_str());
++                                          /*kv_type=*/GGML_TYPE_F32, gm->backend.c_str(),
++                                          /*n_batch=*/1, /*batch_var_len=*/false, research_gpu_ctc(gm));
+     if (eb.mel_in == nullptr || eb.out == nullptr || eb.graph == nullptr) {
+         return TRANSCRIBE_ERR_GGUF;
+     }
+@@ -398,7 +404,7 @@
+ 
+     // Both heads consume the pre-final-transpose encoder tensor
+     // (ne=[d_model, T_enc, 1]), named `rnnt.encoded` on the graph.
+-    ggml_tensor * enc_t = eb.dumps.rnnt_encoded;
++    ggml_tensor * enc_t = eb.ctc_logits != nullptr ? eb.ctc_logits : eb.dumps.rnnt_encoded;
+     if (enc_t == nullptr) {
+         log_msg(TRANSCRIBE_LOG_LEVEL_ERROR, "gigaam: rnnt.encoded missing");
+         return TRANSCRIBE_ERR_GGUF;
+@@ -406,7 +412,14 @@
+     T_enc = static_cast<int>(enc_t->ne[1]);
+     D     = static_cast<int>(enc_t->ne[0]);
+     out.resize(static_cast<size_t>(T_enc) * D);
++    const int64_t t_readback_start = ggml_time_us();
+     ggml_backend_tensor_get(enc_t, out.data(), 0, out.size() * sizeof(float));
++    if (transcribe::env::flag("TRANSCRIBE_GIGAAM_PROFILE_CTC")) {
++        std::fprintf(stderr, "GIGAAM_CTC_READBACK gpu=%d frames=%d width=%d bytes=%zu readback_us=%lld graph_us=%lld\n",
++                     eb.ctc_logits != nullptr, T_enc, D, out.size() * sizeof(float),
++                     static_cast<long long>(ggml_time_us() - t_readback_start),
++                     static_cast<long long>(gc->t_encode_us));
++    }
+     return TRANSCRIBE_OK;
+ }
+ 
+@@ -425,12 +438,13 @@
+                                       const float *   encoded,
+                                       int             T_enc,
+                                       int             d_enc,
+-                                      int             utt_index) {
++                                      int             utt_index,
++                                      bool            gpu_logits = false) {
+     const int64_t t_dec_start = ggml_time_us();
+ 
+     // Per-utterance encoder-output dump (single-shot == reference; batched ==
+     // batched-equals-single-shot gate). Matches parakeet's `dec.enc_out`.
+-    if (transcribe::debug::enabled()) {
++    if (transcribe::debug::enabled() && !gpu_logits) {
+         std::string dump_name = "dec.enc_out";
+         if (utt_index >= 0) {
+             dump_name += ".b" + std::to_string(utt_index);
+@@ -449,6 +463,17 @@
+             st != TRANSCRIBE_OK) {
+             return st;
+         }
++    } else if (gpu_logits) {
++        if (transcribe::debug::enabled()) {
++            const long long shape[2] = { T_enc, gm->hparams.head_n_classes };
++            transcribe::debug::dump_host_f32("ctc.logits.raw", encoded,
++                                             static_cast<long long>(T_enc) * gm->hparams.head_n_classes, shape, 2,
++                                             "decoder.ctc.logits_raw");
++        }
++        if (auto st = collapse_ctc_logits(encoded, T_enc, gm->hparams.head_n_classes, tokens, frames);
++            st != TRANSCRIBE_OK) {
++            return st;
++        }
+     } else {  // CTC
+         if (auto st = decode_ctc_greedy(gm->host_decoder, gm->hparams, encoded, T_enc, tokens, frames);
+             st != TRANSCRIBE_OK) {
+@@ -456,6 +481,10 @@
+         }
+     }
+     gc->t_decode_us = ggml_time_us() - t_dec_start;
++    if (transcribe::env::flag("TRANSCRIBE_GIGAAM_PROFILE_CTC")) {
++        std::fprintf(stderr, "GIGAAM_CTC_DECODE gpu=%d decode_us=%lld\n", gpu_logits,
++                     static_cast<long long>(gc->t_decode_us));
++    }
+ 
+     std::string text = gm->tok.decode(tokens.data(), static_cast<int>(tokens.size()));
+     gc->raw_text     = text;  // pre-trim decode, via transcribe_raw_text
+@@ -543,7 +572,9 @@
+     const int T_total = enc_frames_for_mel(mel_n_frames);
+     int       D       = 0;
+ 
+-    const WindowPlan wp = plan_windows(T_total);
++    const bool research_whole_input =
++        gm->variant == "gigaam-multilingual-large-ctc" && transcribe::env::flag("TRANSCRIBE_GIGAAM_WHOLE_INPUT");
++    const WindowPlan wp = research_whole_input ? WindowPlan{} : plan_windows(T_total);
+     if (wp.n_windows() <= 1) {
+         int T_enc = 0;
+         if (auto st =
+@@ -559,7 +590,7 @@
+                                              static_cast<long long>(gc->enc_host.size()), enc_shape, 2,
+                                              "decoder.rnnt.encoded");
+         }
+-        return decode_and_populate(gc, gm, gc->enc_host.data(), T_enc, D, /*utt_index=*/-1);
++        return decode_and_populate(gc, gm, gc->enc_host.data(), T_enc, D, /*utt_index=*/-1, research_gpu_ctc(gm));
+     }
+ 
+     const int64_t      t_enc_start = ggml_time_us();

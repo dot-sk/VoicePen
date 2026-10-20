@@ -134,17 +134,14 @@ nonisolated struct AVFoundationMeetingAudioFileIO: MeetingAudioFileIO {
     func readMonoSamples(from url: URL, targetSampleRate: Int) throws -> [Float] {
         let audioFile = try AVAudioFile(forReading: url)
         let inputFormat = audioFile.processingFormat
+        guard audioFile.length > 0 else { return [] }
         guard
-            let inputBuffer = AVAudioPCMBuffer(
-                pcmFormat: inputFormat,
-                frameCapacity: AVAudioFrameCount(audioFile.length)
-            )
+            let frameCount = AVAudioFrameCount(exactly: audioFile.length),
+            let inputBuffer = try readFrames(from: audioFile, format: inputFormat, frameCount: frameCount),
+            inputBuffer.frameLength == frameCount
         else {
-            throw TranscriptionError.transcriptionFailed("Could not create diarization audio buffer.")
+            throw TranscriptionError.transcriptionFailed("Could not read the complete audio file.")
         }
-
-        try audioFile.read(into: inputBuffer)
-        guard inputBuffer.frameLength > 0 else { return [] }
 
         let outputFormat = try monoFloatFormat(sampleRate: Double(targetSampleRate))
         let sampleBuffer =

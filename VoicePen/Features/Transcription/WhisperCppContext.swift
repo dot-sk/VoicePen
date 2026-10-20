@@ -36,9 +36,12 @@ nonisolated private struct WhisperCppRunResult {
 
 actor WhisperCppContext {
     private let handle: WhisperCppContextHandle
+    let acceleration: WhisperMetalAcceleration
+    private let loadMilliseconds: Double
     private var promptTokenCache = WhisperCppPromptTokenCache()
 
     init(modelPath: String) throws {
+        let loadStarted = Date()
         var contextParameters = whisper_context_default_params()
         #if targetEnvironment(simulator)
             contextParameters.use_gpu = false
@@ -47,10 +50,15 @@ actor WhisperCppContext {
             contextParameters.flash_attn = true
         #endif
 
-        guard let context = whisper_init_from_file_with_params(modelPath, contextParameters) else {
-            throw TranscriptionError.modelLoadFailed("whisper.cpp could not load model at \(modelPath)")
-        }
-        self.handle = WhisperCppContextHandle(context)
+        let isolatedPath = try WhisperMetalModelPath(modelPath: modelPath)
+        let (context, acceleration) = try WhisperMetalInitializationObserver.shared.initialize(path: isolatedPath.modelPath, parameters: contextParameters)
+        self.acceleration = acceleration
+        self.loadMilliseconds = Date().timeIntervalSince(loadStarted) * 1_000
+        self.handle = WhisperCppContextHandle(
+            context, modelPath: isolatedPath,
+            canonicalPath: URL(fileURLWithPath: modelPath).resolvingSymlinksInPath().path,
+            acceleration: acceleration)
+        AppLogger.info("Whisper initialized: encoder=\(acceleration.encoder), decoder=\(acceleration.decoder), device=\(acceleration.device)")
     }
 
     func transcribe(
@@ -90,7 +98,18 @@ actor WhisperCppContext {
                     Date().timeIntervalSince(start)
                 )
             )
-            return TranscriptionClientResult(text: trimmedText, segments: result.segments)
+            let nativeTimings = whisper_get_timings(context)?.pointee
+            return TranscriptionClientResult(
+                text: trimmedText, segments: result.segments,
+                executionDiagnostics: TranscriptionExecutionDiagnostics(
+                    packageID: "whisper.cpp-v1.8.5", inputSampleCount: result.timings.sampleCount,
+                    nativeBackend: "Metal encoder + Metal decoder (\(acceleration.device))",
+                    loadMilliseconds: loadMilliseconds, frontendMilliseconds: 0,
+                    encoderMilliseconds: Double(nativeTimings?.encode_ms ?? 0),
+                    decodingMilliseconds: Double(
+                        (nativeTimings?.decode_ms ?? 0) + (nativeTimings?.batchd_ms ?? 0)
+                            + (nativeTimings?.prompt_ms ?? 0) + (nativeTimings?.sample_ms ?? 0)),
+                    inferenceMilliseconds: result.timings.elapsedMilliseconds))
         } catch {
             AppLogger.error(
                 "Whisper decoding failed: profile=\(profileLabel), error=\(error.localizedDescription)"
@@ -272,7 +291,7 @@ actor WhisperCppContext {
             if let segment = whisper_full_get_segment_text(context, index) {
                 let segmentText = String(cString: segment)
                 text += segmentText
-                if !parameters.no_timestamps {
+                if !options.noTimestamps {
                     segments.append(
                         TranscriptionSegment(
                             text: segmentText,
@@ -367,12 +386,20 @@ nonisolated struct WhisperCppPromptTokenCache {
 
 nonisolated private final class WhisperCppContextHandle: @unchecked Sendable {
     let pointer: OpaquePointer
+    private let modelPath: WhisperMetalModelPath
+    private let canonicalPath: String
+    private let owner = UUID()
 
-    init(_ pointer: OpaquePointer) {
+    init(_ pointer: OpaquePointer, modelPath: WhisperMetalModelPath, canonicalPath: String, acceleration: WhisperMetalAcceleration) {
         self.pointer = pointer
+        self.modelPath = modelPath
+        self.canonicalPath = canonicalPath
+        WhisperMetalDiagnosticsStore.shared.update(path: canonicalPath, owner: owner, acceleration: acceleration)
     }
 
     deinit {
         whisper_free(pointer)
+        WhisperMetalDiagnosticsStore.shared.update(path: canonicalPath, owner: owner, acceleration: nil)
+        withExtendedLifetime(modelPath) {}
     }
 }

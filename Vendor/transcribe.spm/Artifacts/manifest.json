@@ -1,0 +1,162 @@
+{
+  "acceptance": "unaccepted",
+  "build_inputs": {
+    "compiler": "AppleClang 21.0.0.21000101",
+    "compiler_configuration_sha256": "db47e11bc63d9ad9fa5beab81e38d619ae5fbe671d5400d62c4bfd4e812257dc",
+    "flags": {
+      "GGML_METAL_EMBED_LIBRARY": true,
+      "TRANSCRIBE_BUILD_SHARED": false,
+      "TRANSCRIBE_ENABLE_VALIDATION_HOOKS": false,
+      "TRANSCRIBE_ISOLATED_FRAMEWORK": true,
+      "TRANSCRIBE_USE_OPENMP": false,
+      "configuration": "Release",
+      "linker_uuid": "toolchain-generated; required for consumer linkage",
+      "parallelism": 2,
+      "signing": "unsigned local candidate"
+    },
+    "sdk": "26.5"
+  },
+  "candidate": "voicepen-gigaam-600m-0.1.0-candidate.2",
+  "files": {
+    "VoicePenGigaAM.framework/Versions/A/Headers/transcribe.abihash": "414ec740f88cfbe8f975c9375d60509d0a51faf54bc518684fa057423d27d295",
+    "VoicePenGigaAM.framework/Versions/A/Headers/transcribe.h": "202a9e17f9828c85315125dd38dacd73f8be51db0de190da7e29d753b0953a76",
+    "VoicePenGigaAM.framework/Versions/A/Headers/transcribe/diarize.h": "a818f6cb2fc6eccfded234d50e0a51725f564453533dde9dce8bb1aefcbb201c",
+    "VoicePenGigaAM.framework/Versions/A/Headers/transcribe/extensions.h": "8aa49d65e1c7b1815f05b4ccb642081be21fb136247781e8415926f45c36314a",
+    "VoicePenGigaAM.framework/Versions/A/Headers/transcribe/langid.h": "71367bc67a2b7835aeac53ba1cd4b65357d60ad0f55cb70aa5f0757c71601d35",
+    "VoicePenGigaAM.framework/Versions/A/Headers/transcribe/moonshine_streaming.h": "fe67db1635f2c15059d88f54095f6c14c6ae315e09f9a1d447d0f075f5de5e20",
+    "VoicePenGigaAM.framework/Versions/A/Headers/transcribe/parakeet.h": "969a8d124ae837cdff3038f22a1a6037f5a68d5f906a4cf731154cb756b3b132",
+    "VoicePenGigaAM.framework/Versions/A/Headers/transcribe/sortformer.h": "9602a3308b9cf9b427495922172787ff3246cef2b229369d0abe35046f74ef74",
+    "VoicePenGigaAM.framework/Versions/A/Headers/transcribe/vad.h": "8dec48a2d6c6b72f977011813fb5aee333815724322b65dbdc293235b99b11a3",
+    "VoicePenGigaAM.framework/Versions/A/Headers/transcribe/voxtral_realtime.h": "de0321ce95f54904a76a72bdef267621d499c3bcae0cd319587fb9f4242f8082",
+    "VoicePenGigaAM.framework/Versions/A/Headers/transcribe/whisper.h": "1edaab9c696f534eaa2b84c32d2f897795e10061b81f04d70a00301d23e9ede5",
+    "VoicePenGigaAM.framework/Versions/A/Modules/module.modulemap": "a05b75eda59661130747fc6c96007d852fbfa10a4b460380725dedfc5ff62432",
+    "VoicePenGigaAM.framework/Versions/A/Resources/Info.plist": "ffc021d1dc920e90dfbfef5dd8390e49c609bbdf2503880833c24b44b38f93da",
+    "VoicePenGigaAM.framework/Versions/A/VoicePenGigaAM": "f2fe97a8a947483484d60c8af5e4179b26355387c2765cf83d62a7a83dbb3330",
+    "VoicePenGigaAM.xcframework/Info.plist": "e86de8efc928d1fce3ad793c3777fc77b8562ddc78eafb210d588bd2bfb44d4c",
+    "VoicePenGigaAM.xcframework/macos-arm64/VoicePenGigaAM.framework/Versions/A/Headers/transcribe.abihash": "414ec740f88cfbe8f975c9375d60509d0a51faf54bc518684fa057423d27d295",
+    "VoicePenGigaAM.xcframework/macos-arm64/VoicePenGigaAM.framework/Versions/A/Headers/transcribe.h": "202a9e17f9828c85315125dd38dacd73f8be51db0de190da7e29d753b0953a76",
+    "VoicePenGigaAM.xcframework/macos-arm64/VoicePenGigaAM.framework/Versions/A/Headers/transcribe/diarize.h": "a818f6cb2fc6eccfded234d50e0a51725f564453533dde9dce8bb1aefcbb201c",
+    "VoicePenGigaAM.xcframework/macos-arm64/VoicePenGigaAM.framework/Versions/A/Headers/transcribe/extensions.h": "8aa49d65e1c7b1815f05b4ccb642081be21fb136247781e8415926f45c36314a",
+    "VoicePenGigaAM.xcframework/macos-arm64/VoicePenGigaAM.framework/Versions/A/Headers/transcribe/langid.h": "71367bc67a2b7835aeac53ba1cd4b65357d60ad0f55cb70aa5f0757c71601d35",
+    "VoicePenGigaAM.xcframework/macos-arm64/VoicePenGigaAM.framework/Versions/A/Headers/transcribe/moonshine_streaming.h": "fe67db1635f2c15059d88f54095f6c14c6ae315e09f9a1d447d0f075f5de5e20",
+    "VoicePenGigaAM.xcframework/macos-arm64/VoicePenGigaAM.framework/Versions/A/Headers/transcribe/parakeet.h": "969a8d124ae837cdff3038f22a1a6037f5a68d5f906a4cf731154cb756b3b132",
+    "VoicePenGigaAM.xcframework/macos-arm64/VoicePenGigaAM.framework/Versions/A/Headers/transcribe/sortformer.h": "9602a3308b9cf9b427495922172787ff3246cef2b229369d0abe35046f74ef74",
+    "VoicePenGigaAM.xcframework/macos-arm64/VoicePenGigaAM.framework/Versions/A/Headers/transcribe/vad.h": "8dec48a2d6c6b72f977011813fb5aee333815724322b65dbdc293235b99b11a3",
+    "VoicePenGigaAM.xcframework/macos-arm64/VoicePenGigaAM.framework/Versions/A/Headers/transcribe/voxtral_realtime.h": "de0321ce95f54904a76a72bdef267621d499c3bcae0cd319587fb9f4242f8082",
+    "VoicePenGigaAM.xcframework/macos-arm64/VoicePenGigaAM.framework/Versions/A/Headers/transcribe/whisper.h": "1edaab9c696f534eaa2b84c32d2f897795e10061b81f04d70a00301d23e9ede5",
+    "VoicePenGigaAM.xcframework/macos-arm64/VoicePenGigaAM.framework/Versions/A/Modules/module.modulemap": "a05b75eda59661130747fc6c96007d852fbfa10a4b460380725dedfc5ff62432",
+    "VoicePenGigaAM.xcframework/macos-arm64/VoicePenGigaAM.framework/Versions/A/Resources/Info.plist": "ffc021d1dc920e90dfbfef5dd8390e49c609bbdf2503880833c24b44b38f93da",
+    "VoicePenGigaAM.xcframework/macos-arm64/VoicePenGigaAM.framework/Versions/A/VoicePenGigaAM": "f2fe97a8a947483484d60c8af5e4179b26355387c2765cf83d62a7a83dbb3330",
+    "dependencies.txt": "1a6c660d47ce259e76d151d90f76e270d563eb427fc4845e1798c614fdd4dc45",
+    "exports.txt": "e58e569d53867d8cf799aab7eae5dcffad128e375f7c53eb9c3ded7a7cb61d2d",
+    "licenses/LICENSE.derived-model": "df817241931b5d4cff1145fd36f51cdcfa3ccaf3b2648f983570a5eb82e92882",
+    "licenses/LICENSE.ggml": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d",
+    "licenses/LICENSE.miniz": "6f20fa7672b00e2e975c291df737cf227addf3ad32e36fef3fe0f416e4664d3d",
+    "licenses/LICENSE.silero_vad": "2e63e9a38b6e8fc0c7bc37ce174caca1862870856c6daf5697cfb785e925520b",
+    "licenses/LICENSE.source-repository": "f00de6715714c7a63d08639cdbfaa40224eefc407302614bd19f1a8b98c875aa",
+    "licenses/LICENSE.transcribe": "86a53633b56f6b029d3cb42158bcc7aac0cdff898aceb13e83b93e368bbc4ac6",
+    "licenses/README.md": "a7164a868bcafc3bbbab7ce2b249d1e2515880c04824889d11b522ecf8b53e29",
+    "licenses/THIRD_PARTY_NOTICES.derived.md": "1c37920e7318e2e5cc39a3b229661ccd8a980655762c1a3b40832f304bab2448",
+    "licenses/derived-model-card.md": "45cba23633f1351a01e2ed799500c08780380502530c75cb75d67711d77cc207",
+    "licenses/source-model-card.md": "097997908f232ec01f47f5155a462ad0b5aa9f1383594827903f46290e6b57bc"
+  },
+  "ggml": {
+    "commit": "d7cb574130e6f01ad25b3289685489200febcd74",
+    "upstream_patches": [
+      "0001-fix-threadpool-oversubscription.patch",
+      "0002-backend-reg-filter.patch"
+    ]
+  },
+  "head_decision": {
+    "mean_delta_bootstrap_95ci_ms": [
+      -2.332,
+      0.348
+    ],
+    "reason": "End-to-end confidence interval crosses zero",
+    "research_pairs": 81,
+    "selected": "host"
+  },
+  "interface_version": "0.4.0",
+  "licenses": [
+    "licenses/LICENSE.transcribe",
+    "licenses/LICENSE.miniz",
+    "licenses/derived-model-card.md",
+    "licenses/README.md",
+    "licenses/source-model-card.md",
+    "licenses/LICENSE.ggml",
+    "licenses/LICENSE.source-repository",
+    "licenses/THIRD_PARTY_NOTICES.derived.md",
+    "licenses/LICENSE.derived-model",
+    "licenses/LICENSE.silero_vad"
+  ],
+  "metal_resources": "embedded, framework-owned source; no bundle/env/cwd lookup",
+  "model": {
+    "config_sha256": "72c544eec78996dc57ed88f8308d735647644e981ec81f46ce945ee1b027a174",
+    "gguf_sha256": "06b1224edb7eb9b9b797c5d25539b6aa852e6a069fbfdce706760a3135e26cae",
+    "languages": [
+      "ru",
+      "en",
+      "kk",
+      "ky",
+      "uz"
+    ],
+    "source_repository": "ai-sage/GigaAM-Multilingual",
+    "source_revision": "3905cd51c3ed4e88c8edf33f3302969ba480a327",
+    "weights_sha256": "d6d7bcef5e1b77700c84d669635a88021724fd3b1ae0c408890bccdf3c8d2269"
+  },
+  "objc_resource_classes": [],
+  "profile": {
+    "activations": "F32",
+    "ctc_projection": "host",
+    "ctc_search": "host",
+    "encoder": "Metal",
+    "frontend": "host",
+    "id": "gigaam-multilingual-large-ctc",
+    "tensor_integrity": "CRC32 per serialized tensor; outer SHA256 pins artifact",
+    "version": 1,
+    "weight_storage": "F16",
+    "window_policy": "stock25-v1"
+  },
+  "schema_version": 1,
+  "source": {
+    "patches": [
+      {
+        "path": "0001-multilingual-research.patch",
+        "sha256": "c9a3d5008c1419725420f94775f185ef471147dccfc076e069d9514d1cadecd2"
+      },
+      {
+        "path": "0002-supported-profile-and-isolation.patch",
+        "sha256": "a6f91455a1e274c166f9d2e885a12cc7ba5f3960e2fad9349896b4958668dff6"
+      }
+    ],
+    "upstream": {
+      "archive_sha256": "8de024900d57de3da44f707cbcb5dd2dba4d448b97b3bc05ccd230952a3f6d87",
+      "commit": "1dc22facfc931e2f8adb43924b0e38b9c46f83c7",
+      "repository": "https://github.com/handy-computer/transcribe.cpp"
+    }
+  },
+  "symlinks": {
+    "VoicePenGigaAM.framework/Headers": "Versions/Current/Headers",
+    "VoicePenGigaAM.framework/Modules": "Versions/Current/Modules",
+    "VoicePenGigaAM.framework/Resources": "Versions/Current/Resources",
+    "VoicePenGigaAM.framework/Versions/Current": "A",
+    "VoicePenGigaAM.framework/VoicePenGigaAM": "Versions/Current/VoicePenGigaAM",
+    "VoicePenGigaAM.xcframework/macos-arm64/VoicePenGigaAM.framework/Headers": "Versions/Current/Headers",
+    "VoicePenGigaAM.xcframework/macos-arm64/VoicePenGigaAM.framework/Modules": "Versions/Current/Modules",
+    "VoicePenGigaAM.xcframework/macos-arm64/VoicePenGigaAM.framework/Resources": "Versions/Current/Resources",
+    "VoicePenGigaAM.xcframework/macos-arm64/VoicePenGigaAM.framework/Versions/Current": "A",
+    "VoicePenGigaAM.xcframework/macos-arm64/VoicePenGigaAM.framework/VoicePenGigaAM": "Versions/Current/VoicePenGigaAM"
+  },
+  "target": {
+    "architecture": "arm64",
+    "build_parallelism": 2,
+    "deployment_target": "15.0",
+    "platform": "macOS",
+    "threads": 4
+  },
+  "upstream": {
+    "archive_sha256": "8de024900d57de3da44f707cbcb5dd2dba4d448b97b3bc05ccd230952a3f6d87",
+    "commit": "1dc22facfc931e2f8adb43924b0e38b9c46f83c7",
+    "repository": "https://github.com/handy-computer/transcribe.cpp"
+  }
+}

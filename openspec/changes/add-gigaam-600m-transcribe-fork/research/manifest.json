@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "upstream_commit": "1dc22facfc931e2f8adb43924b0e38b9c46f83c7",
+  "asset_role": "byte-identical research source snapshots and environment metadata; adapt during apply",
+  "files": [
+    {
+      "path": "scripts/ab_head.py",
+      "source": ".local/asr-quality/evaluations/gigaam600m-transcribe-metal-20261019/ab_head.py",
+      "sha256": "6e65b6ed156dcb5e2934c8105ae53708628e1e92d51e85287b07ab8458f580f9",
+      "bytes": 6247
+    },
+    {
+      "path": "scripts/benchmark.py",
+      "source": ".local/asr-quality/evaluations/gigaam600m-transcribe-metal-20261019/benchmark.py",
+      "sha256": "45075ced707f3353ade0aabe4a952060408060ca97eada9323b6f3be37aa6d59",
+      "bytes": 5291
+    },
+    {
+      "path": "scripts/build_runtime.py",
+      "source": ".local/asr-quality/evaluations/gigaam600m-transcribe-metal-20261019/build_runtime.py",
+      "sha256": "4306e822bb51ff2673409765745ef69580143fc5e0dfcb497275c6857a8cdcf1",
+      "bytes": 1175
+    },
+    {
+      "path": "scripts/compare_heads.py",
+      "source": ".local/asr-quality/evaluations/gigaam600m-transcribe-metal-20261019/compare_heads.py",
+      "sha256": "6ef8b8804b59922b6114dd9aab0c497406990376f079828ed34edaafcd50e7d7",
+      "bytes": 1227
+    },
+    {
+      "path": "scripts/convert_mlx.py",
+      "source": ".local/asr-quality/evaluations/gigaam600m-transcribe-metal-20261019/convert_mlx.py",
+      "sha256": "3d05dc2fd04a056647fdb3104948376ccfe8b9e3196694b89c854e2a6fc8d358",
+      "bytes": 4166
+    },
+    {
+      "path": "scripts/finalize.py",
+      "source": ".local/asr-quality/evaluations/gigaam600m-transcribe-metal-20261019/finalize.py",
+      "sha256": "ffa8d747e9f05741a9f689da296cabf8b6f80d4e6a3e5c12adc26c05ba77a671",
+      "bytes": 13895
+    },
+    {
+      "path": "scripts/parity.py",
+      "source": ".local/asr-quality/evaluations/gigaam600m-transcribe-metal-20261019/parity.py",
+      "sha256": "44bab59e75aed28ec89eb9740058d976efe412842e889cd8d5a6d5162c1f2a26",
+      "bytes": 1573
+    },
+    {
+      "path": "scripts/quantize.py",
+      "source": ".local/asr-quality/evaluations/gigaam600m-transcribe-metal-20261019/quantize.py",
+      "sha256": "db55e72e84d13743d8ea39fc59480da4b27513459413eb0f2966efa9a341c4bb",
+      "bytes": 1064
+    },
+    {
+      "path": "scripts/record_verification.py",
+      "source": ".local/asr-quality/evaluations/gigaam600m-transcribe-metal-20261019/record_verification.py",
+      "sha256": "bad030a0395c48cb7ebcd80e61822df3a2a1f59bb542225e494a85cae01ee3ec",
+      "bytes": 2856
+    },
+    {
+      "path": "scripts/reference.py",
+      "source": ".local/asr-quality/evaluations/gigaam600m-transcribe-metal-20261019/reference.py",
+      "sha256": "d341fce974b7c42264a0594b062f983f46e207e21335ecb98408be7e074ce4b2",
+      "bytes": 2368
+    },
+    {
+      "path": "scripts/reference_f32.py",
+      "source": ".local/asr-quality/evaluations/gigaam600m-transcribe-metal-20261019/reference_f32.py",
+      "sha256": "4c133d03c9cc22f89ce6766f4b7ece08bfcc24a16b863e869323ebcd9c9d67a7",
+      "bytes": 4846
+    },
+    {
+      "path": "scripts/run_reference.py",
+      "source": ".local/asr-quality/evaluations/gigaam600m-transcribe-metal-20261019/run_reference.py",
+      "sha256": "eaadc89d0c0a80946a86c02806ee69656fa28637b92f9a825f55d944406c7459",
+      "bytes": 778
+    },
+    {
+      "path": "scripts/score.py",
+      "source": ".local/asr-quality/evaluations/gigaam600m-transcribe-metal-20261019/score.py",
+      "sha256": "f726c53fb00228ac8e222011d9201a8c8a3c23ce51dc290f8c5e11507c679b65",
+      "bytes": 11572
+    },
+    {
+      "path": "source.patch",
+      "source": ".local/asr-quality/evaluations/gigaam600m-transcribe-metal-20261019/source.patch",
+      "sha256": "c9a3d5008c1419725420f94775f185ef471147dccfc076e069d9514d1cadecd2",
+      "bytes": 10592
+    },
+    {
+      "path": "LICENSE.transcribe.cpp",
+      "source": ".local/asr-quality/evaluations/gigaam600m-transcribe-metal-20261019/source/LICENSE",
+      "sha256": "86a53633b56f6b029d3cb42158bcc7aac0cdff898aceb13e83b93e368bbc4ac6",
+      "bytes": 1083
+    },
+    {
+      "path": "python-environment.json",
+      "source": ".local/asr-quality/evaluations/gigaam600m-transcribe-metal-20261019/python-environment.json",
+      "sha256": "068450f8859f8464544af3a9e32664a313167b68cd1ef258e9bd662e8e18be3b",
+      "bytes": 228
+    },
+    {
+      "path": "dependencies/transcribe-cpp-benchmark.py",
+      "source": ".local/asr-quality/evaluations/transcribe-cpp-20261019/benchmark.py",
+      "sha256": "c6eff63edb7847d5fb3a1eaf13b362a88d9bfd9fe8ab17e4b22a5143ae93c2bb",
+      "bytes": 9076
+    },
+    {
+      "path": "dependencies/rescore_spellings.py",
+      "source": ".local/asr-quality/evaluations/gigaam-20261019/rescore_spellings.py",
+      "sha256": "6afd4b2485d6b969b56bd27356a8ca29a5bbf7150112293fea80090a173f64fd",
+      "bytes": 8203
+    },
+    {
+      "path": "dependencies/rescore_hesitations.py",
+      "source": ".local/asr-quality/evaluations/transcribe-cpp-20261019/rescore_hesitations.py",
+      "sha256": "3ec9c6266536f10d67c9f9bd2c70aeb752c4278bdc05cb842601aebce18c779f",
+      "bytes": 8043
+    },
+    {
+      "path": "dependencies/term-spelling-policy.json",
+      "source": ".local/asr-quality/evaluations/gigaam-20261019/term-spelling-policy.json",
+      "sha256": "ad6ed10629d01ab624b9bb0feb40f27f012bce63cee25be4acf5142638d5c566",
+      "bytes": 1912
+    }
+  ]
+}

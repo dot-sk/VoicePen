@@ -1,0 +1,495 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -44,6 +44,7 @@
+         set(TRANSCRIBE_BUILD_COMMIT "${_transcribe_git_sha}")
+     endif()
+ endif()
++set(TRANSCRIBE_BUILD_COMMIT "1dc22fac+voicepen-gigaam-600m-candidate.2")
+ message(STATUS "transcribe version: ${PROJECT_VERSION} (commit ${TRANSCRIBE_BUILD_COMMIT})")
+ 
+ # -----------------------------------------------------------------------------
+@@ -143,6 +144,7 @@
+ # -DTRANSCRIBE_USE_OPENMP=ON. TRANSCRIBE_USE_SYSTEM_BLAS stays ON for the
+ # Accelerate/system-BLAS host decoder; official provider wheels pass it OFF so no
+ # OpenBLAS/MKL runtime is vendored where it can collide with PyTorch/NumPy.
++option(TRANSCRIBE_ISOLATED_FRAMEWORK "Build dynamic macOS framework with private static ggml" OFF)
+ option(TRANSCRIBE_BUILD_SHARED    "Build libtranscribe + ggml as shared libraries"  OFF)
+ option(TRANSCRIBE_USE_OPENMP      "Use OpenMP for ggml's CPU threadpool"             OFF)
+ option(TRANSCRIBE_USE_SYSTEM_BLAS "Link non-Apple system BLAS for the host decoder"  ON)
+--- a/ggml/src/ggml-metal/ggml-metal-device.m
++++ b/ggml/src/ggml-metal/ggml-metal-device.m
+@@ -33,9 +33,9 @@
+ 
+ #if !GGML_METAL_EMBED_LIBRARY
+ // Here to assist with NSBundle Path Hack
+-@interface GGMLMetalClass : NSObject
++@interface VoicePenGigaAMMetalClass : NSObject
+ @end
+-@implementation GGMLMetalClass
++@implementation VoicePenGigaAMMetalClass
+ @end
+ #endif
+ 
+@@ -501,7 +501,7 @@
+ #ifdef SWIFT_PACKAGE
+     NSBundle * bundle = SWIFTPM_MODULE_BUNDLE;
+ #else
+-    NSBundle * bundle = [NSBundle bundleForClass:[GGMLMetalClass class]];
++    NSBundle * bundle = [NSBundle bundleForClass:[VoicePenGigaAMMetalClass class]];
+ #endif
+ 
+     const int64_t t_start = ggml_time_us();
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -10,7 +10,10 @@
+ # them at runtime via the ggml device registry; no per-backend compile
+ # defs are needed on libtranscribe itself.
+ 
+-add_library(transcribe
++if(TRANSCRIBE_ISOLATED_FRAMEWORK)
++    set(_transcribe_kind SHARED)
++endif()
++add_library(transcribe ${_transcribe_kind}
+     transcribe.cpp
+     transcribe-asr.cpp
+     transcribe-diarize.cpp
+@@ -304,3 +307,14 @@
+ endif()
+ 
+ transcribe_apply_warnings(transcribe)
++
++if(TRANSCRIBE_ISOLATED_FRAMEWORK)
++    if(NOT APPLE OR TRANSCRIBE_BUILD_SHARED OR NOT GGML_METAL_EMBED_LIBRARY)
++        message(FATAL_ERROR "Isolated framework requires Apple, private static ggml and embedded Metal resources")
++    endif()
++    set_target_properties(transcribe PROPERTIES FRAMEWORK TRUE FRAMEWORK_VERSION A
++        OUTPUT_NAME VoicePenGigaAM MACOSX_FRAMEWORK_IDENTIFIER "local.voicepen.gigaam"
++        MACOSX_FRAMEWORK_SHORT_VERSION_STRING "0.1.0" MACOSX_FRAMEWORK_BUNDLE_VERSION "1"
++        INSTALL_NAME_DIR "@rpath" BUILD_WITH_INSTALL_NAME_DIR TRUE)
++    target_link_options(transcribe PRIVATE "LINKER:-exported_symbols_list,${PROJECT_SOURCE_DIR}/voicepen.exports")
++endif()
+--- a/src/arch/gigaam/encoder.cpp
++++ b/src/arch/gigaam/encoder.cpp
+@@ -392,6 +392,11 @@
+                         i == 0 ? &eb.dumps.block0_after_attn : nullptr, i == 0 ? &eb.dumps.block0_after_conv : nullptr);
+ 
+         eb.dumps.all_block_outs.push_back(x);
++        if (transcribe::debug::dump_all_blocks_requested()) {
++            const std::string name = "enc.block." + std::to_string(i) + ".out";
++            ggml_set_name(x, name.c_str());
++            transcribe::debug::mark_tensor_for_dump(x);
++        }
+ 
+         if (i == 0) {
+             ggml_set_name(x, "enc.block.0.out");
+--- a/src/arch/gigaam/gigaam.h
++++ b/src/arch/gigaam/gigaam.h
+@@ -40,6 +40,8 @@
+ // Concrete model. Owns the ggml_context that holds every weight tensor's
+ // data buffer plus the host decoder mirror for the RNN-T/CTC greedy loop.
+ struct GigaamModel final : public transcribe_model {
++    bool           multilingual = false;
++    bool           require_metal = false;
+     Tokenizer      tok;
+     GigaamHParams  hparams;
+     GigaamWeights  weights;
+--- a/src/arch/gigaam/model.cpp
++++ b/src/arch/gigaam/model.cpp
+@@ -21,9 +21,12 @@
+ #include "transcribe-log.h"
+ #include "transcribe-meta.h"
+ #include "weights.h"
++#include "window-plan.h"
++#include "third_party/miniz/miniz.h"
+ 
+ #include <algorithm>
+ #include <cstdint>
++#include <cmath>
+ #include <cstdio>
+ #include <cstring>
+ #include <fstream>
+@@ -97,8 +100,12 @@
+ constexpr int64_t k_safe_audio_ms = 25000;
+ 
+ bool research_gpu_ctc(const GigaamModel * gm) {
++#ifdef TRANSCRIBE_ENABLE_VALIDATION_HOOKS
+     return gm->variant == "gigaam-multilingual-large-ctc" && gm->hparams.head_kind == HeadKind::CTC &&
+            transcribe::env::flag("TRANSCRIBE_GIGAAM_WHOLE_INPUT") && transcribe::env::flag("TRANSCRIBE_GIGAAM_GPU_CTC");
++#else
++    return false;
++#endif
+ }
+ 
+ transcribe_status load(Loader & loader, const transcribe_model_load_params * params, transcribe_model ** out_model) {
+@@ -128,9 +135,51 @@
+         return st;
+     }
+ 
++    m->multilingual = m->variant == "gigaam-multilingual-large-ctc";
++    if (m->variant.find("multilingual") != std::string::npos && !m->multilingual) {
++        return TRANSCRIBE_ERR_UNSUPPORTED_VARIANT;
++    }
++    if (m->multilingual) {
++        int version = 0;
++        std::string policy, revision, digest, storage;
++        const std::vector<std::string> languages = {"ru", "en", "kk", "ky", "uz"};
++        std::vector<std::string> actual_languages;
++        const auto * kv = loader.gguf();
++        if (read_required_u32_kv(kv, "stt.gigaam.profile_version", "gigaam", version) != TRANSCRIBE_OK || version != 1 ||
++            read_string_kv(kv, "stt.gigaam.window_policy", policy) != KvResult::Ok || policy != "stock25-v1" ||
++            read_string_kv(kv, "stt.gigaam.source_revision", revision) != KvResult::Ok || revision != "3905cd51c3ed4e88c8edf33f3302969ba480a327" ||
++            read_string_kv(kv, "stt.gigaam.source_weights_sha256", digest) != KvResult::Ok || digest != "d6d7bcef5e1b77700c84d669635a88021724fd3b1ae0c408890bccdf3c8d2269" ||
++            read_string_kv(kv, "stt.gigaam.storage", storage) != KvResult::Ok || (storage != "F16" && storage != "F32") ||
++            read_string_array_kv(kv, "general.languages", actual_languages) != KvResult::Ok || actual_languages != languages) {
++            log_msg(TRANSCRIBE_LOG_LEVEL_ERROR, "gigaam: incompatible multilingual profile metadata");
++            return TRANSCRIBE_ERR_GGUF;
++        }
++        const auto & hp = m->hparams;
++        if (hp.enc_n_layers != 24 || hp.enc_d_model != 1024 || hp.enc_n_heads != 16 || hp.enc_d_ff != 4096 ||
++            hp.enc_conv_kernel != 5 || hp.enc_subsampling_factor != 4 || hp.enc_subs_kernel_size != 5 ||
++            hp.enc_pos_emb_max_len != 5000 || hp.enc_feat_in != 64 || hp.head_kind != HeadKind::CTC ||
++            hp.head_feat_in != 1024 || hp.head_n_classes != 71 || hp.fe_num_mels != 64 || hp.fe_sample_rate != 16000 ||
++            hp.fe_n_fft != 320 || hp.fe_win_length != 320 || hp.fe_hop_length != 160 || hp.fe_center ||
++            hp.fe_window != "hann_periodic" || hp.fe_normalize != "none" || hp.fe_dither != 0 || hp.fe_pre_emphasis != 0 ||
++            hp.fe_f_min != 0 || hp.fe_f_max != 8000 || hp.fe_log_clamp_min != 1e-9f || hp.fe_log_clamp_max != 1e9f || hp.fe_mel_norm != "htk" ||
++            m->tok.n_tokens() != 71 || m->tok.blank_id() != 70) {
++            return TRANSCRIBE_ERR_GGUF;
++        }
++        const std::vector<std::string> vocabulary = {" ", "'", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z", "а", "б", "в", "г", "д", "е", "ж", "з", "и", "й", "к", "л", "м", "н", "о", "п", "р", "с", "т", "у", "ф", "х", "ц", "ч", "ш", "щ", "ъ", "ы", "ь", "э", "ю", "я", "ё", "і", "ғ", "қ", "ң", "ү", "ұ", "һ", "ә", "ө"};
++        for (size_t i = 0; i < vocabulary.size(); ++i) {
++            if (m->tok.token(static_cast<int>(i)) != vocabulary[i]) return TRANSCRIBE_ERR_GGUF;
++        }
++        m->reject_ignored_prompting = true;
++        m->caps.max_timestamp_kind = TRANSCRIBE_TIMESTAMPS_NONE;
++        m->caps.supports_translate = false;
++        m->caps.supports_language_detect = false;
++        m->caps.supports_streaming = false;
++    }
++
+     // Long audio is windowed internally (plan_windows): no practical limit.
+     m->caps.max_audio_ms = 0;
+ 
++    log_msg(TRANSCRIBE_LOG_LEVEL_INFO, "gigaam: runtime=1dc22fac+voicepen-gigaam-600m-candidate.2 variant=%s requested_backend=%d", m->variant.c_str(), params ? static_cast<int>(params->backend) : static_cast<int>(TRANSCRIBE_BACKEND_AUTO));
+     // Reopen for tensor metadata.
+     gguf_init_params init_params{};
+     init_params.no_alloc     = true;
+@@ -140,18 +189,60 @@
+         return TRANSCRIBE_ERR_GGUF;
+     }
+ 
++    std::vector<uint32_t> tensor_checksums;
++    if (m->multilingual && gguf_get_n_tensors(gguf_data) != 824) {
++        gguf_free(gguf_data);
++        return TRANSCRIBE_ERR_GGUF;
++    }
++    if (m->multilingual) {
++        const int64_t crc_key = gguf_find_key(gguf_data, "stt.gigaam.tensor_crc32");
++        if (crc_key < 0 || gguf_get_kv_type(gguf_data, crc_key) != GGUF_TYPE_ARRAY ||
++            gguf_get_arr_type(gguf_data, crc_key) != GGUF_TYPE_UINT32 || gguf_get_arr_n(gguf_data, crc_key) != 824) {
++            gguf_free(gguf_data);
++            return TRANSCRIBE_ERR_GGUF;
++        }
++        const auto * crcs = static_cast<const uint32_t *>(gguf_get_arr_data(gguf_data, crc_key));
++        tensor_checksums.assign(crcs, crcs + 824);
++        std::string storage;
++        read_string_kv(loader.gguf(), "stt.gigaam.storage", storage);
++        for (int64_t i = 0; i < gguf_get_n_tensors(gguf_data); ++i) {
++            const char * name = gguf_get_tensor_name(gguf_data, i);
++            auto * tensor = ggml_get_tensor(m->ctx_meta, name);
++            const bool frontend = std::strncmp(name, "frontend.", 9) == 0;
++            const auto expected = storage == "F16" && !frontend && tensor != nullptr && ggml_n_dims(tensor) >= 2 ? GGML_TYPE_F16 : GGML_TYPE_F32;
++            if (tensor == nullptr || tensor->type != expected) {
++                gguf_free(gguf_data);
++                log_msg(TRANSCRIBE_LOG_LEVEL_ERROR, "gigaam: tensor type disagrees with declared floating storage");
++                return TRANSCRIBE_ERR_GGUF;
++            }
++        }
++    }
+     if (auto st = build_gigaam_weights(m->ctx_meta, m->hparams, m->weights); st != TRANSCRIBE_OK) {
+         gguf_free(gguf_data);
+         return st;
+     }
+ 
+-    const transcribe_backend_request backend_req = (params != nullptr) ? params->backend : TRANSCRIBE_BACKEND_AUTO;
++    transcribe_backend_request backend_req = (params != nullptr) ? params->backend : TRANSCRIBE_BACKEND_AUTO;
++    if (m->multilingual) {
++#ifndef TRANSCRIBE_ENABLE_VALIDATION_HOOKS
++        if (backend_req != TRANSCRIBE_BACKEND_AUTO && backend_req != TRANSCRIBE_BACKEND_METAL) {
++            gguf_free(gguf_data);
++            return TRANSCRIBE_ERR_BACKEND;
++        }
++#endif
++        if (backend_req == TRANSCRIBE_BACKEND_AUTO) backend_req = TRANSCRIBE_BACKEND_METAL;
++        m->require_metal = backend_req == TRANSCRIBE_BACKEND_METAL;
++    }
+     if (auto st = transcribe::load_common::init_backends(backend_req, (params != nullptr) ? params->device : nullptr,
+                                                          "gigaam", m->plan);
+         st != TRANSCRIBE_OK) {
+         gguf_free(gguf_data);
+         return st;
+     }
++    if (m->require_metal && m->plan.primary_kind != BackendKind::Metal) {
++        gguf_free(gguf_data);
++        return TRANSCRIBE_ERR_BACKEND;
++    }
+     m->backend         = ggml_backend_name(m->plan.primary);
+     m->primary_backend = m->plan.primary;
+ 
+@@ -168,6 +259,20 @@
+         st != TRANSCRIBE_OK) {
+         gguf_free(gguf_data);
+         return st;
++    }
++    if (m->multilingual) {
++        std::vector<unsigned char> payload;
++        for (int64_t i = 0; i < gguf_get_n_tensors(gguf_data); ++i) {
++            const char * name = gguf_get_tensor_name(gguf_data, i);
++            auto * tensor = ggml_get_tensor(m->ctx_meta, name);
++            payload.resize(ggml_nbytes(tensor));
++            ggml_backend_tensor_get(tensor, payload.data(), 0, payload.size());
++            if (static_cast<uint32_t>(mz_crc32(0, payload.data(), payload.size())) != tensor_checksums[i]) {
++                log_msg(TRANSCRIBE_LOG_LEVEL_ERROR, "gigaam: tensor payload checksum mismatch: %s", name);
++                gguf_free(gguf_data);
++                return TRANSCRIBE_ERR_GGUF;
++            }
++        }
+     }
+     gguf_free(gguf_data);
+ 
+@@ -282,6 +387,26 @@
+         transcribe::log_msg(TRANSCRIBE_LOG_LEVEL_ERROR, "gigaam: encoder graph allocation failed — out of memory.");
+         return TRANSCRIBE_ERR_OOM;
+     }
++    if (gm->require_metal) {
++        int arithmetic_nodes = 0;
++        for (int i = 0; i < ggml_graph_n_nodes(graph); ++i) {
++            auto * node = ggml_graph_node(graph, i);
++            if (node->op == GGML_OP_NONE || node->op == GGML_OP_VIEW || node->op == GGML_OP_RESHAPE ||
++                node->op == GGML_OP_TRANSPOSE || node->op == GGML_OP_PERMUTE) continue;
++            if (ggml_backend_sched_get_tensor_backend(gc->sched, node) != gm->plan.primary) {
++                log_msg(TRANSCRIBE_LOG_LEVEL_ERROR, "gigaam: required Metal graph node %s (%s) placed off encoder device", node->name, ggml_op_name(node->op));
++                return TRANSCRIBE_ERR_BACKEND;
++            }
++            ++arithmetic_nodes;
++        }
++        log_msg(TRANSCRIBE_LOG_LEVEL_INFO, "gigaam: policy=stock25-v1 frontend=host encoder=Metal arithmetic_nodes=%d ctc_projection=host ctc_search=host profile_version=1", arithmetic_nodes);
++    }
++    ggml_backend_sched_set_eval_callback(gc->sched, gc->abort_cb == nullptr ? nullptr :
++        +[](ggml_tensor * node, bool ask, void * userdata) -> bool {
++            auto * current = static_cast<GigaamSession *>(userdata);
++            if (ask) return std::strstr(node->name, "enc.block.") != nullptr || std::strcmp(node->name, "rnnt.encoded") == 0;
++            return !current->poll_abort();
++        }, gc);
+     transcribe::configure_sched_n_threads(gc->sched, gc->n_threads);
+     return TRANSCRIBE_OK;
+ }
+@@ -301,29 +426,6 @@
+ // that much real audio on both sides. `bounds` holds the kept spans as
+ // consecutive [bounds[i], bounds[i+1]) ranges covering [0, T); empty means a
+ // single full-utterance pass.
+-struct WindowPlan {
+-    std::vector<int> bounds;
+-
+-    int n_windows() const { return bounds.empty() ? 1 : static_cast<int>(bounds.size()) - 1; }
+-};
+-
+-constexpr int k_window_frames     = static_cast<int>(k_safe_audio_ms / 40);  // 625 frames of 40 ms
+-constexpr int k_window_ctx_frames = 50;                                      // 2 s
+-
+-WindowPlan plan_windows(int T) {
+-    WindowPlan p;
+-    if (T <= k_window_frames) {
+-        return p;
+-    }
+-    // Equal spans (no short tail window), each at most max_stride.
+-    const int max_stride = k_window_frames - 2 * k_window_ctx_frames;
+-    const int n          = (T + max_stride - 1) / max_stride;
+-    for (int i = 0; i <= n; ++i) {
+-        p.bounds.push_back(static_cast<int>(static_cast<int64_t>(T) * i / n));
+-    }
+-    return p;
+-}
+-
+ // Encode one contiguous mel slice (channel-major [n_mels, n_frames]) and
+ // copy the pre-transpose encoder output (T-major [T_enc * D]) to `out`.
+ // Rebuilds the graph each call; the scheduler is reused, so its allocator
+@@ -368,12 +470,20 @@
+ 
+     const int64_t t_enc_start = ggml_time_us();
+     if (ggml_backend_sched_graph_compute(gc->sched, eb.graph) != GGML_STATUS_SUCCESS) {
++        if (gc->was_aborted) return TRANSCRIBE_ERR_ABORTED;
+         log_msg(TRANSCRIBE_LOG_LEVEL_ERROR, "gigaam: graph_compute failed");
+         return TRANSCRIBE_ERR_BACKEND;
+     }
++    if (gc->was_aborted || gc->poll_abort()) return TRANSCRIBE_ERR_ABORTED;
+     gc->t_encode_us = ggml_time_us() - t_enc_start;
+ 
+     if (dumps) {
++        if (transcribe::debug::dump_all_blocks_requested()) {
++            for (size_t i = 0; i < eb.dumps.all_block_outs.size(); ++i) {
++                const std::string name = "enc.block." + std::to_string(i) + ".out";
++                transcribe::debug::dump_tensor(name.c_str(), eb.dumps.all_block_outs[i], "encoder.block");
++            }
++        }
+         if (eb.dumps.pre_encode_out) {
+             transcribe::debug::dump_tensor("enc.subsample.out", eb.dumps.pre_encode_out, "encoder.subsample");
+         }
+@@ -497,7 +607,7 @@
+ 
+     gc->full_text   = text;
+     gc->has_result  = true;
+-    gc->result_kind = TRANSCRIBE_TIMESTAMPS_TOKEN;
++    gc->result_kind = gm->multilingual ? TRANSCRIBE_TIMESTAMPS_NONE : TRANSCRIBE_TIMESTAMPS_TOKEN;
+ 
+     // Tokens. Subsampling factor 4 + hop 160 + sample_rate 16000 gives
+     // 40 ms per encoder frame. Token spans one frame.
+@@ -530,6 +640,12 @@
+         return TRANSCRIBE_ERR_ABORTED;
+     }
+ 
++    if (gm->multilingual) {
++        if (n_samples < gm->hparams.fe_win_length) return TRANSCRIBE_ERR_INVALID_ARG;
++        for (int i = 0; i < n_samples; ++i) {
++            if (!std::isfinite(pcm[i])) return TRANSCRIBE_ERR_INVALID_ARG;
++        }
++    }
+     transcribe::debug::init();
+ 
+     // Mel acquisition: the family mel (HTK + power=2 + log-clamp +
+@@ -553,6 +669,7 @@
+         }
+     }
+     gc->t_mel_us = ggml_time_us() - t_mel_start;
++    if (gc->poll_abort()) return TRANSCRIBE_ERR_ABORTED;
+ 
+     {
+         const long long mel_shape[2] = { gm->hparams.fe_num_mels, mel_n_frames };
+@@ -572,8 +689,10 @@
+     const int T_total = enc_frames_for_mel(mel_n_frames);
+     int       D       = 0;
+ 
+-    const bool research_whole_input =
+-        gm->variant == "gigaam-multilingual-large-ctc" && transcribe::env::flag("TRANSCRIBE_GIGAAM_WHOLE_INPUT");
++    bool research_whole_input = false;
++#ifdef TRANSCRIBE_ENABLE_VALIDATION_HOOKS
++    research_whole_input = gm->multilingual && transcribe::env::flag("TRANSCRIBE_GIGAAM_WHOLE_INPUT");
++#endif
+     const WindowPlan wp = research_whole_input ? WindowPlan{} : plan_windows(T_total);
+     if (wp.n_windows() <= 1) {
+         int T_enc = 0;
+@@ -612,6 +731,7 @@
+         // yields we-ws encoder frames; the last window takes the remainder.
+         const int m0    = 4 * ws;
+         const int m_len = (we == T_total) ? (mel_n_frames - m0) : 4 * (we - ws);
++        if (gm->multilingual) log_msg(TRANSCRIBE_LOG_LEVEL_INFO, "gigaam: stock25 window=%d retained=%d:%d encoded=%d:%d mel=%d:%d", w, a, b, ws, we, m0, m0 + m_len);
+ 
+         // Channel-major [n_mels, T_mel] -> [n_mels, m_len] slice.
+         gc->mel_win.resize(static_cast<size_t>(n_mels) * m_len);
+@@ -838,7 +958,7 @@
+     });
+     const int64_t total_mel_us = ggml_time_us() - t_mel_start;
+ 
+-    if (all_ok) {
++    if (all_ok && !gm->multilingual) {
+         int T_max = 0;
+         for (int i = 0; i < n; ++i) {
+             T_max = std::max(T_max, nf[i]);
+@@ -872,6 +992,19 @@
+ 
+ }  // namespace
+ 
++transcribe_status validate_multilingual_run(const transcribe_session * session, const transcribe_run_params * p) {
++    const auto * gm = static_cast<const GigaamModel *>(session->model);
++    if (!gm->multilingual) return TRANSCRIBE_OK;
++    if (p->pnc != TRANSCRIBE_PNC_MODE_DEFAULT) return TRANSCRIBE_ERR_UNSUPPORTED_PNC;
++    if (p->itn != TRANSCRIBE_ITN_MODE_DEFAULT) return TRANSCRIBE_ERR_UNSUPPORTED_ITN;
++    if (p->diarize != TRANSCRIBE_DIARIZE_MODE_DEFAULT) return TRANSCRIBE_ERR_NOT_IMPLEMENTED;
++    if (p->task != TRANSCRIBE_TASK_TRANSCRIBE) return TRANSCRIBE_ERR_UNSUPPORTED_TASK;
++    if (p->language != nullptr) return TRANSCRIBE_ERR_UNSUPPORTED_LANGUAGE;
++    if (p->target_language != nullptr || p->prompt != nullptr || p->prefix != nullptr || p->n_vocabulary != 0 ||
++        p->vocabulary != nullptr || p->keep_special_tags || p->spec_k_drafts > 0) return TRANSCRIBE_ERR_NOT_IMPLEMENTED;
++    return TRANSCRIBE_OK;
++}
++
+ const Arch arch = {
+     /*.name             =*/"gigaam",
+     /*.load             =*/load,
+@@ -884,6 +1017,7 @@
+     /*.stream_finalize  =*/nullptr,
+     /*.stream_reset     =*/nullptr,
+     /*.accepts_ext_kind =*/nullptr,
++    /*.run_validate     =*/validate_multilingual_run,
+ };
+ 
+ }  // namespace transcribe::gigaam
+--- /dev/null
++++ b/src/arch/gigaam/window-plan.h
+@@ -0,0 +1,30 @@
++#pragma once
++#include <algorithm>
++#include <cstdint>
++#include <vector>
++namespace transcribe::gigaam {
++struct WindowPlan {
++    std::vector<int> bounds;
++
++    int n_windows() const { return bounds.empty() ? 1 : static_cast<int>(bounds.size()) - 1; }
++};
++
++constexpr int k_window_frames     = 625;  // 625 frames of 40 ms
++constexpr int k_window_ctx_frames = 50;                                      // 2 s
++
++inline WindowPlan plan_windows(int T) {
++    WindowPlan p;
++    if (T <= k_window_frames) {
++        return p;
++    }
++    // Equal spans (no short tail window), each at most max_stride.
++    const int max_stride = k_window_frames - 2 * k_window_ctx_frames;
++    const int n          = (T + max_stride - 1) / max_stride;
++    for (int i = 0; i <= n; ++i) {
++        p.bounds.push_back(static_cast<int>(static_cast<int64_t>(T) * i / n));
++    }
++    return p;
++}
++
++
++}
+--- a/src/transcribe-asr.cpp
++++ b/src/transcribe-asr.cpp
+@@ -187,6 +187,10 @@
+         if (params->vocabulary[i] == nullptr) {
+             return reject(TRANSCRIBE_ERR_INVALID_ARG, "vocabulary has a NULL entry");
+         }
++    }
++    if (model->reject_ignored_prompting &&
++        (params->prompt != nullptr || params->prefix != nullptr || params->vocabulary != nullptr || params->n_vocabulary != 0)) {
++        return reject(TRANSCRIBE_ERR_NOT_IMPLEMENTED, "this profile does not implement explicit prompting controls");
+     }
+     const bool has_prefix = transcribe::prompting::has_text(params->prefix);
+     if (params->task == TRANSCRIBE_TASK_INSTRUCT) {
+--- a/src/transcribe-model.h
++++ b/src/transcribe-model.h
+@@ -86,6 +86,7 @@
+     // returns false for any feature whose bit isn't set, including
+     // unknown enum values out of range.
+     uint64_t feature_bits = 0;
++    bool reject_ignored_prompting = false;
+ 
+     // Basis for the session-level limits query (transcribe_session_get_limits).
+     // A hard-context-cap family fills this at load() — the same place it
+--- a/tools/CMakeLists.txt
++++ b/tools/CMakeLists.txt
+@@ -5,5 +5,8 @@
+ # tool is its own subdirectory with its own add_executable; this file
+ # is just a dispatch.
+ 
++if(NOT TARGET transcribe-common-example)
++    add_subdirectory(${PROJECT_SOURCE_DIR}/examples/common ${CMAKE_BINARY_DIR}/tools/common)
++endif()
+ add_subdirectory(transcribe-quantize)
+ add_subdirectory(transcribe-bench)
+--- /dev/null
++++ b/voicepen.exports
+@@ -0,0 +1 @@
++_transcribe_*
