@@ -187,12 +187,12 @@ creation, or transcript editing.
 #### Scenario: Saved Meeting recordings are enabled
 
 - **WHEN** saved Meeting recordings are enabled
-- **THEN** VoicePen shall schedule one best-effort asynchronous copy of the mastered, pre-leveling Meeting audio that proceeds to transcription.
+- **THEN** VoicePen shall schedule one archive of the stopped meeting's unprocessed mixed audio.
 
 #### Scenario: Saved Meeting audio copying or pruning is scheduled
 
 - **WHEN** saved Meeting audio copying or pruning is scheduled
-- **THEN** VoicePen shall continue voice leveling, transcription, retry, recovery audio, and history handling without waiting for that saved-audio work to finish.
+- **THEN** VoicePen shall continue voice leveling, transcription, recovery audio, and history handling while audio is copied, then finish copying before temporary captured sources are removed.
 
 #### Scenario: Meeting saved-audio copying fails
 
@@ -202,12 +202,12 @@ creation, or transcript editing.
 #### Scenario: Saved Meeting audio copy succeeds for a recording that creates a meeting history entry
 
 - **WHEN** a saved Meeting audio copy succeeds for a recording that creates a meeting history entry
-- **THEN** VoicePen shall associate the archived audio file with that meeting history entry.
+- **THEN** VoicePen shall associate the archived mixed audio file with that meeting history entry.
 
 #### Scenario: Retrying a failed or partial Meeting recording
 
 - **WHEN** this capability applies
-- **THEN** Retrying a failed or partial Meeting recording shall not create a duplicate saved Meeting master when audio was already saved during the original processing attempt.
+- **THEN** Retrying a failed or partial Meeting recording shall not create a duplicate saved meeting mix.
 
 #### Scenario: Canceling an active Meeting recording
 
@@ -823,6 +823,30 @@ creation, or transcript editing.
 
 - **WHEN** this capability applies
 - **THEN** Meeting detail shall show Meeting transcript timecode status only when the feature is unavailable or not produced for that saved transcript; when timecodes are present in the transcript, the detail shall not duplicate that obvious status as metadata.
+
+### Requirement: GigaAM Meeting recordings support timing-based speaker labeling
+
+When Meeting timing or speaker labeling is enabled, VoicePen SHALL derive usable word positions from the selected GigaAM recognition result and use the existing local Meeting speaker analysis to produce timecodes or speaker-labeled text. It SHALL NOT run a second recognizer or infer speech timing from fixed processing-window boundaries. This supersedes the initial text-only GigaAM Meeting limitation.
+
+#### Scenario: GigaAM Meeting with two detected speakers
+
+- **WHEN** GigaAM supplies valid aligned words for a Meeting and the local diarizer identifies two speakers
+- **THEN** VoicePen saves the transcript with both speaker labels and a speaker count of two
+
+#### Scenario: GigaAM Meeting requests timecodes without speaker labels
+
+- **WHEN** a GigaAM Meeting has transcript timecodes enabled and diarization disabled
+- **THEN** VoicePen formats the recognized speech with timecodes without running speaker analysis
+
+#### Scenario: Aligned word timing is unavailable
+
+- **WHEN** GigaAM returns text but no valid word alignment
+- **THEN** VoicePen retains the recognized text and does not invent speaker labels or timestamps
+
+#### Scenario: Retry a saved GigaAM Meeting
+
+- **WHEN** a previously text-only GigaAM Meeting still has retained recovery audio and is retried with speaker labeling enabled
+- **THEN** VoicePen can regenerate the transcript and speaker count from that audio without changing unrelated history entries
 
 #### Scenario: Meeting history
 

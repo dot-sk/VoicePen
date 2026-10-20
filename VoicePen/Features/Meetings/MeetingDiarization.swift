@@ -357,7 +357,7 @@ nonisolated enum SpeakerKitDiarizationModelFiles {
 
 typealias SpeakerKitModelVariant = SpeakerKitDiarizationModelFiles.SpeakerKitModelVariant
 
-protocol SpeakerKitDiarizationRuntime: Sendable {
+nonisolated protocol SpeakerKitDiarizationRuntime: Sendable {
     func warmUp() async throws
     func diarize(audioSamples: [Float], sampleRate: Int) async throws -> [SpeakerTurn]
     func unload() async
