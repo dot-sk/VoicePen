@@ -1,9 +1,13 @@
 # RNNoise SwiftPM wrapper
 
-This local package contains the unmodified RNNoise 0.2 library sources required
+This local package contains the RNNoise 0.2 library sources required
 by VoicePen. The upstream source is
 <https://github.com/xiph/rnnoise/releases/tag/v0.2> and is licensed under the
 BSD 3-Clause license in `COPYING`.
+
+The file-length conversion from `ftell` to RNNoise's integer blob length is
+explicit to avoid a 64-bit-to-32-bit conversion warning on macOS. Its behavior
+is unchanged.
 
 The default model is stored as a loadable binary in
 `VoicePen/Resources/rnnoise-model-v0.2.bin`. It was generated with the upstream

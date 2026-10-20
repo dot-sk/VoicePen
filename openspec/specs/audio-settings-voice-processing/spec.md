@@ -151,7 +151,7 @@ VoicePen provides audio controls in the Settings screen for dictation microphone
 ### Requirement: RNNoise output stays within the supported audio range
 
 VoicePen SHALL validate successful RNNoise microphone output before using it for
-silence analysis, saved transcription-input audio, Meeting mastering, or local
+silence analysis, derived transcription-input audio, Meeting mastering, or local
 transcription. When the output exceeds the supported full-scale range, VoicePen
 SHALL uniformly attenuate the complete processed signal to leave headroom,
 preserve relative sample amplitudes and sample count, and avoid hard clipping.
