@@ -11,32 +11,28 @@ nonisolated struct ModelAccelerationStatus: Equatable {
     let model: ModelArtifactStatus
     let companionArtifacts: [ModelArtifactStatus]
     let backendKind: ModelBackend
+    var installationIsCompatible = true
+    var actualWhisperAcceleration: WhisperMetalAcceleration?
 
     var isModelReady: Bool {
         model.isPresent
     }
 
-    var isCoreMLReady: Bool {
-        companionArtifacts.contains { artifact in
-            artifact.id == "coreml-encoder" && artifact.isPresent
-        }
-    }
-
     var accelerationSummary: String {
+        guard installationIsCompatible else { return "Incompatible installation" }
         guard isModelReady else { return "Model missing" }
         switch backendKind {
+        case .gigaAM:
+            return "Metal required"
         case .whisperCpp:
-            guard companionArtifacts.contains(where: { $0.id == "coreml-encoder" }) else {
-                return "Metal ready"
-            }
-            return isCoreMLReady ? "Core ML ready" : "Acceleration missing"
+            return actualWhisperAcceleration.map { "Encoder: \($0.encoder), decoder: \($0.decoder), \($0.device)" } ?? "Metal required"
         case .unsupported:
             return "Unknown"
         }
     }
 
     static func inspect(model: ModelManifestModel, paths: AppPaths, fileManager: FileManager = .default) -> ModelAccelerationStatus {
-        guard model.backendKind == .whisperCpp else {
+        guard model.backendKind == .whisperCpp || model.backendKind == .gigaAM else {
             let modelDirectory = paths.existingModelDirectory(for: model.id)
             let expectedModelDirectory = modelDirectory ?? paths.userModelDirectory(for: model.id)
             let isPresent = modelDirectory.map { ModelArtifactPresence.exists(at: $0, fileManager: fileManager) } ?? false
@@ -57,9 +53,9 @@ nonisolated struct ModelAccelerationStatus: Equatable {
 
         let modelStatus = ModelArtifactStatus(
             id: "model",
-            displayName: "GGML model",
+            displayName: model.backendKind == .gigaAM ? "GGUF model" : "GGML model",
             expectedURL: expectedModelURL,
-            isPresent: modelURL.map { ModelArtifactPresence.exists(at: $0, fileManager: fileManager) } ?? false
+            isPresent: model.backendKind == .gigaAM ? model.isInstalled(paths: paths) : modelURL.map { ModelArtifactPresence.exists(at: $0, fileManager: fileManager) } ?? false
         )
 
         let companionStatuses = model.requiredCompanionArtifacts.map { artifact in
@@ -76,7 +72,10 @@ nonisolated struct ModelAccelerationStatus: Equatable {
         return ModelAccelerationStatus(
             model: modelStatus,
             companionArtifacts: companionStatuses,
-            backendKind: model.backendKind
+            backendKind: model.backendKind,
+            installationIsCompatible: model.backendKind != .gigaAM || modelURL == nil || model.isInstalled(paths: paths),
+            actualWhisperAcceleration: model.backendKind == .whisperCpp
+                ? modelURL.flatMap { WhisperMetalDiagnosticsStore.shared.snapshot(path: $0.resolvingSymlinksInPath().path) } : nil
         )
     }
 

@@ -15,6 +15,7 @@
 		11953DC12FA7200000ED707B /* Stencil in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DC22FA7200000ED707B /* Stencil */; };
 		11953DCC2FA7400000ED707B /* SpeakerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DCA2FA7400000ED707B /* SpeakerKit */; };
 		11953DD22FA7700000ED707B /* CRNNoise in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DD32FA7700000ED707B /* CRNNoise */; };
+		47A600002FA6000000000001 /* VoicePenGigaAM in Frameworks */ = {isa = PBXBuildFile; productRef = 47A600002FA6000000000002 /* VoicePenGigaAM */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -66,6 +67,7 @@
 				111029512FDDC57200844B60 /* STTextView in Frameworks */,
 				11953DD22FA7700000ED707B /* CRNNoise in Frameworks */,
 				11953DB02FA5000000ED707B /* whisper in Frameworks */,
+				47A600002FA6000000000001 /* VoicePenGigaAM in Frameworks */,
 				11953DB42FA5300000ED707B /* KeyboardShortcuts in Frameworks */,
 				11953DBC2FA7000000ED707B /* Sparkle in Frameworks */,
 				11953DBE2FA7200000ED707B /* TOMLKit in Frameworks */,
@@ -132,6 +134,7 @@
 			name = VoicePen;
 			packageProductDependencies = (
 				11953DB12FA5000000ED707B /* whisper */,
+				47A600002FA6000000000002 /* VoicePenGigaAM */,
 				11953DB62FA5300000ED707B /* KeyboardShortcuts */,
 				11953DBB2FA7000000ED707B /* Sparkle */,
 				11953DBF2FA7200000ED707B /* TOMLKit */,
@@ -224,6 +227,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				11953DB22FA5000000ED707B /* XCLocalSwiftPackageReference "Vendor/whisper.spm" */,
+				47A600002FA6000000000003 /* XCLocalSwiftPackageReference "Vendor/transcribe.spm" */,
 				11953DD42FA7700000ED707B /* XCLocalSwiftPackageReference "Vendor/rnnoise.spm" */,
 				11953DB52FA5300000ED707B /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */,
 				11953DBA2FA7000000ED707B /* XCRemoteSwiftPackageReference "Sparkle" */,
@@ -641,6 +645,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Vendor/rnnoise.spm;
 		};
+		47A600002FA6000000000003 /* XCLocalSwiftPackageReference "Vendor/transcribe.spm" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Vendor/transcribe.spm;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -734,6 +742,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 11953DD42FA7700000ED707B /* XCLocalSwiftPackageReference "Vendor/rnnoise.spm" */;
 			productName = CRNNoise;
+		};
+		47A600002FA6000000000002 /* VoicePenGigaAM */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 47A600002FA6000000000003 /* XCLocalSwiftPackageReference "Vendor/transcribe.spm" */;
+			productName = VoicePenGigaAM;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

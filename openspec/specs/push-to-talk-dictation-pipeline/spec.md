@@ -85,7 +85,7 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 #### Scenario: Push-to-talk recording meets the minimum duration
 
 - **WHEN** a push-to-talk recording meets the minimum duration
-- **THEN** VoicePen shall apply bundled RNNoise suppression to the recorded microphone audio before silence trimming, saved transcription-input audio, and local transcription.
+- **THEN** VoicePen shall apply bundled RNNoise suppression to the recorded microphone audio before silence trimming and local transcription.
 
 #### Scenario: Push-to-talk RNNoise suppression
 
@@ -115,7 +115,7 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 #### Scenario: Audio preprocessing produces a transcription input file
 
 - **WHEN** audio preprocessing produces a transcription input file
-- **THEN** VoicePen shall schedule saving that transcription input; when preprocessing reports no speech or fails before producing an input file, VoicePen shall schedule saving the original recording once.
+- **THEN** VoicePen shall save the captured source once, regardless of whether preprocessing produces a transcription input file.
 
 #### Scenario: Saved dictation audio copy succeeds for a dictation that creates a history entry
 
@@ -221,20 +221,20 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 
 When RNNoise succeeds for a valid push-to-talk recording, VoicePen SHALL use the
 same conditioned, finite, full-scale-bounded signal for silence analysis, the
-derived transcription-input file, saved dictation audio, and local
+derived transcription-input file, and local
 transcription.
 
 #### Scenario: Dictation RNNoise output requires attenuation
 
 - **WHEN** RNNoise succeeds for a valid dictation recording and its output exceeds the supported full-scale range
-- **THEN** VoicePen transcribes and, when enabled, saves one derived audio file containing the uniformly attenuated signal
+- **THEN** VoicePen transcribes the derived audio file containing the uniformly attenuated signal and archives the captured source when saving is enabled
 
 #### Scenario: Dictation RNNoise output is already safe
 
 - **WHEN** RNNoise succeeds for a valid dictation recording and its output is already finite and within the supported full-scale range
-- **THEN** VoicePen preserves that signal's amplitude while continuing the existing silence-trimming, saving, and transcription flow
+- **THEN** VoicePen preserves that signal's amplitude while continuing silence trimming and transcription, and archives the captured source when saving is enabled
 
 #### Scenario: Dictation RNNoise output is invalid
 
 - **WHEN** RNNoise returns output that cannot be safely conditioned
-- **THEN** VoicePen uses the existing original-recording fallback and does not save or transcribe the invalid processed signal
+- **THEN** VoicePen uses the existing original-recording fallback and does not transcribe the invalid processed signal

@@ -2,6 +2,11 @@
 
 set -euo pipefail
 
+if [[ "${1:-}" == --gigaam ]]; then
+  shift
+  exec bash "$(dirname "${BASH_SOURCE[0]}")/prepare-gigaam-model-assets.sh" "$@"
+fi
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 output_dir="${1:-}"
 source_dir="${VOICEPEN_MODEL_ASSET_SOURCE_DIR:-}"

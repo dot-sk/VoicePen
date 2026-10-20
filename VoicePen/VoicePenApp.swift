@@ -18,10 +18,16 @@ final class VoicePenAppDelegate: NSObject, NSApplicationDelegate {
     private let mainWindowController: MainWindowController
 
     override init() {
-        let controller = AppController.live()
+        let testRoot = FileManager.default.temporaryDirectory.appendingPathComponent("voicepen-host-\(UUID().uuidString)")
+        let controller =
+            Self.isRunningTests
+            ? AppController.live(
+                paths: AppPaths(applicationSupportDirectory: testRoot, temporaryDirectory: testRoot),
+                userConfigStore: UserConfigStore(configURL: testRoot.appendingPathComponent("config.toml")))
+            : AppController.live()
         self.controller = controller
         statusItemController = VoicePenStatusItemController(controller: controller)
-        softwareUpdateController = SoftwareUpdateController()
+        softwareUpdateController = SoftwareUpdateController(startingUpdater: !Self.isRunningTests)
         mainWindowController = MainWindowController(controller: controller)
 
         super.init()
@@ -149,6 +155,7 @@ private final class VoicePenStatusItemController: NSObject, NSMenuDelegate {
         observeStateChange(controller.$lastFinalText)
         observeStateChange(controller.settingsStore.$hotkeyPreference)
         observeStateChange(controller.settingsStore.$transcriptionLanguage)
+        observeStateChange(controller.settingsStore.$selectedModelId)
         observeStateChange(controller.historyStore.$entries)
     }
 
@@ -180,8 +187,8 @@ private final class VoicePenStatusItemController: NSObject, NSMenuDelegate {
             showsStopMeetingRecording: controller.appState.isMeetingCaptureActive,
             hasLatestTranscriptionText: controller.hasLatestTranscriptionText,
             pushToTalkHotkeyHint: controller.settingsStore.hotkeyPreference.menuBarHint(),
-            selectedTranscriptionLanguageCode: controller.settingsStore.transcriptionLanguage,
-            languageOptions: availableLanguageOptions,
+            selectedTranscriptionLanguageCode: controller.recognitionCapabilities.forcedLanguage ? controller.settingsStore.transcriptionLanguage : "auto",
+            languageOptions: controller.recognitionCapabilities.languageMenuOptions(availableLanguageOptions),
             isDictationStarting: controller.isDictationStarting,
             isDictationRecording: controller.isDictationRecording,
             isDictationTranscribing: controller.isDictationTranscribing
@@ -272,6 +279,7 @@ private final class VoicePenStatusItemController: NSObject, NSMenuDelegate {
             item.target = self
             item.representedObject = language.code
             item.state = state.selectedTranscriptionLanguageCode == language.code ? .on : .off
+            item.isEnabled = language.isEnabled
             languageMenu.addItem(item)
         }
 

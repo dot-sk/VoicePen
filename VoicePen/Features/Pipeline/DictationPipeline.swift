@@ -155,6 +155,12 @@ final class DictationPipeline {
             return DictationPipelineResult(rawText: "", finalText: "")
         }
 
+        archiveSavedDictationAudio(
+            sourceURL: recording.url,
+            capturedAt: recording.startedAt,
+            owner: archiveOwner
+        )
+
         await overlay.update(.transcribing(stage: .loadingModel, progress: nil))
         let preparedTranscription = try await transcriber.prepareTranscription()
         try Task.checkCancellation()
@@ -190,28 +196,24 @@ final class DictationPipeline {
             transcriptionAudioURL = measured.value
             timings.preprocessing = measured.elapsed
         } catch AudioPreprocessingError.noSpeechDetected {
-            archiveSavedDictationAudio(sourceURL: recording.url, capturedAt: recording.startedAt)
             overlay.hide(after: 0.1)
             return DictationPipelineResult(rawText: "", finalText: "", recording: nil)
         } catch {
-            archiveSavedDictationAudio(sourceURL: recording.url, capturedAt: recording.startedAt)
             throw error
         }
-        archiveSavedDictationAudio(
-            sourceURL: transcriptionAudioURL,
-            capturedAt: recording.startedAt,
-            owner: archiveOwner
-        )
 
         try Task.checkCancellation()
-        let language = TranscriptionLanguageResolver.resolve(languageProvider())
-        let glossary = try glossaryPrompt(language: language)
+        let capabilities = preparedTranscription.capabilities
+        let language = capabilities.forcedLanguage ? TranscriptionLanguageResolver.resolve(languageProvider()) : "auto"
+        let glossary = capabilities.decoderPrompt ? try glossaryPrompt(language: language) : ""
+        let termNormalizer = dictionaryStore.makeNormalizer()
         return try await processPreparedTranscription(
             preparedTranscription,
             recording: recording,
             transcriptionAudioURL: transcriptionAudioURL,
             language: language,
             glossary: glossary,
+            termNormalizer: termNormalizer,
             timings: timings
         )
     }
@@ -222,6 +224,7 @@ final class DictationPipeline {
         transcriptionAudioURL: URL,
         language: String,
         glossary: String,
+        termNormalizer: TermNormalizer,
         timings initialTimings: VoicePipelineTimings
     ) async throws -> DictationPipelineResult {
         var timings = initialTimings
@@ -254,7 +257,7 @@ final class DictationPipeline {
         await overlay.update(.transcribing(stage: .normalizing, progress: nil))
         let normalized = try await measure { () async throws -> DeveloperModeProcessingResult in
             guard developerModesEnabledProvider() else {
-                return try plainProcessingResult(rawText)
+                return try plainProcessingResult(rawText, termNormalizer: termNormalizer)
             }
 
             let configResult = userConfigStore.loadConfig()
@@ -280,7 +283,8 @@ final class DictationPipeline {
                 return llmCommandResult
             }
 
-            let dictionaryText = try dictionaryStore.makeNormalizer()
+            let dictionaryText =
+                try termNormalizer
                 .normalize(rawText)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let aliases = configResult.config.aliases.aliases(for: commandResult.activeContext)
@@ -416,8 +420,9 @@ final class DictationPipeline {
         }
     }
 
-    private func plainProcessingResult(_ rawText: String) throws -> DeveloperModeProcessingResult {
-        let finalText = try dictionaryStore.makeNormalizer()
+    private func plainProcessingResult(_ rawText: String, termNormalizer: TermNormalizer) throws -> DeveloperModeProcessingResult {
+        let finalText =
+            try termNormalizer
             .normalize(rawText)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return DeveloperModeProcessingResult(text: finalText, activeContext: .plain)

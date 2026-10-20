@@ -30,15 +30,18 @@ nonisolated struct TranscriptionClientResult: Equatable, Sendable {
     let text: String
     let segments: [TranscriptionSegment]
     let modelMetadata: VoiceTranscriptionModelMetadata?
+    let executionDiagnostics: TranscriptionExecutionDiagnostics?
 
     init(
         text: String,
         segments: [TranscriptionSegment] = [],
-        modelMetadata: VoiceTranscriptionModelMetadata? = nil
+        modelMetadata: VoiceTranscriptionModelMetadata? = nil,
+        executionDiagnostics: TranscriptionExecutionDiagnostics? = nil
     ) {
         self.text = text
         self.segments = segments
         self.modelMetadata = modelMetadata
+        self.executionDiagnostics = executionDiagnostics
     }
 }
 
@@ -72,17 +75,22 @@ nonisolated struct PreparedTranscription: @unchecked Sendable {
     typealias Operation = (TranscriptionRequest) async throws -> TranscriptionClientResult
 
     private let operation: Operation
+    let capabilities: RecognitionCapabilities
 
-    init(operation: @escaping Operation) {
+    init(capabilities: RecognitionCapabilities = .whisper, operation: @escaping Operation) {
+        self.capabilities = capabilities
         self.operation = operation
     }
 
     func transcribe(_ request: TranscriptionRequest) async throws -> TranscriptionClientResult {
-        try await operation(request)
+        try Task.checkCancellation()
+        let result = try await operation(capabilities.effectiveRequest(request))
+        try Task.checkCancellation()
+        return result
     }
 }
 
-protocol TranscriptionClient: AnyObject {
+nonisolated protocol TranscriptionClient: AnyObject, Sendable {
     func prepareTranscription() async throws -> PreparedTranscription
     func transcribe(_ request: TranscriptionRequest) async throws -> TranscriptionClientResult
 }

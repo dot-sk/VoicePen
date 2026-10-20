@@ -105,6 +105,7 @@ final class AppController: ObservableObject {
     private let transcriptionCancellationKeyMonitor: TranscriptionCancellationKeyMonitor
     private let modelDownloader: ModelDownloadClient
     private let modelWarmupClient: ModelWarmupClient?
+    private let gigaAMDiagnosticsStore: GigaAMDiagnosticsStore?
     private let meetingDiarizationModelManager: MeetingDiarizationModelManaging?
     private let launchAtLogin: LaunchAtLoginClient
     private let userPrompts: UserPromptPresenter
@@ -272,7 +273,7 @@ final class AppController: ObservableObject {
 
     var isModelInstalled: Bool {
         switch selectedModel.backendKind {
-        case .whisperCpp:
+        case .whisperCpp, .gigaAM:
             selectedModel.isInstalled(paths: paths)
         case .unsupported:
             paths.existingModelDirectory(for: selectedModel.id) != nil
@@ -282,6 +283,8 @@ final class AppController: ObservableObject {
     var modelAccelerationStatus: ModelAccelerationStatus {
         ModelAccelerationStatus.inspect(model: selectedModel, paths: paths)
     }
+
+    var recognitionCapabilities: RecognitionCapabilities { RecognitionCapabilities(model: selectedModel) }
 
     var modelDiagnosticsText: String {
         let status = modelAccelerationStatus
@@ -293,7 +296,7 @@ final class AppController: ObservableObject {
             "Backend: \(selectedModel.sourceKind)",
             "Version: \(selectedModel.version)",
             "Size: \(selectedModel.sizeLabel)",
-            "Timestamps: \(selectedModel.supportsTimestamps ? "Supported" : "Unsupported")",
+            "Meeting timecodes: \(RecognitionCapabilities(model: selectedModel).timestamps ? "Supported" : "Unsupported")",
             "Installed: \(isModelInstalled ? "yes" : "no")",
             "Acceleration: \(status.accelerationSummary)",
             "\(status.model.displayName): \(artifactDiagnostics(status.model))"
@@ -301,6 +304,24 @@ final class AppController: ObservableObject {
 
         lines += status.companionArtifacts.map { artifact in
             "\(artifact.displayName): \(artifactDiagnostics(artifact))"
+        }
+        lines += [
+            "Saved language: \(settingsStore.transcriptionLanguage)",
+            "Effective language: \(recognitionCapabilities.forcedLanguage ? settingsStore.transcriptionLanguage : "auto")",
+            "Saved decoding: \(settingsStore.localDecodingProfile.rawValue)",
+            "Effective decoding: \(recognitionCapabilities.configurableDecoding ? settingsStore.localDecodingProfile.rawValue : "greedy-ctc")"
+        ]
+        if selectedModel.backendKind == .gigaAM {
+            lines += [
+                "Package: \(selectedModel.runtimePackageID ?? "unaccepted")", "Required stages: host frontend, Metal encoder, host CTC",
+                "Window policy: stock25-v1, at most 25 seconds including up to 2 seconds context per side", "Output: text; Meeting timecodes from CTC token alignment"
+            ]
+            if let actual = gigaAMDiagnosticsStore?.snapshot(modelID: selectedModel.id) {
+                lines += [
+                    "Last execution package: \(actual.packageID)", "Actual native backend: \(actual.nativeBackend)", "Input samples: \(actual.inputSampleCount)",
+                    "Native stages, ms: frontend=\(actual.frontendMilliseconds), encoder=\(actual.encoderMilliseconds), CTC=\(actual.decodingMilliseconds)"
+                ]
+            }
         }
 
         if let timings = historyStore.entries.first?.timings {
@@ -372,6 +393,7 @@ final class AppController: ObservableObject {
         transcriptionCancellationKeyMonitor: TranscriptionCancellationKeyMonitor,
         modelDownloader: ModelDownloadClient,
         modelWarmupClient: ModelWarmupClient? = nil,
+        gigaAMDiagnosticsStore: GigaAMDiagnosticsStore? = nil,
         meetingDiarizationModelManager: MeetingDiarizationModelManaging? = nil,
         launchAtLogin: LaunchAtLoginClient? = nil,
         userPrompts: UserPromptPresenter,
@@ -409,6 +431,7 @@ final class AppController: ObservableObject {
         self.transcriptionCancellationKeyMonitor = transcriptionCancellationKeyMonitor
         self.modelDownloader = modelDownloader
         self.modelWarmupClient = modelWarmupClient
+        self.gigaAMDiagnosticsStore = gigaAMDiagnosticsStore
         self.meetingDiarizationModelManager = meetingDiarizationModelManager
         self.launchAtLogin = launchAtLogin ?? NoOpLaunchAtLoginClient()
         self.userPrompts = userPrompts
@@ -470,7 +493,9 @@ final class AppController: ObservableObject {
             meetingDiarizationModelManager: { meetingDiarizationModelManager },
             isModelInstalled: { [weak self] in self?.isModelInstalled ?? false },
             isMeetingDiarizationModelInstalled: { [weak self] in self?.isMeetingDiarizationModelInstalled ?? false },
-            isMeetingDiarizationEnabled: { [settingsStore] in settingsStore.meetingDiarizationEnabled },
+            isMeetingDiarizationEnabled: { [weak self, settingsStore] in
+                settingsStore.meetingDiarizationEnabled && self?.recognitionCapabilities.timestamps == true
+            },
             canStartDictationRuntime: { [weak self] in self?.dictationRuntimeState == .idle },
             canScheduleLifecycleModelWarmup: { [weak self] in
                 guard let self else { return false }
@@ -535,9 +560,8 @@ final class AppController: ObservableObject {
         audioInputDeviceObservation?.cancel()
     }
 
-    static func live() -> AppController {
-        let paths = AppPaths()
-        let modelManifest = LocalModelManifestStore().loadManifestOrDefault()
+    static func live(paths: AppPaths = AppPaths(), modelManifest: ModelManifest? = nil, userConfigStore: UserConfigStore? = nil) -> AppController {
+        let modelManifest = modelManifest ?? LocalModelManifestStore().loadManifestOrDefault()
         let recommendedModel = modelManifest.recommendedModel
         let dictionaryStore = DictionaryStore(dictionaryURL: paths.dictionaryURL)
         let historyStore = VoiceHistoryStore(historyURL: paths.historyURL)
@@ -589,8 +613,10 @@ final class AppController: ObservableObject {
             }
         }
         let whisperCppTranscriber = WhisperCppTranscriptionClient(paths: paths)
+        let gigaAMDiagnosticsStore = GigaAMDiagnosticsStore()
+        let gigaAMTranscriber = GigaAMTranscriptionClient(paths: paths, diagnosticsStore: gigaAMDiagnosticsStore)
         let inserter = PasteboardTextInsertionClient(restoreDelay: VoicePenConfig.clipboardRestoreDelay)
-        let userConfigStore = UserConfigStore()
+        let userConfigStore = userConfigStore ?? UserConfigStore()
         let userPrompts = NSAlertUserPromptPresenter()
         let transcriber = RoutingTranscriptionClient(
             modelProvider: {
@@ -598,7 +624,8 @@ final class AppController: ObservableObject {
                     ?? recommendedModel
             },
             decodingProfileProvider: { settingsStore.localDecodingProfile },
-            whisperCppClient: whisperCppTranscriber
+            whisperCppClient: whisperCppTranscriber,
+            gigaAMClient: gigaAMTranscriber
         )
         let pipeline = DictationPipeline(
             recorder: recorder,
@@ -661,6 +688,11 @@ final class AppController: ObservableObject {
                 audioFileIO: meetingAudioFileIO,
                 microphoneDenoiser: microphoneDenoiser
             ),
+            savedAudioChunker: AVFoundationMeetingAudioChunker(
+                outputDirectory: paths.tempAudioDirectory,
+                audioFileIO: meetingAudioFileIO,
+                mode: .rawMix
+            ),
             audioFileIO: meetingAudioFileIO,
             transcriber: transcriber,
             dictionaryStore: dictionaryStore,
@@ -699,9 +731,11 @@ final class AppController: ObservableObject {
                     proxyProvider: {
                         ModelDownloadProxyConfiguration.fromEnvironment()
                     }
-                )
+                ),
+                gigaAMDownloader: GigaAMModelDownloadClient(paths: paths)
             ),
             modelWarmupClient: transcriber,
+            gigaAMDiagnosticsStore: gigaAMDiagnosticsStore,
             meetingDiarizationModelManager: meetingDiarizationClient,
             launchAtLogin: LiveLaunchAtLoginClient(),
             userPrompts: userPrompts,
@@ -1467,7 +1501,8 @@ final class AppController: ObservableObject {
         modelRuntimeStore.deleteMeetingDiarizationModelFiles()
     }
 
-    func deleteDownloadedModelFiles() {
+    @discardableResult
+    func deleteDownloadedModelFiles() -> Task<Void, Never>? {
         modelRuntimeStore.deleteDownloadedModelFiles()
     }
 
@@ -1570,6 +1605,7 @@ final class AppController: ObservableObject {
     }
 
     func updateTranscriptionLanguage(_ language: String) {
+        guard recognitionCapabilities.forcedLanguage else { return }
         do {
             try settingsStore.updateTranscriptionLanguage(language)
         } catch {
@@ -1578,6 +1614,7 @@ final class AppController: ObservableObject {
     }
 
     func updateLocalDecodingProfile(_ profile: LocalDecodingProfile) {
+        guard recognitionCapabilities.configurableDecoding else { return }
         do {
             try settingsStore.updateLocalDecodingProfile(profile)
         } catch {
@@ -1585,17 +1622,19 @@ final class AppController: ObservableObject {
         }
     }
 
-    func updateSelectedModelId(_ modelId: String) {
+    @discardableResult
+    func updateSelectedModelId(_ modelId: String) -> Task<Void, Never>? {
         do {
-            guard dictationRuntimeState == .idle else { return }
+            guard dictationRuntimeState == .idle else { return nil }
 
             guard modelManifest.compatibleModels.contains(where: { $0.id == modelId }) else {
                 throw TranscriptionError.unsupportedModel(modelId)
             }
             try settingsStore.updateSelectedModelId(modelId)
-            _ = modelRuntimeStore.scheduleModelWarmupIfInstalled()
+            return modelRuntimeStore.scheduleModelWarmupIfInstalled()
         } catch {
             setError(error)
+            return nil
         }
     }
 

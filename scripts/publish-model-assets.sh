@@ -2,6 +2,11 @@
 
 set -euo pipefail
 
+if [[ "${1:-}" == --gigaam ]]; then
+  shift
+  exec bash "$(dirname "${BASH_SOURCE[0]}")/publish-gigaam-model-assets.sh" "$@"
+fi
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 assets_dir="${1:-}"
 repository="${GITHUB_REPOSITORY:-dot-sk/VoicePen}"

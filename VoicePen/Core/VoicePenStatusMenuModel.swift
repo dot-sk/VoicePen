@@ -167,7 +167,14 @@ struct VoicePenStatusMenuModel: Equatable {
     }
 }
 
-struct VoicePenMenuLanguageOption: Equatable {
+nonisolated struct VoicePenMenuLanguageOption: Equatable, Sendable {
     let code: String
     let name: String
+    let isEnabled: Bool
+
+    init(code: String, name: String, isEnabled: Bool = true) {
+        self.code = code
+        self.name = name
+        self.isEnabled = isEnabled
+    }
 }
