@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "role": "unchanged profile regression, exact comparison to pinned upstream",
+  "entries": [
+    {
+      "variant": "gigaam-v3-ctc",
+      "file": "gigaam-v3-ctc-Q8_0.gguf",
+      "repository": "handy-computer/gigaam-v3-ctc-gguf",
+      "revision": "53ac479633748119e11b049cf28bc801f0440f10",
+      "sha256": "71e5c82890e9e243a6bd7575f129f5d1bd2c3ca3ae79aab75cfb1a6934c6a62b",
+      "bytes": 271803328
+    },
+    {
+      "variant": "gigaam-v3-rnnt",
+      "file": "gigaam-v3-rnnt-Q8_0.gguf",
+      "repository": "handy-computer/gigaam-v3-rnnt-gguf",
+      "revision": "93cba3cdf21d66ca7a746718c849419c2946d6bb",
+      "sha256": "130d54450be2922144b265d90d453b781fc2b5adaee52a16954b00f3686201f7",
+      "bytes": 273022880
+    },
+    {
+      "variant": "gigaam-v3-e2e-ctc",
+      "file": "gigaam-v3-e2e-ctc-Q8_0.gguf",
+      "repository": "handy-computer/gigaam-v3-e2e-ctc-gguf",
+      "revision": "59717de63d50dd9dd93b3249da6ad3f2f1c4ad6b",
+      "sha256": "9ccce4750dc813a493d96ca15ee251712bedec15ac9a02fa3d2bd732f08ae5eb",
+      "bytes": 272151136
+    },
+    {
+      "variant": "gigaam-v3-e2e-rnnt",
+      "file": "gigaam-v3-e2e-rnnt-Q8_0.gguf",
+      "repository": "handy-computer/gigaam-v3-e2e-rnnt-gguf",
+      "revision": "3efd5b39882ceadca5570a8fb9fa1a2c801d6d6d",
+      "sha256": "78d63b47723b7f8d78c6113a6ef983b5a86e2a86f6c273e1f5cb6967b1c4467a",
+      "bytes": 273724832
+    }
+  ]
+}

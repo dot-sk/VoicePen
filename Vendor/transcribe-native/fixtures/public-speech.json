@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "source": "google/fleurs plus CC0 Esetok Kazakh pronunciation",
+  "source_revision": "70bb2e84b976b7e960aa89f1c648e09c59f894dd",
+  "entries": [
+    {
+      "id": "ru",
+      "language": "ru",
+      "audio": "ru.wav",
+      "sha256": "48896e3e763a986659808adc6a6270ece048f8db412d3e345e0aafd6b0dccb38",
+      "duration": 13.68,
+      "dataset_config": "ru_ru",
+      "source_row_id": 1614,
+      "source_endpoint": "https://datasets-server.huggingface.co/rows?dataset=google%2Ffleurs&config=ru_ru&split=validation&offset=0&length=1&revision=70bb2e84b976b7e960aa89f1c648e09c59f894dd",
+      "source_audio_sha256": "0ebc61463e1e2db72f81f5261b865b5cead812851cbb07a799d5e98cf9df8654",
+      "license": "CC-BY-4.0",
+      "attribution": "Google FLEURS contributors",
+      "role": "token-decoding parity fixture, no broad accuracy claim"
+    },
+    {
+      "id": "en",
+      "language": "en",
+      "audio": "en.wav",
+      "sha256": "74b0dba831625f15135c3e784b43deab09b6708d80adb9ef1c9b2666cd2b6c7e",
+      "duration": 6.54,
+      "dataset_config": "en_us",
+      "source_row_id": 1548,
+      "source_endpoint": "https://datasets-server.huggingface.co/rows?dataset=google%2Ffleurs&config=en_us&split=validation&offset=0&length=1&revision=70bb2e84b976b7e960aa89f1c648e09c59f894dd",
+      "source_audio_sha256": "048169439c0328b758349af74aeb54a82a7a476e309709eb791dced06db25d48",
+      "license": "CC-BY-4.0",
+      "attribution": "Google FLEURS contributors",
+      "role": "token-decoding parity fixture, no broad accuracy claim"
+    },
+    {
+      "id": "kk",
+      "language": "kk",
+      "audio": "kk.wav",
+      "sha256": "0b1079d19edd5b2ee606432d9d390929bf6d3ef0772598e4508a2b0408e9f75b",
+      "duration": 0.6385625,
+      "source": "Wikimedia Commons File:Kk-0-nöl.ogg",
+      "source_endpoint": "https://commons.wikimedia.org/w/api.php?action=query&format=json&titles=File%3AKk-0-n%C3%B6l.ogg&prop=imageinfo&iiprop=url%7Csha1%7Cextmetadata",
+      "source_audio_sha256": "480ea728abcdbbb07a9b0cb970ef7492185a9b627df42ada9b8641346e599169",
+      "license": "CC0-1.0",
+      "attribution": "Esetok",
+      "source_sha1": "56df543508f40df93704151664d28e79dac77101",
+      "conversion": "ffmpeg 16k mono Float32 WAV, source speech resampled only for this parity fixture",
+      "role": "human pronunciation token-decoding parity fixture, no broad accuracy claim"
+    },
+    {
+      "id": "ky",
+      "language": "ky",
+      "audio": "ky.wav",
+      "sha256": "3a5af69c94501c137146d11a5bd3dea3ed681b2b339ed26f498ef36a3d394f36",
+      "duration": 5.82,
+      "dataset_config": "ky_kg",
+      "source_row_id": 1656,
+      "source_endpoint": "https://datasets-server.huggingface.co/rows?dataset=google%2Ffleurs&config=ky_kg&split=validation&offset=0&length=1&revision=70bb2e84b976b7e960aa89f1c648e09c59f894dd",
+      "source_audio_sha256": "49d1c7c1100a3c1dc0525f7a09fb276b2c7eb82fbf4beb0e7592051d92c92b50",
+      "license": "CC-BY-4.0",
+      "attribution": "Google FLEURS contributors",
+      "role": "token-decoding parity fixture, no broad accuracy claim"
+    },
+    {
+      "id": "uz",
+      "language": "uz",
+      "audio": "uz.wav",
+      "sha256": "12c44facc8316a1f7f863f09eaebb923a2d34bf9ce149ea67e353664c19e2621",
+      "duration": 9.78,
+      "dataset_config": "uz_uz",
+      "source_row_id": 1658,
+      "source_endpoint": "https://datasets-server.huggingface.co/rows?dataset=google%2Ffleurs&config=uz_uz&split=validation&offset=0&length=1&revision=70bb2e84b976b7e960aa89f1c648e09c59f894dd",
+      "source_audio_sha256": "6768d8daf91e204d9760c603ade6b4f9ea9000ff31fc5eda860059bef6021814",
+      "license": "CC-BY-4.0",
+      "attribution": "Google FLEURS contributors",
+      "role": "token-decoding parity fixture, no broad accuracy claim"
+    }
+  ]
+}

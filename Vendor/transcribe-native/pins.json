@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "candidate": "voicepen-gigaam-600m-0.1.0-candidate.2",
+  "acceptance": "unaccepted",
+  "upstream": {
+    "repository": "https://github.com/handy-computer/transcribe.cpp",
+    "commit": "1dc22facfc931e2f8adb43924b0e38b9c46f83c7",
+    "archive_sha256": "8de024900d57de3da44f707cbcb5dd2dba4d448b97b3bc05ccd230952a3f6d87"
+  },
+  "ggml": {
+    "commit": "d7cb574130e6f01ad25b3289685489200febcd74",
+    "upstream_patches": [
+      "0001-fix-threadpool-oversubscription.patch",
+      "0002-backend-reg-filter.patch"
+    ]
+  },
+  "model": {
+    "source_repository": "ai-sage/GigaAM-Multilingual",
+    "source_revision": "3905cd51c3ed4e88c8edf33f3302969ba480a327",
+    "weights_sha256": "d6d7bcef5e1b77700c84d669635a88021724fd3b1ae0c408890bccdf3c8d2269",
+    "config_sha256": "72c544eec78996dc57ed88f8308d735647644e981ec81f46ce945ee1b027a174",
+    "languages": [
+      "ru",
+      "en",
+      "kk",
+      "ky",
+      "uz"
+    ]
+  },
+  "profile": {
+    "id": "gigaam-multilingual-large-ctc",
+    "version": 1,
+    "window_policy": "stock25-v1",
+    "weight_storage": "F16",
+    "activations": "F32",
+    "frontend": "host",
+    "encoder": "Metal",
+    "ctc_projection": "host",
+    "ctc_search": "host",
+    "tensor_integrity": "CRC32 per serialized tensor; outer SHA256 pins artifact"
+  },
+  "head_decision": {
+    "selected": "host",
+    "research_pairs": 81,
+    "mean_delta_bootstrap_95ci_ms": [
+      -2.332,
+      0.348
+    ],
+    "reason": "End-to-end confidence interval crosses zero"
+  },
+  "target": {
+    "platform": "macOS",
+    "architecture": "arm64",
+    "deployment_target": "15.0",
+    "threads": 4,
+    "build_parallelism": 2
+  },
+  "python": {
+    "version": "3.13",
+    "packages": [
+      "numpy==2.5.4",
+      "gguf==0.19.0",
+      "safetensors==0.8.0",
+      "soundfile==0.14.0",
+      "jiwer==4.0.0",
+      "gigaam-multilingual-mlx==0.2.0",
+      "mlx==0.32.4"
+    ]
+  },
+  "corpus_snapshot": "c49eabd7e9a517bb85185f61c7b182af127071d3eaaa8ec49f8fc624fdec4561",
+  "evaluation_inputs": {
+    "dataset_sha256": "b34b80bfccb15ddc48a25a47120697af81131990363223db1d155142471e4616",
+    "rescore_spellings_sha256": "6afd4b2485d6b969b56bd27356a8ca29a5bbf7150112293fea80090a173f64fd",
+    "rescore_hesitations_sha256": "3ec9c6266536f10d67c9f9bd2c70aeb752c4278bdc05cb842601aebce18c779f",
+    "aliases_sha256": "ad6ed10629d01ab624b9bb0feb40f27f012bce63cee25be4acf5142638d5c566",
+    "unclear_markers": "preserved in immutable accepted references; frozen scorer treatment unchanged",
+    "corpus_recordings": 27,
+    "protocols": [
+      "base",
+      "aliases",
+      "hesitation_base",
+      "hesitation_aliases"
+    ]
+  }
+}

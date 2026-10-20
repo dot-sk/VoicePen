@@ -1,0 +1,4 @@
+framework module VoicePenGigaAM {
+  header "transcribe.h"
+  export *
+}

@@ -1,0 +1,12 @@
+{
+  "python": "3.13.12",
+  "packages": {
+    "gguf": "0.19.0",
+    "safetensors": "0.8.0",
+    "numpy": "2.5.4",
+    "soundfile": "0.14.0",
+    "jiwer": "4.0.0",
+    "gigaam-multilingual-mlx": "0.2.0",
+    "mlx": "0.32.4"
+  }
+}
