@@ -144,7 +144,8 @@ nonisolated struct AppPaths: @unchecked Sendable {
             return bundledURL
         }
 
-        guard hasCompletedUserModelDownload(for: modelId) else { return nil }
+        let weightsMarker = userModelDirectory(for: modelId).appendingPathComponent(".voicepen-artifacts/model.complete")
+        guard hasCompletedUserModelDownload(for: modelId) || ModelArtifactPresence.exists(at: weightsMarker, fileManager: fileManager) else { return nil }
         let userURL = userModelFile(for: modelId, fileName: fileName)
         return ModelArtifactPresence.exists(at: userURL, fileManager: fileManager) ? userURL : nil
     }

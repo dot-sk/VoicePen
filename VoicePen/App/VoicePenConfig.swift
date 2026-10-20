@@ -5,7 +5,7 @@ nonisolated enum VoicePenConfig {
     static let modelId = "ggml-large-v3-turbo-q5_0"
     static let retiredTranscriptionModelId = "ggml-large-v3-turbo-q5_1"
     static let modelVersion = "large-v3-turbo-q5_0"
-    static let modelSizeLabel = "1.7 GB"
+    static let modelSizeLabel = "574 MB"
     static let modelSourceRepo = "ggerganov/whisper.cpp"
     static let defaultLanguage = "auto"
     static let minimumRecordingDuration: TimeInterval = 0.4
