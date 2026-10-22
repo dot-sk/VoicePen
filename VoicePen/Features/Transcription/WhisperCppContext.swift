@@ -32,6 +32,7 @@ nonisolated private struct WhisperCppRunResult {
     let text: String
     let segments: [TranscriptionSegment]
     let timings: WhisperCppTimings
+    let confidence: TranscriptConfidence?
 }
 
 actor WhisperCppContext {
@@ -102,14 +103,15 @@ actor WhisperCppContext {
             return TranscriptionClientResult(
                 text: trimmedText, segments: result.segments,
                 executionDiagnostics: TranscriptionExecutionDiagnostics(
-                    packageID: "whisper.cpp-v1.8.5", inputSampleCount: result.timings.sampleCount,
+                    packageID: "whisper.cpp-v\(String(cString: whisper_version()))", inputSampleCount: result.timings.sampleCount,
                     nativeBackend: "Metal encoder + Metal decoder (\(acceleration.device))",
                     loadMilliseconds: loadMilliseconds, frontendMilliseconds: 0,
                     encoderMilliseconds: Double(nativeTimings?.encode_ms ?? 0),
                     decodingMilliseconds: Double(
                         (nativeTimings?.decode_ms ?? 0) + (nativeTimings?.batchd_ms ?? 0)
                             + (nativeTimings?.prompt_ms ?? 0) + (nativeTimings?.sample_ms ?? 0)),
-                    inferenceMilliseconds: result.timings.elapsedMilliseconds))
+                    inferenceMilliseconds: result.timings.elapsedMilliseconds),
+                confidence: result.confidence?.remapped(from: result.text, to: trimmedText))
         } catch {
             AppLogger.error(
                 "Whisper decoding failed: profile=\(profileLabel), error=\(error.localizedDescription)"
@@ -286,11 +288,27 @@ actor WhisperCppContext {
         }
 
         var text = ""
+        var confidenceTokens: [RecognitionTokenConfidence] = []
         var segments: [TranscriptionSegment] = []
         for index in 0..<whisper_full_n_segments(context) {
             if let segment = whisper_full_get_segment_text(context, index) {
                 let segmentText = String(cString: segment)
                 text += segmentText
+                for tokenIndex in 0..<whisper_full_n_tokens(context, index) {
+                    guard let tokenText = whisper_full_get_token_text(context, index, tokenIndex)
+                    else { continue }
+                    var bytes: [UInt8] = []
+                    var offset = 0
+                    while tokenText[offset] != 0 {
+                        bytes.append(UInt8(bitPattern: tokenText[offset]))
+                        offset += 1
+                    }
+                    confidenceTokens.append(
+                        RecognitionTokenConfidence(
+                            bytes: bytes, probability: whisper_full_get_token_p(context, index, tokenIndex),
+                            isSpecial: whisper_full_get_token_id(context, index, tokenIndex) >= whisper_token_eot(context)
+                        ))
+                }
                 if !options.noTimestamps {
                     segments.append(
                         TranscriptionSegment(
@@ -308,7 +326,10 @@ actor WhisperCppContext {
             sampleCount: samples.count
         )
 
-        return WhisperCppRunResult(text: text, segments: segments, timings: timings)
+        return WhisperCppRunResult(
+            text: text, segments: segments, timings: timings,
+            confidence: TranscriptConfidence.extract(text: text, tokens: confidenceTokens)
+        )
     }
 
     private static func readAudioSamples(_ url: URL) throws -> [Float] {

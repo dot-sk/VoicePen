@@ -12,6 +12,7 @@ struct TranscriptTextEditor: View {
     var isCopyDisabled = false
     var showsLineNumbers = true
     var showsBorder = true
+    var reviewHints: [WordConfidence] = []
     @Environment(\.voicePenTheme) private var theme
     @State private var copyFeedbackTrigger = 0
     @State private var isCopyButtonHovered = false
@@ -39,7 +40,8 @@ struct TranscriptTextEditor: View {
                     foregroundColor: isSecondaryText ? .secondaryLabelColor : .labelColor,
                     bottomContentInset: footerReservedHeight,
                     copyFullTranscriptAction: copyTranscriptWithFeedback,
-                    showsLineNumbers: showsLineNumbers
+                    showsLineNumbers: showsLineNumbers,
+                    reviewHints: reviewHints
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -238,6 +240,7 @@ private struct ReadOnlyTranscriptTextView: NSViewRepresentable {
     let bottomContentInset: CGFloat
     let copyFullTranscriptAction: () -> Void
     let showsLineNumbers: Bool
+    let reviewHints: [WordConfidence]
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = CopyableTranscriptSTTextView.scrollableTextView()
@@ -270,6 +273,7 @@ private struct ReadOnlyTranscriptTextView: NSViewRepresentable {
         applyText(to: textView)
         context.coordinator.recordDisplayedTranscript(selectionResetID: selectionResetID, textSnapshot: textSnapshot)
         context.coordinator.resetSelection(in: textView)
+        context.coordinator.recordStyle(hints: reviewHints, color: foregroundColor)
 
         return scrollView
     }
@@ -290,8 +294,13 @@ private struct ReadOnlyTranscriptTextView: NSViewRepresentable {
             textSnapshot: textSnapshot
         )
 
-        if textDidChange {
+        let styleDidChange = !context.coordinator.isDisplayingStyle(hints: reviewHints, color: foregroundColor)
+        if textDidChange || styleDidChange {
+            let selection = textView.textSelection
+            applyStyle(to: textView)
             applyText(to: textView)
+            if !textDidChange && !shouldResetSelection { textView.textSelection = selection }
+            context.coordinator.recordStyle(hints: reviewHints, color: foregroundColor)
         } else {
             applyStyle(to: textView)
         }
@@ -329,14 +338,10 @@ private struct ReadOnlyTranscriptTextView: NSViewRepresentable {
     }
 
     private func applyText(to textView: STTextView) {
-        let attributedText = NSAttributedString(
-            string: text,
-            attributes: [
-                .font: Self.editorFont,
-                .foregroundColor: foregroundColor
-            ]
-        )
+        let attributedText = TranscriptReviewText.attributedText(text, hints: reviewHints, font: Self.editorFont, foregroundColor: foregroundColor)
         textView.attributedText = attributedText
+        textView.toolTip = reviewHints.isEmpty ? nil : TranscriptReviewText.explanation
+        textView.setAccessibilityHelp(reviewHints.isEmpty ? nil : TranscriptReviewText.explanation)
         textView.needsLayout = true
         textView.needsDisplay = true
         textView.enclosingScrollView?.contentView.needsDisplay = true
@@ -352,6 +357,17 @@ private struct ReadOnlyTranscriptTextView: NSViewRepresentable {
         private var displayedSelectionResetID: UUID?
         private(set) var displayedTextRevision: Int?
         private var displayedTextFingerprint: Int?
+        private var displayedHints: [WordConfidence] = []
+        private var displayedColor: NSColor?
+
+        func recordStyle(hints: [WordConfidence], color: NSColor) {
+            displayedHints = hints
+            displayedColor = color
+        }
+
+        func isDisplayingStyle(hints: [WordConfidence], color: NSColor) -> Bool {
+            displayedHints == hints && displayedColor?.isEqual(color) == true
+        }
 
         func recordDisplayedTranscript(selectionResetID: UUID, textSnapshot: TranscriptTextSnapshot) {
             displayedSelectionResetID = selectionResetID
@@ -390,7 +406,10 @@ private final class CopyableTranscriptSTTextView: STTextView {
 
     override func copy(_ sender: Any?) {
         if textSelection.length > 0 {
-            super.copy(sender)
+            if let text, let selected = TranscriptReviewText.selectedPlainText(text, range: textSelection) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(selected, forType: .string)
+            }
             return
         }
 

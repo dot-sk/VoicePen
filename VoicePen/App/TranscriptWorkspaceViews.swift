@@ -371,6 +371,7 @@ struct TranscriptTextWorkspace: View {
     var isCopyDisabled = false
     var showsLineNumbers = true
     var contentPadding: CGFloat = 20
+    var reviewHints: [WordConfidence] = []
     @Environment(\.voicePenTheme) private var theme
 
     var body: some View {
@@ -384,7 +385,8 @@ struct TranscriptTextWorkspace: View {
                 isSecondaryText: isSecondaryText,
                 isCopyDisabled: isCopyDisabled,
                 showsLineNumbers: showsLineNumbers,
-                showsBorder: false
+                showsBorder: false,
+                reviewHints: reviewHints
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }

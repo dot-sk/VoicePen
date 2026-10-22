@@ -57,9 +57,10 @@ struct StoredTextRow {
     var compressedRawText: Data?
     var compressedFinalText: Data?
     var recognizedWordCount: Int?
+    var reviewHintBytes: Int = 0
 
     var textByteCount: Int {
-        payload.byteCount
+        payload.byteCount + reviewHintBytes
     }
 
     func resolvedWordCount() throws -> Int {

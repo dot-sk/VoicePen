@@ -18,7 +18,7 @@ let package = Package(
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.1"),
         .package(url: "https://github.com/LebJe/TOMLKit.git", from: "0.6.0"),
         .package(url: "https://github.com/stencilproject/Stencil.git", from: "0.15.1"),
-        .package(url: "https://github.com/argmaxinc/argmax-oss-swift", exact: "1.0.0"),
+        .package(path: "Vendor/diarization.spm"),
         .package(url: "https://github.com/krzyzanowskim/STTextView", from: "2.2.0")
     ],
     targets: [
@@ -32,7 +32,7 @@ let package = Package(
                 .product(name: "Sparkle", package: "Sparkle"),
                 .product(name: "TOMLKit", package: "TOMLKit"),
                 .product(name: "Stencil", package: "Stencil"),
-                .product(name: "SpeakerKit", package: "argmax-oss-swift"),
+                .product(name: "VoicePenDiarization", package: "diarization.spm"),
                 .product(name: "STTextView", package: "STTextView")
             ],
             path: "VoicePen",

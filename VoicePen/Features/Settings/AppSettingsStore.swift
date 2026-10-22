@@ -36,11 +36,11 @@ final class AppSettingsStore: ObservableObject {
         self.hotkeyPreference = .option
         self.audioInputSelection = .systemDefault
         self.boostDictationInputGain = true
-        self.dictationDenoisingEnabled = true
+        self.dictationDenoisingEnabled = false
         self.meetingVoiceLevelingEnabled = true
         self.saveDictationAudioEnabled = false
         self.saveMeetingAudioEnabled = false
-        self.meetingDiarizationBackend = .speakerKit
+        self.meetingDiarizationBackend = .nemotron
         self.savedAudioStorageLimitGB = VoicePenConfig.defaultSavedAudioStorageLimitGB
         self.meetingTranscriptTimecodesEnabled = true
         self.meetingDiarizationEnabled = false
@@ -65,7 +65,7 @@ final class AppSettingsStore: ObservableObject {
                 ?? "true"
             let dictationDenoisingEnabled =
                 try fetchValue(forKey: Self.dictationDenoisingEnabledKey, from: database)
-                ?? "true"
+                ?? "false"
             let meetingVoiceLeveling =
                 try fetchValue(forKey: Self.meetingVoiceLevelingEnabledKey, from: database)
                 ?? "true"
@@ -83,7 +83,7 @@ final class AppSettingsStore: ObservableObject {
                 ?? "true"
             let meetingDiarizationBackend =
                 try fetchValue(forKey: Self.meetingDiarizationBackendKey, from: database)
-                ?? MeetingDiarizationBackend.speakerKit.rawValue
+                ?? MeetingDiarizationBackend.nemotron.rawValue
             let meetingDiarization =
                 try fetchValue(forKey: Self.meetingDiarizationEnabledKey, from: database)
                 ?? "false"
@@ -416,7 +416,7 @@ final class AppSettingsStore: ObservableObject {
 
     private static func normalizeMeetingDiarizationBackend(_ value: String) -> MeetingDiarizationBackend {
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return MeetingDiarizationBackend(rawValue: normalized) ?? .speakerKit
+        return MeetingDiarizationBackend(rawValue: normalized) ?? .nemotron
     }
 
     private static func normalizeMeetingAudioAppSelections(_ value: String?) -> [MeetingAudioAppSelection] {

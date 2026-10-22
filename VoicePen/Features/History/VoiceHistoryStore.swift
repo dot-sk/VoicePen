@@ -162,8 +162,9 @@ final class VoiceHistoryStore: ObservableObject {
                 diagnostic_notes_json,
                 text_storage_format,
                 raw_text_compressed,
-                final_text_compressed
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                final_text_compressed,
+                word_confidence
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
         )
 
@@ -207,6 +208,11 @@ final class VoiceHistoryStore: ObservableObject {
         statement.bindText(VoiceHistoryTextStorageFormat.plain, at: 12)
         statement.bindNull(at: 13)
         statement.bindNull(at: 14)
+        if let payload = try TranscriptConfidence.storedPayload(text: entry.finalText, hints: entry.reviewHints ?? []) {
+            statement.bindBlob(payload, at: 15)
+        } else {
+            statement.bindNull(at: 15)
+        }
 
         try statement.stepDone()
     }
@@ -240,7 +246,7 @@ final class VoiceHistoryStore: ObservableObject {
     private func fetchStoredTextRows(from database: SQLiteConnection) throws -> [StoredTextRow] {
         let statement = try database.prepare(
             """
-            SELECT id, raw_text, final_text, text_storage_format, raw_text_compressed, final_text_compressed, recognized_word_count
+            SELECT id, raw_text, final_text, text_storage_format, raw_text_compressed, final_text_compressed, recognized_word_count, length(word_confidence)
             FROM voice_history
             WHERE text_storage_format = '\(VoiceHistoryTextStorageFormat.plain)'
             ORDER BY created_at DESC;
@@ -262,7 +268,8 @@ final class VoiceHistoryStore: ObservableObject {
                         textStorageFormat: statement.string(at: 3),
                         compressedRawText: statement.optionalData(at: 4),
                         compressedFinalText: statement.optionalData(at: 5),
-                        recognizedWordCount: statement.optionalInt(at: 6)
+                        recognizedWordCount: statement.optionalInt(at: 6),
+                        reviewHintBytes: statement.optionalInt(at: 7) ?? 0
                     ))
             case .done:
                 return rows
@@ -309,7 +316,7 @@ final class VoiceHistoryStore: ObservableObject {
     private func fetchTextPayloadRows(from database: SQLiteConnection) throws -> [StoredTextRow] {
         let statement = try database.prepare(
             """
-            SELECT id, raw_text, final_text, text_storage_format, raw_text_compressed, final_text_compressed, recognized_word_count
+            SELECT id, raw_text, final_text, text_storage_format, raw_text_compressed, final_text_compressed, recognized_word_count, length(word_confidence)
             FROM voice_history
             WHERE text_storage_format != '\(VoiceHistoryTextStorageFormat.evicted)'
             ORDER BY created_at DESC;
@@ -329,7 +336,8 @@ final class VoiceHistoryStore: ObservableObject {
                         textStorageFormat: statement.string(at: 3),
                         compressedRawText: statement.optionalData(at: 4),
                         compressedFinalText: statement.optionalData(at: 5),
-                        recognizedWordCount: statement.optionalInt(at: 6)
+                        recognizedWordCount: statement.optionalInt(at: 6),
+                        reviewHintBytes: statement.optionalInt(at: 7) ?? 0
                     ))
             case .done:
                 return rows
@@ -346,6 +354,7 @@ final class VoiceHistoryStore: ObservableObject {
                 text_storage_format = ?,
                 raw_text_compressed = NULL,
                 final_text_compressed = NULL,
+                word_confidence = NULL,
                 recognized_word_count = ?
             WHERE id = ?;
             """
@@ -360,7 +369,7 @@ final class VoiceHistoryStore: ObservableObject {
     private func fetchEntries(from database: SQLiteConnection) throws -> [VoiceHistoryEntry] {
         let statement = try database.prepare(
             """
-            SELECT id, created_at, duration, raw_text, final_text, status, error_message, timings_json, model_metadata_json, text_storage_format, raw_text_compressed, final_text_compressed, recognized_word_count, diagnostic_notes_json
+            SELECT id, created_at, duration, raw_text, final_text, status, error_message, timings_json, model_metadata_json, text_storage_format, raw_text_compressed, final_text_compressed, recognized_word_count, diagnostic_notes_json, word_confidence
             FROM voice_history
             ORDER BY created_at DESC;
             """
@@ -418,7 +427,8 @@ final class VoiceHistoryStore: ObservableObject {
             modelMetadata: try modelMetadata(from: statement.optionalString(at: 8)),
             diagnosticNotes: try diagnosticNotes(from: statement.optionalString(at: 13)),
             recognizedWordCount: statement.optionalInt(at: 12),
-            isTextPayloadEvicted: storedText.isEvicted
+            isTextPayloadEvicted: storedText.isEvicted,
+            reviewHints: storedText.isEvicted ? nil : TranscriptConfidence.storedHints(statement.optionalData(at: 14), text: storedText.finalText)
         )
     }
 
@@ -453,7 +463,7 @@ final class VoiceHistoryStore: ObservableObject {
             SELECT
                 COUNT(*),
                 COALESCE(SUM(length(CAST(raw_text AS BLOB)) + length(CAST(final_text AS BLOB))), 0),
-                COALESCE(SUM(COALESCE(length(raw_text_compressed), 0) + COALESCE(length(final_text_compressed), 0)), 0)
+                COALESCE(SUM(COALESCE(length(raw_text_compressed), 0) + COALESCE(length(final_text_compressed), 0) + COALESCE(length(word_confidence), 0)), 0)
             FROM voice_history;
             """
         )

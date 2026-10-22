@@ -85,7 +85,7 @@ VoicePen records while push-to-talk is active, skips recordings below the minimu
 #### Scenario: Push-to-talk recording meets the minimum duration
 
 - **WHEN** a push-to-talk recording meets the minimum duration
-- **THEN** VoicePen shall apply bundled RNNoise suppression to the recorded microphone audio before silence trimming and local transcription.
+- **THEN** VoicePen shall apply bundled RNNoise suppression before silence trimming and local transcription only when dictation noise suppression is enabled; otherwise it shall continue the existing light audio processing without RNNoise.
 
 #### Scenario: Push-to-talk RNNoise suppression
 
@@ -238,3 +238,23 @@ transcription.
 
 - **WHEN** RNNoise returns output that cannot be safely conditioned
 - **THEN** VoicePen uses the existing original-recording fallback and does not transcribe the invalid processed signal
+
+### Requirement: Complete successful dictation latency
+
+VoicePen SHALL measure the elapsed duration from the accepted push-to-talk release request to completion of its text insertion attempt with a monotonic clock. It SHALL include recording finalization, model readiness, audio preparation, recognition, normalization, insertion, and intervening scheduling waits, exclude recording time before release and cleanup after insertion, and retain separate recording-finalization and model-readiness durations. The measurement describes completion of the app's insertion attempt, not confirmation that another app accepted the paste.
+
+#### Scenario: Successful dictation waits before insertion
+
+- **WHEN** recording finalization, model readiness, or scheduling delays a successful dictation after release
+- **THEN** the saved release-to-insertion latency includes those waits and the remaining processing through insertion completion
+- **AND** recording finalization and model readiness have separate measured durations
+
+#### Scenario: Release arrives during capture startup
+
+- **WHEN** push-to-talk is released before capture startup completes and that recording subsequently produces inserted text
+- **THEN** latency starts at the original accepted release request rather than when startup finishes
+
+#### Scenario: Attempt ends without insertion
+
+- **WHEN** an attempt is empty, too short, canceled, or fails before insertion
+- **THEN** VoicePen does not publish a completed release-to-insertion measurement for that attempt

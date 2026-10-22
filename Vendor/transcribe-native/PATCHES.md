@@ -29,6 +29,12 @@ fix, complete multilingual profile, and scheduler placement diagnostics.
 Packaging isolation is local policy. Review each patch on dependency updates;
 do not bulk-sync ggml independently of transcribe.cpp's pinned patches.
 
+`0003-ctc-confidence.patch` owns optional CTC probability retention, maximum
+posterior aggregation within each collapsed symbol run, unchanged greedy
+IDs/frame positions, invalid-score fallback, the native unit test, and the
+candidate 3 runtime identity. It does not change weights, window planning,
+encoder execution, RNN-T decoding, or the public C ABI.
+
 Rebuild and rerun contract, numerical, full-corpus, C/Swift package, license,
 and existing-family gates for any runtime/model/converter/reference/scorer or
 toolchain change. Missing private fixtures are a failed acceptance gate, not

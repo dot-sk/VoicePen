@@ -1,6 +1,5 @@
-import ArgmaxCore
 import Foundation
-@preconcurrency import SpeakerKit
+import VoicePenDiarization
 
 protocol MeetingDiarizationClient: AnyObject {
     func diarize(recording: MeetingDiarizationRecording) async throws -> MeetingDiarizationResult
@@ -27,7 +26,7 @@ nonisolated struct MeetingDiarizationRecording: Equatable, Sendable {
     init(
         chunks: [MeetingAudioChunk],
         maximumDuration: TimeInterval,
-        backend: MeetingDiarizationBackend = .speakerKit,
+        backend: MeetingDiarizationBackend = .nemotron,
         strategy: MeetingDiarizationStrategy = .fullTimeline
     ) {
         self.chunks = chunks
@@ -61,16 +60,16 @@ nonisolated enum MeetingDiarizationStrategy: String, Equatable, Sendable {
 }
 
 nonisolated enum MeetingDiarizationBackend: String, CaseIterable, Identifiable, Sendable {
-    case speakerKit
+    case nemotron
 
     var id: String { rawValue }
 
     var displayName: String {
-        "SpeakerKit"
+        "Nemotron offline"
     }
 
     var backendName: String {
-        "speakerKit"
+        "nemotron"
     }
 }
 
@@ -260,322 +259,134 @@ nonisolated enum MeetingSpeakerTurnPostprocessor {
     }
 }
 
-nonisolated enum SpeakerKitDiarizationModelFiles {
-    static let assetFileName = "speakerkit-coreml-v1.zip"
-    static let archiveRoot = "speakerkit-coreml-v1"
-    static let completionMarkerFileName = ".voicepen-diarization-download-complete"
-    static let remoteFile = ModelAssetRemoteFile(
-        downloadURL: "https://github.com/dot-sk/VoicePen/releases/download/model-assets-v1/\(assetFileName)",
-        byteSize: 9_470_389,
-        sha256: "6831f93bd1f8e51d677feda70caca2183161f754aeabb198799d690685e50c3f"
-    )
-
-    nonisolated enum SpeakerKitModelVariant: CaseIterable, Sendable {
-        case segmenter
-        case embedder
-        case clusterer
-
-        var info: ModelInfo {
-            switch self {
-            case .segmenter:
-                .segmenter()
-            case .embedder:
-                .embedder()
-            case .clusterer:
-                .plda()
-            }
-        }
-
-        var readinessFiles: [String] {
-            switch self {
-            case .segmenter:
-                ["SpeakerSegmenter.mlmodelc"]
-            case .embedder:
-                ["SpeakerEmbedder.mlmodelc", "SpeakerEmbedderPreprocessor.mlmodelc"]
-            case .clusterer:
-                ["PldaProjector.mlmodelc"]
-            }
-        }
-    }
-
-    static func modelDirectory(for variant: SpeakerKitModelVariant, in cacheDirectory: URL) -> URL {
-        cacheDirectory.appendingPathComponent(variant.info.name, isDirectory: true)
-    }
-
-    static func modelRootDirectory(for variant: SpeakerKitModelVariant) -> String? {
-        guard let version = variant.info.version,
-            let modelVariant = variant.info.variant
-        else {
-            return nil
-        }
-        return "\(variant.info.name)/\(version)/\(modelVariant)"
-    }
-
-    static func requiredModelDirectories(for variant: SpeakerKitModelVariant) -> [String] {
-        guard let modelRoot = modelRootDirectory(for: variant) else {
-            return []
-        }
-        return variant.readinessFiles.map {
-            "\(modelRoot)/\($0)"
-        }
-    }
-
-    static func allRequiredModelDirectories() -> [String] {
-        SpeakerKitModelVariant.allCases.flatMap(requiredModelDirectories(for:))
-    }
-
-    static func isInstalled(in cacheDirectory: URL) -> Bool {
-        let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: completionMarkerURL(in: cacheDirectory).path) else {
-            return false
-        }
-        return hasRequiredModelDirectories(in: cacheDirectory, fileManager: fileManager)
-    }
-
-    static func hasRequiredModelDirectories(
-        in cacheDirectory: URL,
-        fileManager: FileManager = .default
-    ) -> Bool {
-        for variant in SpeakerKitModelVariant.allCases {
-            for directory in requiredModelDirectories(for: variant) {
-                var isDirectory: ObjCBool = false
-                let artifactURL = cacheDirectory.appendingPathComponent(directory, isDirectory: true)
-                guard fileManager.fileExists(atPath: artifactURL.path, isDirectory: &isDirectory),
-                    isDirectory.boolValue
-                else {
-                    return false
-                }
-            }
-        }
-        return true
-    }
-
-    static func completionMarkerURL(in cacheDirectory: URL) -> URL {
-        cacheDirectory.appendingPathComponent(completionMarkerFileName)
-    }
-}
-
-typealias SpeakerKitModelVariant = SpeakerKitDiarizationModelFiles.SpeakerKitModelVariant
-
-nonisolated protocol SpeakerKitDiarizationRuntime: Sendable {
+nonisolated protocol NemotronDiarizationRuntime: Sendable {
     func warmUp() async throws
     func diarize(audioSamples: [Float], sampleRate: Int) async throws -> [SpeakerTurn]
     func unload() async
 }
 
-protocol SpeakerKitDiarizationRuntimeFactory: Sendable {
-    func makeRuntime(modelDirectory: URL) async throws -> SpeakerKitDiarizationRuntime
+protocol NemotronDiarizationRuntimeFactory: Sendable {
+    func makeRuntime(modelDirectory: URL) async throws -> NemotronDiarizationRuntime
 }
 
-final class DefaultSpeakerKitDiarizationRuntimeFactory: SpeakerKitDiarizationRuntimeFactory {
-    func makeRuntime(modelDirectory: URL) async throws -> SpeakerKitDiarizationRuntime {
-        await SpeakerKitRuntime(modelDirectory: modelDirectory)
+final class DefaultNemotronDiarizationRuntimeFactory: NemotronDiarizationRuntimeFactory {
+    func makeRuntime(modelDirectory: URL) async throws -> NemotronDiarizationRuntime {
+        await NemotronRuntime(modelDirectory: modelDirectory)
     }
 }
 
-private actor SpeakerKitRuntime: SpeakerKitDiarizationRuntime {
-    private let sampleRate = 16_000
-    private let modelDirectory: URL
-    private var speakerKit: SpeakerKit?
+private actor NemotronRuntime: NemotronDiarizationRuntime {
+    private let context: NemotronOfflineContext
 
     init(modelDirectory: URL) async {
-        self.modelDirectory = modelDirectory
+        context = NemotronOfflineContext(modelDirectory: modelDirectory)
     }
 
-    func warmUp() async throws {
-        let model = try await loadOrCreate()
-        try await model.ensureModelsLoaded()
-    }
+    func warmUp() async throws { try await context.warmUp() }
+    func unload() async { await context.unload() }
 
     func diarize(audioSamples: [Float], sampleRate: Int) async throws -> [SpeakerTurn] {
-        guard sampleRate == self.sampleRate else {
-            throw TranscriptionError.transcriptionFailed("SpeakerKit diarization expects \(self.sampleRate) Hz samples.")
+        guard sampleRate == 16_000 else {
+            throw TranscriptionError.transcriptionFailed("Nemotron diarization expects 16000 Hz samples.")
         }
-        let model = try await loadOrCreate()
-        let options = PyannoteDiarizationOptions(numberOfSpeakers: nil)
-        let result = try await model.diarize(audioArray: audioSamples, options: options)
-        return extractTurns(from: result)
-    }
-
-    func unload() async {
-        await speakerKit?.unloadModels()
-        self.speakerKit = nil
-    }
-
-    private func loadOrCreate() async throws -> SpeakerKit {
-        if let speakerKit {
-            return speakerKit
+        return try await context.diarize(samples: audioSamples).map {
+            SpeakerTurn(
+                startOffset: $0.startSeconds, endOffset: $0.endSeconds,
+                speakerId: $0.speakerIndex, confidence: nil)
         }
-
-        let config = PyannoteConfig(modelFolder: modelDirectory.path, download: false, load: false)
-        let speakerKit = try await SpeakerKit(config)
-        self.speakerKit = speakerKit
-        return speakerKit
-    }
-
-    private func extractTurns(from result: DiarizationResult) -> [SpeakerTurn] {
-        var rawTurns: [SpeakerTurn] = []
-        let segments = result.segments
-        guard !segments.isEmpty else {
-            AppLogger.debug("SpeakerKit diarization returned no speech segments.")
-            return []
-        }
-
-        var droppedNoSpeaker = 0
-        var droppedMultiSpeaker = 0
-        for segment in segments {
-            let speakerCount = segment.speaker.speakerIds.count
-            guard speakerCount == 1, let speakerId = segment.speaker.speakerId else {
-                if speakerCount == 0 {
-                    droppedNoSpeaker += 1
-                } else {
-                    droppedMultiSpeaker += 1
-                }
-                continue
-            }
-
-            guard segment.endTime > segment.startTime else {
-                continue
-            }
-
-            rawTurns.append(
-                SpeakerTurn(
-                    startOffset: TimeInterval(segment.startTime),
-                    endOffset: TimeInterval(segment.endTime),
-                    speakerId: speakerId,
-                    confidence: nil
-                )
-            )
-        }
-
-        if droppedNoSpeaker > 0 {
-            AppLogger.debug("SpeakerKit diarization dropped \(droppedNoSpeaker) no-speaker segments.")
-        }
-        if droppedMultiSpeaker > 0 {
-            AppLogger.debug("SpeakerKit diarization dropped \(droppedMultiSpeaker) multi-speaker segments.")
-        }
-
-        return rawTurns
     }
 }
 
-final class SpeakerKitDiarizationModelDownloader: @unchecked Sendable {
-    private let fileManager: FileManager
-    private let assetDownloader: ModelAssetDownloading
-    private let archiveInstaller: ModelArchiveInstalling
+final class NemotronDiarizationModelCache: Sendable {
+    private let downloader: NemotronDiarizationModelDownloader
 
     init(
-        fileManager: FileManager = .default,
-        proxyProvider: @escaping @Sendable () -> ModelDownloadProxyConfiguration? = {
-            ModelDownloadProxyConfiguration.fromEnvironment()
-        },
-        assetDownloader: ModelAssetDownloading? = nil,
-        archiveInstaller: ModelArchiveInstalling = ModelArchiveInstaller()
+        runtimeFactory: NemotronDiarizationRuntimeFactory = DefaultNemotronDiarizationRuntimeFactory(),
+        downloader: NemotronDiarizationModelDownloader = NemotronDiarizationModelDownloader()
     ) {
-        self.fileManager = fileManager
-        self.assetDownloader =
-            assetDownloader
-            ?? VerifiedModelAssetDownloader(
-                fileManager: fileManager,
-                proxyProvider: proxyProvider
-            )
-        self.archiveInstaller = archiveInstaller
-    }
-
-    func download(cacheDirectory: URL, events: @escaping @Sendable (ModelDownloadEvent) -> Void) async throws {
-        let archiveURL =
-            cacheDirectory
-            .deletingLastPathComponent()
-            .appendingPathComponent(SpeakerKitDiarizationModelFiles.assetFileName)
-        AppLogger.info("Downloading SpeakerKit model archive from GitHub Releases")
-        try await assetDownloader.download(
-            SpeakerKitDiarizationModelFiles.remoteFile,
-            to: archiveURL,
-            label: "SpeakerKit diarization",
-            progress: { progress in
-                events(
-                    .downloadingArtifact(
-                        name: SpeakerKitDiarizationModelFiles.assetFileName,
-                        progress: progress
-                    ))
-            }
-        )
-
-        events(.extractingArtifact(name: "SpeakerKit diarization"))
-        try await archiveInstaller.installZip(
-            at: archiveURL,
-            archiveRoot: SpeakerKitDiarizationModelFiles.archiveRoot,
-            to: cacheDirectory,
-            requiredRelativePaths: SpeakerKitDiarizationModelFiles.allRequiredModelDirectories()
-        )
-        events(.validating)
-        guard
-            SpeakerKitDiarizationModelFiles.hasRequiredModelDirectories(
-                in: cacheDirectory,
-                fileManager: fileManager
-            )
-        else {
-            throw ModelDownloadError.archiveExtractionFailed(
-                modelId: "SpeakerKit diarization",
-                artifactId: SpeakerKitDiarizationModelFiles.assetFileName,
-                message: "The verified archive did not install every required SpeakerKit model."
-            )
-        }
-
-        try Data("complete".utf8).write(
-            to: SpeakerKitDiarizationModelFiles.completionMarkerURL(in: cacheDirectory),
-            options: .atomic
-        )
-        try? fileManager.removeItem(at: archiveURL)
-        events(.completed)
-    }
-}
-
-final class SpeakerKitDiarizationModelCache: Sendable {
-    private let runtimeFactory: SpeakerKitDiarizationRuntimeFactory
-    private let downloader: SpeakerKitDiarizationModelDownloader
-
-    init(
-        runtimeFactory: SpeakerKitDiarizationRuntimeFactory = DefaultSpeakerKitDiarizationRuntimeFactory(),
-        downloader: SpeakerKitDiarizationModelDownloader = SpeakerKitDiarizationModelDownloader()
-    ) {
-        self.runtimeFactory = runtimeFactory
         self.downloader = downloader
         self.wrapped = Wrapped(runtimeFactory: runtimeFactory)
     }
 
     actor Wrapped {
-        private let runtimeFactory: SpeakerKitDiarizationRuntimeFactory
-        private var runtime: SpeakerKitDiarizationRuntime?
+        private let runtimeFactory: NemotronDiarizationRuntimeFactory
+        private var runtime: NemotronDiarizationRuntime?
+        private var creating: Task<NemotronDiarizationRuntime, Error>?
+        private var generation = 0
+        private var activeOperations = 0
 
-        init(runtimeFactory: SpeakerKitDiarizationRuntimeFactory) {
+        init(runtimeFactory: NemotronDiarizationRuntimeFactory) {
             self.runtimeFactory = runtimeFactory
         }
 
-        func runtime(for modelDirectory: URL) async throws -> SpeakerKitDiarizationRuntime {
+        func runtime(for modelDirectory: URL) async throws -> NemotronDiarizationRuntime {
             if let runtime {
                 return runtime
             }
-            let newRuntime = try await runtimeFactory.makeRuntime(modelDirectory: modelDirectory)
-            runtime = newRuntime
-            return newRuntime
+            let requestGeneration = generation
+            let task: Task<NemotronDiarizationRuntime, Error>
+            if let creating {
+                task = creating
+            } else {
+                let factory = runtimeFactory
+                task = Task { try await factory.makeRuntime(modelDirectory: modelDirectory) }
+                creating = task
+            }
+            do {
+                let newRuntime = try await task.value
+                guard generation == requestGeneration else {
+                    await newRuntime.unload()
+                    throw CancellationError()
+                }
+                runtime = newRuntime
+                creating = nil
+                try Task.checkCancellation()
+                return newRuntime
+            } catch {
+                if generation == requestGeneration { creating = nil }
+                throw error
+            }
         }
 
         func warmUp(modelDirectory: URL) async throws {
-            let runtime = try await runtime(for: modelDirectory)
-            try await runtime.warmUp()
+            activeOperations += 1
+            do {
+                let runtime = try await runtime(for: modelDirectory)
+                try await runtime.warmUp()
+                await finishOperation()
+            } catch {
+                await finishOperation()
+                throw error
+            }
         }
 
         func diarize(audioSamples: [Float], sampleRate: Int, modelDirectory: URL) async throws -> [SpeakerTurn] {
-            let runtime = try await runtime(for: modelDirectory)
-            return try await runtime.diarize(audioSamples: audioSamples, sampleRate: sampleRate)
+            activeOperations += 1
+            do {
+                let runtime = try await runtime(for: modelDirectory)
+                let turns = try await runtime.diarize(audioSamples: audioSamples, sampleRate: sampleRate)
+                await finishOperation()
+                return turns
+            } catch {
+                await finishOperation()
+                throw error
+            }
+        }
+
+        private func finishOperation() async {
+            activeOperations -= 1
+            if activeOperations == 0 {
+                await reset()
+            }
         }
 
         func reset() async {
-            if let runtime {
-                await runtime.unload()
-            }
+            generation += 1
+            creating?.cancel()
+            creating = nil
+            let previous = runtime
             runtime = nil
+            await previous?.unload()
         }
     }
 
@@ -599,17 +410,17 @@ final class SpeakerKitDiarizationModelCache: Sendable {
     }
 }
 
-final class SpeakerKitMeetingDiarizationClient: MeetingDiarizationClient {
+final class NemotronMeetingDiarizationClient: MeetingDiarizationClient {
     private let cacheDirectory: URL
     private let selectedBackendProvider: () -> MeetingDiarizationBackend
     private let audioFileIO: MeetingAudioFileIO
     private let sampleRate = 16_000
-    private let cache: SpeakerKitDiarizationModelCache
+    private let cache: NemotronDiarizationModelCache
 
     init(
         cacheDirectory: URL,
-        cache: SpeakerKitDiarizationModelCache = SpeakerKitDiarizationModelCache(),
-        selectedBackendProvider: @escaping () -> MeetingDiarizationBackend = { .speakerKit },
+        cache: NemotronDiarizationModelCache = NemotronDiarizationModelCache(),
+        selectedBackendProvider: @escaping () -> MeetingDiarizationBackend = { .nemotron },
         audioFileIO: MeetingAudioFileIO = AVFoundationMeetingAudioFileIO()
     ) {
         self.cacheDirectory = cacheDirectory
@@ -619,7 +430,7 @@ final class SpeakerKitMeetingDiarizationClient: MeetingDiarizationClient {
     }
 
     var isModelInstalled: Bool {
-        SpeakerKitDiarizationModelFiles.isInstalled(in: cacheDirectory)
+        NemotronDiarizationModelFiles.isInstalled(in: cacheDirectory)
     }
 
     var modelDirectory: URL {
@@ -627,14 +438,16 @@ final class SpeakerKitMeetingDiarizationClient: MeetingDiarizationClient {
     }
 
     func download(events: @escaping @Sendable (ModelDownloadEvent) -> Void) async throws {
-        AppLogger.info("Downloading SpeakerKit diarization model to \(cacheDirectory.path)")
+        AppLogger.info("Downloading Nemotron diarization model to \(cacheDirectory.path)")
         try await cache.download(cacheDirectory: cacheDirectory, events: events)
     }
 
     func deleteDownloadedModelFiles() async throws {
         await resetCache()
-        if FileManager.default.fileExists(atPath: cacheDirectory.path) {
-            try FileManager.default.removeItem(at: cacheDirectory)
+        for directory in [cacheDirectory, NemotronDiarizationModelFiles.stagingDirectory(for: cacheDirectory)] {
+            if FileManager.default.fileExists(atPath: directory.path) {
+                try FileManager.default.removeItem(at: directory)
+            }
         }
     }
 
@@ -649,7 +462,7 @@ final class SpeakerKitMeetingDiarizationClient: MeetingDiarizationClient {
     func diarize(recording: MeetingDiarizationRecording) async throws -> MeetingDiarizationResult {
         let chunks = recording.orderedChunks
         guard !chunks.isEmpty else {
-            return Self.makeResult(turns: [], backendName: MeetingDiarizationBackend.speakerKit.backendName)
+            return Self.makeResult(turns: [], backendName: MeetingDiarizationBackend.nemotron.backendName)
         }
 
         let requestedBackend = selectedBackendProvider()
@@ -674,7 +487,7 @@ final class SpeakerKitMeetingDiarizationClient: MeetingDiarizationClient {
             cacheDirectory: cacheDirectory
         )
         AppLogger.info(
-            "Meeting diarization SpeakerKit result: rawSegments=\(rawTurns.count), rawSpeakers=\(MeetingDiarizationDebug.speakerCounts(rawTurns))"
+            "Meeting diarization Nemotron result: rawSegments=\(rawTurns.count), rawSpeakers=\(MeetingDiarizationDebug.speakerCounts(rawTurns))"
         )
         let postprocessedTurns = MeetingSpeakerTurnPostprocessor.postprocess(rawTurns)
         AppLogger.info(
@@ -701,4 +514,4 @@ final class SpeakerKitMeetingDiarizationClient: MeetingDiarizationClient {
 
 }
 
-extension SpeakerKitMeetingDiarizationClient: MeetingDiarizationModelManaging {}
+extension NemotronMeetingDiarizationClient: MeetingDiarizationModelManaging {}

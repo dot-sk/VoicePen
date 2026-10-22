@@ -193,11 +193,8 @@ final class AppModelRuntimeStore {
 
                 guard state.activeMeetingDiarizationModelDownloadID == downloadID else { return }
                 clearActiveMeetingDiarizationModelDownload()
-                environment.setMeetingDiarizationModelRuntimeState(.ready(modelId: Self.meetingDiarizationModelId))
+                environment.setMeetingDiarizationModelRuntimeState(.notLoaded)
                 AppLogger.info("Downloaded meeting diarization model to \(meetingDiarizationModelManager.modelDirectory.path)")
-                if environment.isMeetingDiarizationEnabled() {
-                    _ = await scheduleMeetingDiarizationModelWarmupIfNeeded()?.value
-                }
             } catch is CancellationError {
                 guard state.activeMeetingDiarizationModelDownloadID == downloadID else { return }
                 clearActiveMeetingDiarizationModelDownload()
@@ -239,7 +236,7 @@ final class AppModelRuntimeStore {
                 AppLogger.info("Warming up meeting diarization model")
                 try await meetingDiarizationModelManager.warmUp()
                 guard !Task.isCancelled else { return }
-                environment.setMeetingDiarizationModelRuntimeState(.ready(modelId: Self.meetingDiarizationModelId))
+                environment.setMeetingDiarizationModelRuntimeState(.notLoaded)
                 AppLogger.info("Meeting diarization model warmup completed")
             } catch is CancellationError {
                 environment.setMeetingDiarizationModelRuntimeState(.notLoaded)
@@ -401,30 +398,6 @@ final class AppModelRuntimeStore {
         let now = Date()
         guard scheduleModelWarmupIfInstalled() != nil else { return }
         send(.setLifecycleWarmupDate(now))
-    }
-
-    @discardableResult
-    func scheduleMeetingDiarizationModelWarmupIfNeeded() -> Task<Void, Never>? {
-        guard environment.isMeetingDiarizationEnabled() else {
-            environment.setMeetingDiarizationModelRuntimeState(.notLoaded)
-            AppLogger.info("Meeting diarization model warmup skipped because diarization is disabled")
-            return nil
-        }
-        guard environment.meetingDiarizationModelManager() != nil else {
-            environment.setMeetingDiarizationModelRuntimeState(.notLoaded)
-            AppLogger.info("Meeting diarization model warmup skipped because no model manager is configured")
-            return nil
-        }
-        guard environment.isMeetingDiarizationModelInstalled() else {
-            environment.setMeetingDiarizationModelRuntimeState(.notLoaded)
-            AppLogger.info(
-                "Meeting diarization model warmup skipped because model files are missing at \(environment.meetingDiarizationModelDirectory().path)"
-            )
-            return nil
-        }
-
-        AppLogger.info("Scheduling meeting diarization model warmup from \(environment.meetingDiarizationModelDirectory().path)")
-        return warmUpMeetingDiarizationModel()
     }
 
     func cancelMeetingDiarizationModelWarmup() {

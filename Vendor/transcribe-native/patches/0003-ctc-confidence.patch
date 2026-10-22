@@ -1,0 +1,196 @@
+--- a/src/arch/gigaam/decoder.h
++++ b/src/arch/gigaam/decoder.h
+@@ -65,12 +65,15 @@
+                                     const float *              encoded,
+                                     int                        T_enc,
+                                     std::vector<int> &         out_tokens,
+-                                    std::vector<int> &         out_frames);
++                                    std::vector<int> &         out_frames,
++                                    std::vector<float> *       out_probabilities = nullptr);
+ 
+ transcribe_status collapse_ctc_logits(const float *      logits,
+                                       int                T_enc,
+                                       int                n_classes,
+                                       std::vector<int> & out_tokens,
+-                                      std::vector<int> & out_frames);
++                                      std::vector<int> & out_frames,
++                                      std::vector<float> * out_probabilities = nullptr,
++                                      bool normalized_log_probs = false);
+ 
+ }  // namespace transcribe::gigaam
+--- a/src/arch/gigaam/decoder.cpp
++++ b/src/arch/gigaam/decoder.cpp
+@@ -420,9 +420,11 @@
+                                     const float *              encoded,
+                                     int                        T_enc,
+                                     std::vector<int> &         out_tokens,
+-                                    std::vector<int> &         out_frames) {
++                                    std::vector<int> &         out_frames,
++                                    std::vector<float> *       out_probabilities) {
+     out_tokens.clear();
+     out_frames.clear();
++    if (out_probabilities) out_probabilities->clear();
+ 
+     const int d_model   = hp.enc_d_model;
+     const int n_classes = hp.head_n_classes;
+@@ -480,16 +482,19 @@
+                                          2, "decoder.ctc.log_probs");
+     }
+ 
+-    return collapse_ctc_logits(logits.data(), T_enc, n_classes, out_tokens, out_frames);
++    return collapse_ctc_logits(logits.data(), T_enc, n_classes, out_tokens, out_frames, out_probabilities, true);
+ }
+ 
+ transcribe_status collapse_ctc_logits(const float *      logits,
+                                       int                T_enc,
+                                       int                n_classes,
+                                       std::vector<int> & out_tokens,
+-                                      std::vector<int> & out_frames) {
++                                      std::vector<int> & out_frames,
++                                      std::vector<float> * out_probabilities,
++                                      bool normalized_log_probs) {
+     out_tokens.clear();
+     out_frames.clear();
++    if (out_probabilities) out_probabilities->clear();
+     if (logits == nullptr || T_enc <= 0 || n_classes <= 0) {
+         return TRANSCRIBE_ERR_INVALID_ARG;
+     }
+@@ -505,7 +510,24 @@
+                 best   = c;
+             }
+         }
++        float probability = NAN;
++        if (out_probabilities && best != blank_id) {
++            bool finite = true;
++            double sum = 0.0;
++            for (int c = 0; c < n_classes; ++c) {
++                finite = finite && std::isfinite(row[c]);
++                if (!normalized_log_probs) sum += std::exp(static_cast<double>(row[c]) - best_v);
++            }
++            if (finite) {
++                const double p = normalized_log_probs ? std::exp(static_cast<double>(best_v)) : 1.0 / sum;
++                if (std::isfinite(p) && p >= 0.0 && p <= 1.000001) probability = static_cast<float>(std::min(1.0, p));
++            }
++        }
+         if (best == prev_label) {
++            if (out_probabilities && best != blank_id) {
++                float & previous = out_probabilities->back();
++                previous = std::isfinite(previous) && std::isfinite(probability) ? std::max(previous, probability) : NAN;
++            }
+             continue;  // run-length collapse
+         }
+         prev_label = best;
+@@ -514,6 +536,7 @@
+         }
+         out_tokens.push_back(best);
+         out_frames.push_back(t);
++        if (out_probabilities) out_probabilities->push_back(probability);
+     }
+ 
+     return TRANSCRIBE_OK;
+--- a/src/arch/gigaam/model.cpp
++++ b/src/arch/gigaam/model.cpp
+@@ -179,7 +179,7 @@
+     // Long audio is windowed internally (plan_windows): no practical limit.
+     m->caps.max_audio_ms = 0;
+ 
+-    log_msg(TRANSCRIBE_LOG_LEVEL_INFO, "gigaam: runtime=1dc22fac+voicepen-gigaam-600m-candidate.2 variant=%s requested_backend=%d", m->variant.c_str(), params ? static_cast<int>(params->backend) : static_cast<int>(TRANSCRIBE_BACKEND_AUTO));
++    log_msg(TRANSCRIBE_LOG_LEVEL_INFO, "gigaam: runtime=1dc22fac+voicepen-gigaam-600m-candidate.3 variant=%s requested_backend=%d", m->variant.c_str(), params ? static_cast<int>(params->backend) : static_cast<int>(TRANSCRIBE_BACKEND_AUTO));
+     // Reopen for tensor metadata.
+     gguf_init_params init_params{};
+     init_params.no_alloc     = true;
+@@ -566,6 +566,7 @@
+ 
+     std::vector<int> tokens;
+     std::vector<int> frames;
++    std::vector<float> probabilities;
+ 
+     if (gm->hparams.head_kind == HeadKind::RNNT) {
+         if (auto st = decode_rnnt_greedy(gm->host_decoder, gm->hparams, encoded, T_enc,
+@@ -580,12 +581,12 @@
+                                              static_cast<long long>(T_enc) * gm->hparams.head_n_classes, shape, 2,
+                                              "decoder.ctc.logits_raw");
+         }
+-        if (auto st = collapse_ctc_logits(encoded, T_enc, gm->hparams.head_n_classes, tokens, frames);
++        if (auto st = collapse_ctc_logits(encoded, T_enc, gm->hparams.head_n_classes, tokens, frames, &probabilities);
+             st != TRANSCRIBE_OK) {
+             return st;
+         }
+     } else {  // CTC
+-        if (auto st = decode_ctc_greedy(gm->host_decoder, gm->hparams, encoded, T_enc, tokens, frames);
++        if (auto st = decode_ctc_greedy(gm->host_decoder, gm->hparams, encoded, T_enc, tokens, frames, &probabilities);
+             st != TRANSCRIBE_OK) {
+             return st;
+         }
+@@ -617,6 +618,7 @@
+         transcribe_session::TokenEntry te{};
+         te.id    = tokens[i];
+         te.text  = gm->tok.token(tokens[i]);
++        if (probabilities.size() == tokens.size()) te.p = probabilities[i];
+         te.t0_ms = static_cast<int64_t>(frames[i]) * 40;
+         te.t1_ms = te.t0_ms + 40;
+         gc->tokens.push_back(te);
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -44,7 +44,7 @@
+         set(TRANSCRIBE_BUILD_COMMIT "${_transcribe_git_sha}")
+     endif()
+ endif()
+-set(TRANSCRIBE_BUILD_COMMIT "1dc22fac+voicepen-gigaam-600m-candidate.2")
++set(TRANSCRIBE_BUILD_COMMIT "1dc22fac+voicepen-gigaam-600m-candidate.3")
+ message(STATUS "transcribe version: ${PROJECT_VERSION} (commit ${TRANSCRIBE_BUILD_COMMIT})")
+ 
+ # -----------------------------------------------------------------------------
+--- /dev/null
++++ b/tests/gigaam_ctc_confidence_unit.cpp
+@@ -0,0 +1,38 @@
++#include "arch/gigaam/decoder.h"
++#include <cassert>
++#include <cmath>
++#include <limits>
++#include <vector>
++using namespace transcribe::gigaam;
++int main() {
++    const std::vector<float> raw = {2,0,-2, 4,0,-2, 0,0,5, 1,0,-2, 0,4,-2};
++    std::vector<int> ids,frames,old_ids,old_frames;
++    std::vector<float> p;
++    assert(collapse_ctc_logits(raw.data(),5,3,old_ids,old_frames)==TRANSCRIBE_OK);
++    assert(collapse_ctc_logits(raw.data(),5,3,ids,frames,&p)==TRANSCRIBE_OK);
++    assert(ids==old_ids && frames==old_frames);
++    assert((ids==std::vector<int>{0,0,1}));
++    assert((frames==std::vector<int>{0,3,4}));
++    assert(p.size()==3);
++    assert(std::abs(p[0]-1.0/(1.0+std::exp(-4.0)+std::exp(-6.0)))<1e-6);
++    auto shifted=raw;for(auto & x:shifted)x+=100;
++    std::vector<float> shifted_p;
++    assert(collapse_ctc_logits(shifted.data(),5,3,ids,frames,&shifted_p)==TRANSCRIBE_OK);
++    for(size_t i=0;i<p.size();++i)assert(std::abs(p[i]-shifted_p[i])<1e-6);
++    auto log_probs=raw;
++    for(int t=0;t<5;++t){double sum=0;for(int c=0;c<3;++c)sum+=std::exp(raw[t*3+c]);for(int c=0;c<3;++c)log_probs[t*3+c]-=std::log(sum);}
++    std::vector<float> normalized_p;
++    assert(collapse_ctc_logits(log_probs.data(),5,3,ids,frames,&normalized_p,true)==TRANSCRIBE_OK);
++    for(size_t i=0;i<p.size();++i)assert(std::abs(p[i]-normalized_p[i])<1e-6);
++    const std::vector<float> blank={0,0,5, 0,0,5};
++    assert(collapse_ctc_logits(blank.data(),2,3,ids,frames,&p)==TRANSCRIBE_OK);
++    assert(ids.empty() && frames.empty() && p.empty());
++    const std::vector<float> uniform={0,0,0};
++    assert(collapse_ctc_logits(uniform.data(),1,3,ids,frames,&p)==TRANSCRIBE_OK);
++    assert(std::abs(p[0]-1.0/3)<1e-6);
++    const std::vector<float> invalid={0,std::numeric_limits<float>::quiet_NaN(),-1};
++    assert(collapse_ctc_logits(invalid.data(),1,3,ids,frames,&p)==TRANSCRIBE_OK);
++    assert(ids.size()==1 && std::isnan(p[0]));
++    assert(collapse_ctc_logits(nullptr,0,3,ids,frames,&p)==TRANSCRIBE_ERR_INVALID_ARG);
++    assert(ids.empty() && frames.empty() && p.empty());
++}
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1650,3 +1650,9 @@
+                 -P ${CMAKE_CURRENT_SOURCE_DIR}/cli_langid_smoke.cmake)
+     endif()
+ endif()
++
++add_executable(transcribe_gigaam_ctc_confidence_unit gigaam_ctc_confidence_unit.cpp)
++target_include_directories(transcribe_gigaam_ctc_confidence_unit PRIVATE ${PROJECT_SOURCE_DIR}/src ${PROJECT_SOURCE_DIR}/include)
++target_link_libraries(transcribe_gigaam_ctc_confidence_unit PRIVATE transcribe)
++target_compile_options(transcribe_gigaam_ctc_confidence_unit PRIVATE -UNDEBUG)
++add_test(NAME transcribe_gigaam_ctc_confidence_unit COMMAND transcribe_gigaam_ctc_confidence_unit)

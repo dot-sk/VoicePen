@@ -13,7 +13,7 @@
 		11953DBC2FA7000000ED707B /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DBB2FA7000000ED707B /* Sparkle */; };
 		11953DBE2FA7200000ED707B /* TOMLKit in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DBF2FA7200000ED707B /* TOMLKit */; };
 		11953DC12FA7200000ED707B /* Stencil in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DC22FA7200000ED707B /* Stencil */; };
-		11953DCC2FA7400000ED707B /* SpeakerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DCA2FA7400000ED707B /* SpeakerKit */; };
+		11953DCC2FA7400000ED707B /* VoicePenDiarization in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DCA2FA7400000ED707B /* VoicePenDiarization */; };
 		11953DD22FA7700000ED707B /* CRNNoise in Frameworks */ = {isa = PBXBuildFile; productRef = 11953DD32FA7700000ED707B /* CRNNoise */; };
 		47A600002FA6000000000001 /* VoicePenGigaAM in Frameworks */ = {isa = PBXBuildFile; productRef = 47A600002FA6000000000002 /* VoicePenGigaAM */; };
 /* End PBXBuildFile section */
@@ -72,7 +72,7 @@
 				11953DBC2FA7000000ED707B /* Sparkle in Frameworks */,
 				11953DBE2FA7200000ED707B /* TOMLKit in Frameworks */,
 				11953DC12FA7200000ED707B /* Stencil in Frameworks */,
-				11953DCC2FA7400000ED707B /* SpeakerKit in Frameworks */,
+				11953DCC2FA7400000ED707B /* VoicePenDiarization in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -139,7 +139,7 @@
 				11953DBB2FA7000000ED707B /* Sparkle */,
 				11953DBF2FA7200000ED707B /* TOMLKit */,
 				11953DC22FA7200000ED707B /* Stencil */,
-				11953DCA2FA7400000ED707B /* SpeakerKit */,
+				11953DCA2FA7400000ED707B /* VoicePenDiarization */,
 				11953DD12FA7600000ED707B /* STTextView */,
 				11953DD32FA7700000ED707B /* CRNNoise */,
 			);
@@ -233,7 +233,7 @@
 				11953DBA2FA7000000ED707B /* XCRemoteSwiftPackageReference "Sparkle" */,
 				11953DBD2FA7200000ED707B /* XCRemoteSwiftPackageReference "TOMLKit" */,
 				11953DC02FA7200000ED707B /* XCRemoteSwiftPackageReference "Stencil" */,
-				11953DCE2FA7400000ED707B /* XCRemoteSwiftPackageReference "argmax-oss-swift" */,
+				11953DCE2FA7400000ED707B /* XCLocalSwiftPackageReference "Vendor/diarization.spm" */,
 				11953DD02FA7600000ED707B /* XCRemoteSwiftPackageReference "STTextView" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -641,6 +641,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Vendor/whisper.spm;
 		};
+		11953DCE2FA7400000ED707B /* XCLocalSwiftPackageReference "Vendor/diarization.spm" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Vendor/diarization.spm;
+		};
 		11953DD42FA7700000ED707B /* XCLocalSwiftPackageReference "Vendor/rnnoise.spm" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Vendor/rnnoise.spm;
@@ -684,14 +688,6 @@
 				minimumVersion = 0.15.1;
 			};
 		};
-		11953DCE2FA7400000ED707B /* XCRemoteSwiftPackageReference "argmax-oss-swift" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/argmaxinc/argmax-oss-swift";
-			requirement = {
-				kind = exactVersion;
-				version = 1.0.0;
-			};
-		};
 		11953DD02FA7600000ED707B /* XCRemoteSwiftPackageReference "STTextView" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/krzyzanowskim/STTextView";
@@ -728,10 +724,10 @@
 			package = 11953DC02FA7200000ED707B /* XCRemoteSwiftPackageReference "Stencil" */;
 			productName = Stencil;
 		};
-		11953DCA2FA7400000ED707B /* SpeakerKit */ = {
+		11953DCA2FA7400000ED707B /* VoicePenDiarization */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 11953DCE2FA7400000ED707B /* XCRemoteSwiftPackageReference "argmax-oss-swift" */;
-			productName = SpeakerKit;
+			package = 11953DCE2FA7400000ED707B /* XCLocalSwiftPackageReference "Vendor/diarization.spm" */;
+			productName = VoicePenDiarization;
 		};
 		11953DD12FA7600000ED707B /* STTextView */ = {
 			isa = XCSwiftPackageProductDependency;
