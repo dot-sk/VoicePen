@@ -31,17 +31,20 @@ nonisolated struct TranscriptionClientResult: Equatable, Sendable {
     let segments: [TranscriptionSegment]
     let modelMetadata: VoiceTranscriptionModelMetadata?
     let executionDiagnostics: TranscriptionExecutionDiagnostics?
+    let confidence: TranscriptConfidence?
 
     init(
         text: String,
         segments: [TranscriptionSegment] = [],
         modelMetadata: VoiceTranscriptionModelMetadata? = nil,
-        executionDiagnostics: TranscriptionExecutionDiagnostics? = nil
+        executionDiagnostics: TranscriptionExecutionDiagnostics? = nil,
+        confidence: TranscriptConfidence? = nil
     ) {
         self.text = text
         self.segments = segments
         self.modelMetadata = modelMetadata
         self.executionDiagnostics = executionDiagnostics
+        self.confidence = confidence
     }
 }
 

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "candidate": "voicepen-gigaam-600m-0.1.0-candidate.2",
+  "candidate": "voicepen-gigaam-600m-0.1.0-candidate.3",
   "acceptance": "unaccepted",
   "upstream": {
     "repository": "https://github.com/handy-computer/transcribe.cpp",

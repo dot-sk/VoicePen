@@ -1,8 +1,8 @@
 {
   "acceptance": "unaccepted",
   "build_inputs": {
-    "compiler": "AppleClang 21.0.0.21000101",
-    "compiler_configuration_sha256": "db47e11bc63d9ad9fa5beab81e38d619ae5fbe671d5400d62c4bfd4e812257dc",
+    "compiler": "AppleClang 21.0.0.21000334",
+    "compiler_configuration_sha256": "0d7532c189f7dfadf92e71ec4989c9faf8d807ec10844316e6538c4072145ca6",
     "flags": {
       "GGML_METAL_EMBED_LIBRARY": true,
       "TRANSCRIBE_BUILD_SHARED": false,
@@ -14,9 +14,9 @@
       "parallelism": 2,
       "signing": "unsigned local candidate"
     },
-    "sdk": "26.5"
+    "sdk": "27.0"
   },
-  "candidate": "voicepen-gigaam-600m-0.1.0-candidate.2",
+  "candidate": "voicepen-gigaam-600m-0.1.0-candidate.3",
   "files": {
     "VoicePenGigaAM.framework/Versions/A/Headers/transcribe.abihash": "414ec740f88cfbe8f975c9375d60509d0a51faf54bc518684fa057423d27d295",
     "VoicePenGigaAM.framework/Versions/A/Headers/transcribe.h": "202a9e17f9828c85315125dd38dacd73f8be51db0de190da7e29d753b0953a76",
@@ -31,7 +31,7 @@
     "VoicePenGigaAM.framework/Versions/A/Headers/transcribe/whisper.h": "1edaab9c696f534eaa2b84c32d2f897795e10061b81f04d70a00301d23e9ede5",
     "VoicePenGigaAM.framework/Versions/A/Modules/module.modulemap": "a05b75eda59661130747fc6c96007d852fbfa10a4b460380725dedfc5ff62432",
     "VoicePenGigaAM.framework/Versions/A/Resources/Info.plist": "ffc021d1dc920e90dfbfef5dd8390e49c609bbdf2503880833c24b44b38f93da",
-    "VoicePenGigaAM.framework/Versions/A/VoicePenGigaAM": "f2fe97a8a947483484d60c8af5e4179b26355387c2765cf83d62a7a83dbb3330",
+    "VoicePenGigaAM.framework/Versions/A/VoicePenGigaAM": "a5d910bb9132090474b49f554a84cd179cf117dcb70576da1606106a0a97f1c9",
     "VoicePenGigaAM.xcframework/Info.plist": "e86de8efc928d1fce3ad793c3777fc77b8562ddc78eafb210d588bd2bfb44d4c",
     "VoicePenGigaAM.xcframework/macos-arm64/VoicePenGigaAM.framework/Versions/A/Headers/transcribe.abihash": "414ec740f88cfbe8f975c9375d60509d0a51faf54bc518684fa057423d27d295",
     "VoicePenGigaAM.xcframework/macos-arm64/VoicePenGigaAM.framework/Versions/A/Headers/transcribe.h": "202a9e17f9828c85315125dd38dacd73f8be51db0de190da7e29d753b0953a76",
@@ -46,8 +46,8 @@
     "VoicePenGigaAM.xcframework/macos-arm64/VoicePenGigaAM.framework/Versions/A/Headers/transcribe/whisper.h": "1edaab9c696f534eaa2b84c32d2f897795e10061b81f04d70a00301d23e9ede5",
     "VoicePenGigaAM.xcframework/macos-arm64/VoicePenGigaAM.framework/Versions/A/Modules/module.modulemap": "a05b75eda59661130747fc6c96007d852fbfa10a4b460380725dedfc5ff62432",
     "VoicePenGigaAM.xcframework/macos-arm64/VoicePenGigaAM.framework/Versions/A/Resources/Info.plist": "ffc021d1dc920e90dfbfef5dd8390e49c609bbdf2503880833c24b44b38f93da",
-    "VoicePenGigaAM.xcframework/macos-arm64/VoicePenGigaAM.framework/Versions/A/VoicePenGigaAM": "f2fe97a8a947483484d60c8af5e4179b26355387c2765cf83d62a7a83dbb3330",
-    "dependencies.txt": "1a6c660d47ce259e76d151d90f76e270d563eb427fc4845e1798c614fdd4dc45",
+    "VoicePenGigaAM.xcframework/macos-arm64/VoicePenGigaAM.framework/Versions/A/VoicePenGigaAM": "a5d910bb9132090474b49f554a84cd179cf117dcb70576da1606106a0a97f1c9",
+    "dependencies.txt": "5495755db3c1578c87d4c6ae307a49ddcac7bdc7b3adfcbcf156374a1300e677",
     "exports.txt": "e58e569d53867d8cf799aab7eae5dcffad128e375f7c53eb9c3ded7a7cb61d2d",
     "licenses/LICENSE.derived-model": "df817241931b5d4cff1145fd36f51cdcfa3ccaf3b2648f983570a5eb82e92882",
     "licenses/LICENSE.ggml": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d",
@@ -127,6 +127,10 @@
       {
         "path": "0002-supported-profile-and-isolation.patch",
         "sha256": "a6f91455a1e274c166f9d2e885a12cc7ba5f3960e2fad9349896b4958668dff6"
+      },
+      {
+        "path": "0003-ctc-confidence.patch",
+        "sha256": "5a2d50ab7c0b5bf599241499f61def3c7d404b01c146808bd037042c5b068c63"
       }
     ],
     "upstream": {

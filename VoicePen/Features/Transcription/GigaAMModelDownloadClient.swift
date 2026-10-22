@@ -46,10 +46,19 @@ nonisolated struct GigaAMInstallationIdentity: Codable, Equatable {
 
     func isInstalled(paths: AppPaths, model: ModelManifestModel) -> Bool {
         guard let data = try? Data(contentsOf: paths.userModelCompletionMarker(for: model.id)),
-            let identity = try? JSONDecoder().decode(Self.self, from: data), identity == self,
+            let identity = try? JSONDecoder().decode(Self.self, from: data), acceptsInstallation(identity),
             let attributes = try? FileManager.default.attributesOfItem(atPath: paths.userModelFile(for: model.id, fileName: model.localArtifactFileName).path),
             let size = attributes[.size] as? NSNumber
         else { return false }
         return size.int64Value > 0 && (byteSize == nil || size.int64Value == byteSize)
+    }
+
+    private func acceptsInstallation(_ installed: Self) -> Bool {
+        if installed == self { return true }
+        return runtimePackageID == "voicepen-gigaam-600m-0.1.0-candidate.3"
+            && installed.runtimePackageID == "voicepen-gigaam-600m-0.1.0-candidate.2"
+            && modelID == installed.modelID && version == installed.version
+            && sha256 != nil && sha256 == installed.sha256
+            && byteSize != nil && byteSize == installed.byteSize
     }
 }

@@ -9,6 +9,7 @@ struct DictationPipelineResult: Equatable, Sendable {
     let modelMetadata: VoiceTranscriptionModelMetadata?
     let diagnosticNotes: [String]
     let insertionAction: TextInsertionAction
+    let reviewHints: [WordConfidence]
 
     init(
         rawText: String,
@@ -18,7 +19,8 @@ struct DictationPipelineResult: Equatable, Sendable {
         timings: VoicePipelineTimings? = nil,
         modelMetadata: VoiceTranscriptionModelMetadata? = nil,
         diagnosticNotes: [String] = [],
-        insertionAction: TextInsertionAction = .paste
+        insertionAction: TextInsertionAction = .paste,
+        reviewHints: [WordConfidence] = []
     ) {
         self.rawText = rawText
         self.finalText = finalText
@@ -28,6 +30,7 @@ struct DictationPipelineResult: Equatable, Sendable {
         self.modelMetadata = modelMetadata
         self.diagnosticNotes = diagnosticNotes
         self.insertionAction = insertionAction
+        self.reviewHints = reviewHints
     }
 }
 
@@ -55,6 +58,7 @@ final class DictationPipeline {
     private let llmIntentParserFactory: LLMIntentParserFactory
     private let minimumRecordingDuration: TimeInterval
     private let processingTimeout: Duration
+    private let now: () -> ContinuousClock.Instant
     private var activeInputGainRestoreToken: DefaultInputGainRestoreToken?
 
     init(
@@ -77,7 +81,8 @@ final class DictationPipeline {
         activeApplicationProvider: @escaping () -> ActiveApplicationInfo? = { nil },
         llmIntentParserFactory: @escaping LLMIntentParserFactory = DictationPipeline.defaultLLMIntentParserFactory,
         minimumRecordingDuration: TimeInterval = VoicePenConfig.minimumRecordingDuration,
-        processingTimeout: Duration = VoicePenConfig.dictationProcessingTimeout
+        processingTimeout: Duration = VoicePenConfig.dictationProcessingTimeout,
+        now: @escaping () -> ContinuousClock.Instant = { .now }
     ) {
         self.recorder = recorder
         self.audioPreprocessor = audioPreprocessor
@@ -100,6 +105,7 @@ final class DictationPipeline {
         self.llmIntentParserFactory = llmIntentParserFactory
         self.minimumRecordingDuration = minimumRecordingDuration
         self.processingTimeout = processingTimeout
+        self.now = now
     }
 
     func start() async throws {
@@ -125,9 +131,13 @@ final class DictationPipeline {
         shouldEnableDictationInputGainProvider = provider
     }
 
-    func stopAndProcess(archiveOwner: SavedAudioArchiveOwner? = nil) async throws -> DictationPipelineResult {
+    func stopAndProcess(
+        archiveOwner: SavedAudioArchiveOwner? = nil,
+        releasedAt: ContinuousClock.Instant? = nil
+    ) async throws -> DictationPipelineResult {
+        let releasedAt = releasedAt ?? now()
         do {
-            let result = try await stopAndProcessRecording(archiveOwner: archiveOwner)
+            let result = try await stopAndProcessRecording(archiveOwner: archiveOwner, releasedAt: releasedAt)
             await restoreInputGainIfNeeded()
             return result
         } catch {
@@ -144,8 +154,11 @@ final class DictationPipeline {
         await recorder.invalidatePreparedRecording()
     }
 
-    private func stopAndProcessRecording(archiveOwner: SavedAudioArchiveOwner?) async throws -> DictationPipelineResult {
-        guard let recording = try await recorder.stopRecording() else {
+    private func stopAndProcessRecording(
+        archiveOwner: SavedAudioArchiveOwner?, releasedAt: ContinuousClock.Instant
+    ) async throws -> DictationPipelineResult {
+        let stopped = try await measure { try await recorder.stopRecording() }
+        guard let recording = stopped.value else {
             overlay.hide(after: 0.1)
             return DictationPipelineResult(rawText: "", finalText: "")
         }
@@ -162,7 +175,7 @@ final class DictationPipeline {
         )
 
         await overlay.update(.transcribing(stage: .loadingModel, progress: nil))
-        let preparedTranscription = try await transcriber.prepareTranscription()
+        let prepared = try await measure { try await transcriber.prepareTranscription() }
         try Task.checkCancellation()
 
         return try await AsyncOperationTimeout.run(
@@ -173,9 +186,14 @@ final class DictationPipeline {
             },
             operation: {
                 try await self.processReadyDictation(
-                    preparedTranscription,
+                    prepared.value,
                     recording: recording,
-                    archiveOwner: archiveOwner
+                    timings: VoicePipelineTimings(
+                        recording: recording.duration,
+                        recordingFinalization: stopped.elapsed,
+                        modelReadiness: prepared.elapsed
+                    ),
+                    releasedAt: releasedAt
                 )
             }
         )
@@ -184,9 +202,10 @@ final class DictationPipeline {
     private func processReadyDictation(
         _ preparedTranscription: PreparedTranscription,
         recording: RecordingResult,
-        archiveOwner: SavedAudioArchiveOwner?
+        timings initialTimings: VoicePipelineTimings,
+        releasedAt: ContinuousClock.Instant
     ) async throws -> DictationPipelineResult {
-        var timings = VoicePipelineTimings(recording: recording.duration)
+        var timings = initialTimings
         await overlay.update(.transcribing(stage: .preparingAudio, progress: nil))
         let transcriptionAudioURL: URL
         do {
@@ -214,7 +233,8 @@ final class DictationPipeline {
             language: language,
             glossary: glossary,
             termNormalizer: termNormalizer,
-            timings: timings
+            timings: timings,
+            releasedAt: releasedAt
         )
     }
 
@@ -225,7 +245,8 @@ final class DictationPipeline {
         language: String,
         glossary: String,
         termNormalizer: TermNormalizer,
-        timings initialTimings: VoicePipelineTimings
+        timings initialTimings: VoicePipelineTimings,
+        releasedAt: ContinuousClock.Instant
     ) async throws -> DictationPipelineResult {
         var timings = initialTimings
         await overlay.update(.transcribing(stage: .transcribing, progress: nil))
@@ -320,10 +341,16 @@ final class DictationPipeline {
         let insertion = measure {
             inserter.insert(processedFinalText, action: developerModeResult.insertionAction)
         }
+        timings.releaseToInsertion = elapsed(since: releasedAt)
         timings.insertion = insertion.elapsed
 
         overlay.hide(after: 0.1)
 
+        let confidence =
+            developerModeResult.matchedCommandID == nil
+            ? transcriptionResult.confidence?.remapped(from: transcriptionResult.text, to: rawText)?
+                .remapped(from: rawText, to: processedFinalText)
+            : nil
         return DictationPipelineResult(
             rawText: rawText,
             finalText: processedFinalText,
@@ -332,15 +359,15 @@ final class DictationPipeline {
             timings: timings,
             modelMetadata: transcriptionResult.modelMetadata,
             diagnosticNotes: developerModeResult.diagnosticNotes,
-            insertionAction: developerModeResult.insertionAction
+            insertionAction: developerModeResult.insertionAction,
+            reviewHints: confidence?.reviewHints(in: processedFinalText) ?? []
         )
     }
 
     private func measure<T>(_ operation: () throws -> T) rethrows -> (value: T, elapsed: TimeInterval) {
-        let start = DispatchTime.now().uptimeNanoseconds
+        let start = now()
         let value = try operation()
-        let end = DispatchTime.now().uptimeNanoseconds
-        return (value, TimeInterval(end - start) / 1_000_000_000)
+        return (value, elapsed(since: start))
     }
 
     private func archiveSavedDictationAudio(
@@ -359,10 +386,14 @@ final class DictationPipeline {
     }
 
     private func measure<T>(_ operation: () async throws -> T) async rethrows -> (value: T, elapsed: TimeInterval) {
-        let start = DispatchTime.now().uptimeNanoseconds
+        let start = now()
         let value = try await operation()
-        let end = DispatchTime.now().uptimeNanoseconds
-        return (value, TimeInterval(end - start) / 1_000_000_000)
+        return (value, elapsed(since: start))
+    }
+
+    private func elapsed(since start: ContinuousClock.Instant) -> TimeInterval {
+        let duration = start.duration(to: now()).components
+        return max(0, Double(duration.seconds) + Double(duration.attoseconds) / 1e18)
     }
 
     private func llmIntentCommandResult(

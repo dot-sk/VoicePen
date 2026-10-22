@@ -18,9 +18,10 @@ running an update-enabled build can choose to check for updates from the app UI,
 review the available release, and approve installation without manually
 downloading or replacing `VoicePen.app`.
 
-VoicePen shall also enable Sparkle's automatic update checks and automatic update
-download preparation so update-enabled builds can discover and stage updates
-without requiring the user to manually fetch a release archive.
+VoicePen shall enable Sparkle's automatic update checks on an hourly default
+schedule. By default a discovered update is offered for user-approved installation
+instead of being silently downloaded and installed. Explicit Sparkle preferences
+chosen by a user remain effective.
 
 The update channel starts with the first build that includes the updater. Builds
 installed before that version must be manually replaced once with the transition
@@ -39,7 +40,7 @@ update-signing material.
 #### Scenario: Update-enabled build is running
 
 - **WHEN** an update-enabled build is running
-- **THEN** VoicePen shall allow Sparkle to check for updates automatically and prepare eligible updates in the background.
+- **THEN** VoicePen shall allow Sparkle to check for updates automatically on an hourly default schedule and present eligible updates through its standard offer. Silent automatic downloading and installation shall be disabled by default.
 
 #### Scenario: Newer GitHub Release is available in the configured feed
 
@@ -149,3 +150,16 @@ Release publishing SHALL prepare the tools needed to sign update metadata indepe
 
 - **WHEN** a validated release candidate is promoted on a runner without build dependencies
 - **THEN** publication prepares update-signing tools before generating the signed appcast without recompiling the candidate
+
+### Requirement: Visible automatic update offers by default
+
+VoicePen SHALL enable automatic update discovery on an hourly default schedule
+and use Sparkle's standard visible update offer with user-approved installation.
+VoicePen SHALL NOT default to silently downloading and installing
+updates. Existing explicit Sparkle preferences SHALL remain effective.
+
+#### Scenario: Default update-enabled build configuration
+
+- **WHEN** an update-enabled build has no explicit Sparkle preference overrides
+- **THEN** automatic checks are enabled with a default interval of one hour
+- **AND** silent automatic downloading and installation are disabled by default so discovered releases use the standard update offer

@@ -35,7 +35,7 @@ session-specific persistence and actions here.
 #### Scenario: No audio settings have been saved
 
 - **WHEN** no audio settings have been saved
-- **THEN** VoicePen shall enable dictation microphone boost, and Meeting voice leveling by default.
+- **THEN** VoicePen shall enable dictation microphone boost and Meeting voice leveling, and disable dictation RNNoise by default.
 
 #### Scenario: No saved-recordings settings have been saved
 
@@ -372,3 +372,26 @@ missing or invalid stored value SHALL normalize to the standard greedy profile.
 
 - **WHEN** VoicePen loads no decoding profile or an unsupported stored value
 - **THEN** it uses the standard greedy profile without blocking settings or transcription
+
+### Requirement: Dictation noise suppression preserves saved choices
+
+VoicePen SHALL preserve an explicitly saved dictation noise suppression choice across upgrades and restarts and SHALL allow either choice through the existing immediate settings path.
+
+#### Scenario: User has saved a noise suppression choice
+
+- **WHEN** a saved dictation noise suppression setting is true or false
+- **THEN** VoicePen loads that choice instead of replacing it with the new default
+
+### Requirement: Session latency metadata remains compatible
+
+VoicePen SHALL persist complete successful dictation latency and recording-finalization and model-readiness timings in local history and expose available measurements in session details without adding them twice to a total.
+
+#### Scenario: New latency metadata is saved and loaded
+
+- **WHEN** a completed dictation with measured release-to-insertion and additional stage timings is saved and loaded
+- **THEN** all measured values round-trip and are available in session details
+
+#### Scenario: Older session has no complete latency
+
+- **WHEN** an older session contains only the previous stage timings
+- **THEN** VoicePen retains those values and leaves complete latency unavailable rather than deriving it from their incomplete sum

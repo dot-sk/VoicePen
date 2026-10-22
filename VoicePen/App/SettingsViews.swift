@@ -802,6 +802,7 @@ struct ModelSettingsView: View {
             }
 
             Section {
+                LabeledContent("Model", value: "NVIDIA Nemotron-3 Diarization (offline)")
                 LabeledContent("Status", value: controller.meetingDiarizationModelStatusTitle)
                 LabeledContent("Install path", value: controller.meetingDiarizationModelDirectory.path)
 

@@ -299,7 +299,8 @@ struct SessionTranscriptWorkspace: View {
                     isSecondaryText: entry.finalText.trimmed.isEmpty,
                     isCopyDisabled: entry.finalText.trimmed.isEmpty,
                     showsLineNumbers: false,
-                    contentPadding: 0
+                    contentPadding: 0,
+                    reviewHints: entry.reviewHints ?? []
                 )
             } else {
                 ContentUnavailableView(
@@ -452,7 +453,10 @@ struct SessionMetadataSection: View {
 
     private func timingRows(_ timings: VoicePipelineTimings) -> [(label: String, value: String)] {
         [
+            ("Release to insertion attempt", timings.releaseToInsertion),
             ("Recording", timings.recording),
+            ("Recording finalization", timings.recordingFinalization),
+            ("Model readiness", timings.modelReadiness),
             ("Preprocessing", timings.preprocessing),
             ("Transcription", timings.transcription),
             ("Normalization", timings.normalization),

@@ -26,7 +26,7 @@ VoicePen provides audio controls in the Settings screen for dictation microphone
 #### Scenario: No audio settings have been saved
 
 - **WHEN** no audio settings have been saved
-- **THEN** VoicePen shall enable dictation microphone boost, dictation background noise suppression, and Meeting voice leveling by default.
+- **THEN** VoicePen shall enable dictation microphone boost and Meeting voice leveling, and disable dictation background noise suppression by default while preserving saved choices.
 
 #### Scenario: No saved-recordings settings have been saved
 

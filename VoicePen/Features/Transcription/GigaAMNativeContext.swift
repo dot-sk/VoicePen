@@ -5,7 +5,7 @@ import Foundation
 #endif
 
 nonisolated enum GigaAMNativeContext {
-    static let packageID = "voicepen-gigaam-600m-0.1.0-candidate.2"
+    static let packageID = "voicepen-gigaam-600m-0.1.0-candidate.3"
 
     static func checkStatus(_ status: Int32) throws {
         switch status {
@@ -64,7 +64,7 @@ nonisolated enum GigaAMNativeContext {
                 }
                 guard String(cString: transcribe_model_arch_string(loaded)) == "gigaam",
                     String(cString: transcribe_version()) == "0.4.0",
-                    String(cString: transcribe_version_commit()) == "1dc22fac+voicepen-gigaam-600m-candidate.2",
+                    String(cString: transcribe_version_commit()) == "1dc22fac+voicepen-gigaam-600m-candidate.3",
                     capabilities.native_sample_rate == 16_000,
                     capabilities.max_timestamp_kind == TRANSCRIBE_TIMESTAMPS_NONE,
                     !capabilities.supports_translate, !capabilities.supports_streaming,
@@ -110,10 +110,9 @@ nonisolated enum GigaAMNativeContext {
             if token.isCanceled { throw CancellationError() }
             try Self.check(status)
             let text = String(cString: transcribe_full_text(session))
-            let segments: [TranscriptionSegment]
-            if includeTimestamps && !text.isEmpty {
+            var alignedTokens: [GigaAMAlignedToken] = []
+            if !text.isEmpty {
                 let tokenCount = max(0, Int(transcribe_n_tokens(session)))
-                var alignedTokens: [GigaAMAlignedToken] = []
                 alignedTokens.reserveCapacity(tokenCount)
                 for index in 0..<tokenCount {
                     var nativeToken = transcribe_token()
@@ -127,9 +126,13 @@ nonisolated enum GigaAMNativeContext {
                         GigaAMAlignedToken(
                             text: String(cString: tokenText),
                             startMilliseconds: nativeToken.t0_ms,
-                            endMilliseconds: nativeToken.t1_ms
+                            endMilliseconds: nativeToken.t1_ms,
+                            probability: nativeToken.p
                         ))
                 }
+            }
+            let segments: [TranscriptionSegment]
+            if includeTimestamps && !text.isEmpty {
                 let duration = Double(samples.count) / 16_000
                 if let alignedSegments = GigaAMTokenAlignment.segments(text: text, tokens: alignedTokens, duration: duration) {
                     segments = alignedSegments
@@ -152,7 +155,8 @@ nonisolated enum GigaAMNativeContext {
                 executionDiagnostics: TranscriptionExecutionDiagnostics(
                     packageID: packageID, inputSampleCount: samples.count, nativeBackend: String(cString: transcribe_model_backend(model)),
                     loadMilliseconds: Double(timings.load_ms), frontendMilliseconds: Double(timings.mel_ms), encoderMilliseconds: Double(timings.encode_ms),
-                    decodingMilliseconds: Double(timings.decode_ms)))
+                    decodingMilliseconds: Double(timings.decode_ms)),
+                confidence: GigaAMConfidence.extract(text: text, tokens: alignedTokens))
         }
 
         private static func check(_ status: transcribe_status) throws {
@@ -160,12 +164,6 @@ nonisolated enum GigaAMNativeContext {
         }
     }
 #endif
-
-nonisolated struct GigaAMAlignedToken: Sendable {
-    let text: String
-    let startMilliseconds: Int64
-    let endMilliseconds: Int64
-}
 
 nonisolated enum GigaAMTokenAlignment {
     static func segments(text: String, tokens: [GigaAMAlignedToken], duration: TimeInterval) -> [TranscriptionSegment]? {

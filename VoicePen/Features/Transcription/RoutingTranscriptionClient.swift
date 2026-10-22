@@ -101,7 +101,8 @@ final class RoutingTranscriptionClient: TranscriptionClient, ModelWarmupClient {
                 text: result.text,
                 segments: result.segments,
                 modelMetadata: modelMetadata,
-                executionDiagnostics: result.executionDiagnostics
+                executionDiagnostics: result.executionDiagnostics,
+                confidence: result.confidence
             )
         }
     }

@@ -49,7 +49,7 @@ final class MeetingPipeline {
         savedAudioStorageLimitGBProvider: @escaping () -> Int = { VoicePenConfig.defaultSavedAudioStorageLimitGB },
         meetingTranscriptTimecodesEnabledProvider: @escaping () -> Bool = { true },
         meetingDiarizationEnabledProvider: @escaping () -> Bool = { false },
-        meetingDiarizationBackendProvider: @escaping @MainActor () -> MeetingDiarizationBackend = { .speakerKit },
+        meetingDiarizationBackendProvider: @escaping @MainActor () -> MeetingDiarizationBackend = { .nemotron },
         appVersionProvider: @escaping () -> String = { VoicePenConfig.appVersion },
         nowProvider: @escaping () -> Date = Date.init,
         fileManager: FileManager = .default

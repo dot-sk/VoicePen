@@ -47,7 +47,7 @@ def package(source,build,output,model):
     if unexpected:raise ValueError('private symbols exported: '+repr(unexpected[:10]))
     classes=subprocess.check_output(['otool','-ov',str(binary)],text=True)
     if 'GGMLMetalClass' in classes:raise ValueError('unexpected global Metal resource class')
-    deps=subprocess.check_output(['otool','-L',str(binary)],text=True)
+    deps='\n'.join(subprocess.check_output(['otool','-L',str(binary)],text=True).splitlines()[1:])
     if 'libggml' in deps or '/Users/' in deps:raise ValueError('private dylib or checkout dependency')
     (output/'exports.txt').write_text('\n'.join(symbols)+'\n')
     (output/'dependencies.txt').write_text(deps.replace(str(binary),'VoicePenGigaAM'))

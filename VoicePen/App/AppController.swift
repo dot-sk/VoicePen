@@ -130,7 +130,7 @@ final class AppController: ObservableObject {
     private var transcriptionTask: Task<Void, Never>?
     private var recordingStartTask: Task<Void, Never>?
     private var activeRecordingStartID: UUID?
-    private var pendingStopAfterRecordingStart = false
+    private var pendingStopAfterRecordingStart: ContinuousClock.Instant?
     private var recordingPrepareTask: Task<Void, Never>?
     private var activeTranscriptionID: UUID?
     private var activeTranscriptionHistoryEntryID: VoiceHistoryEntry.ID?
@@ -656,7 +656,7 @@ final class AppController: ObservableObject {
             minimumRecordingDuration: VoicePenConfig.minimumRecordingDuration
         )
         let meetingAudioFileIO = AVFoundationMeetingAudioFileIO()
-        let meetingDiarizationClient = SpeakerKitMeetingDiarizationClient(
+        let meetingDiarizationClient = NemotronMeetingDiarizationClient(
             cacheDirectory: paths.diarizationModelsDirectory,
             selectedBackendProvider: { settingsStore.meetingDiarizationBackend },
             audioFileIO: meetingAudioFileIO
@@ -801,7 +801,6 @@ final class AppController: ObservableObject {
         didStart = true
 
         let modelWarmup: Task<Void, Never>?
-        let meetingDiarizationModelWarmup: Task<Void, Never>?
         do {
             try paths.createRequiredDirectories()
             cleanupRetiredModel()
@@ -819,7 +818,6 @@ final class AppController: ObservableObject {
             refreshAudioInputDevices()
             startAudioInputDeviceObservation()
             modelWarmup = modelRuntimeStore.scheduleModelWarmupIfInstalled()
-            meetingDiarizationModelWarmup = modelRuntimeStore.scheduleMeetingDiarizationModelWarmupIfNeeded()
         } catch {
             setError(error)
             return .empty
@@ -854,7 +852,7 @@ final class AppController: ObservableObject {
         return AppControllerStartTasks(
             permissions: permissions,
             modelWarmup: modelWarmup,
-            meetingDiarizationModelWarmup: meetingDiarizationModelWarmup
+            meetingDiarizationModelWarmup: nil
         )
     }
 
@@ -1005,7 +1003,7 @@ final class AppController: ObservableObject {
         cancelModelWarmup()
         let startID = UUID()
         activeRecordingStartID = startID
-        pendingStopAfterRecordingStart = false
+        pendingStopAfterRecordingStart = nil
         dictationRuntimeState = .starting
         errorMessage = nil
 
@@ -1018,15 +1016,15 @@ final class AppController: ObservableObject {
                 recordingStartTask = nil
                 activeRecordingStartID = nil
 
-                if pendingStopAfterRecordingStart {
-                    pendingStopAfterRecordingStart = false
-                    stopRecordingAndProcess()
+                if let releasedAt = pendingStopAfterRecordingStart {
+                    pendingStopAfterRecordingStart = nil
+                    stopRecordingAndProcess(releasedAt: releasedAt)
                 }
             } catch {
                 guard activeRecordingStartID == startID else { return }
                 recordingStartTask = nil
                 activeRecordingStartID = nil
-                pendingStopAfterRecordingStart = false
+                pendingStopAfterRecordingStart = nil
                 dictationRuntimeState = .idle
                 presentDictationErrorPreservingMeetingState(error)
             }
@@ -1036,9 +1034,9 @@ final class AppController: ObservableObject {
     }
 
     @discardableResult
-    func stopRecordingAndProcess() -> Task<Void, Never>? {
+    func stopRecordingAndProcess(releasedAt: ContinuousClock.Instant = .now) -> Task<Void, Never>? {
         if dictationRuntimeState == .starting, let recordingStartTask {
-            pendingStopAfterRecordingStart = true
+            pendingStopAfterRecordingStart = pendingStopAfterRecordingStart ?? releasedAt
             return Task { @MainActor [weak self] in
                 await recordingStartTask.value
                 await self?.transcriptionTask?.value
@@ -1047,18 +1045,18 @@ final class AppController: ObservableObject {
 
         guard dictationRuntimeState == .recording, transcriptionTask == nil else { return nil }
         if let recordingStartTask {
-            pendingStopAfterRecordingStart = true
+            pendingStopAfterRecordingStart = pendingStopAfterRecordingStart ?? releasedAt
             return Task { @MainActor [weak self] in
                 await recordingStartTask.value
                 await self?.transcriptionTask?.value
             }
         }
 
-        return beginStopRecordingAndProcess()
+        return beginStopRecordingAndProcess(releasedAt: releasedAt)
     }
 
     @discardableResult
-    private func beginStopRecordingAndProcess() -> Task<Void, Never>? {
+    private func beginStopRecordingAndProcess(releasedAt: ContinuousClock.Instant) -> Task<Void, Never>? {
         didHandleCurrentTranscriptionCancellation = false
         let transcriptionID = UUID()
         let historyEntryID = UUID()
@@ -1076,7 +1074,9 @@ final class AppController: ObservableObject {
                 transcriptionCancellationKeyMonitor.install { [weak self] in
                     self?.cancelTranscription()
                 }
-                let result = try await pipeline.stopAndProcess(archiveOwner: .voiceHistory(historyEntryID))
+                let result = try await pipeline.stopAndProcess(
+                    archiveOwner: .voiceHistory(historyEntryID), releasedAt: releasedAt
+                )
                 try Task.checkCancellation()
                 guard activeTranscriptionID == transcriptionID else { return }
                 lastRawText = result.rawText
@@ -1451,8 +1451,9 @@ final class AppController: ObservableObject {
                     }
                 },
                 onKeyUp: { [weak self] in
+                    let releasedAt = ContinuousClock.now
                     Task { @MainActor in
-                        self?.stopRecordingAndProcess()
+                        self?.stopRecordingAndProcess(releasedAt: releasedAt)
                     }
                 }
             )
@@ -1647,11 +1648,6 @@ final class AppController: ObservableObject {
         modelRuntimeStore.cancelModelWarmup()
     }
 
-    @discardableResult
-    private func scheduleMeetingDiarizationModelWarmupIfNeeded() -> Task<Void, Never>? {
-        modelRuntimeStore.scheduleMeetingDiarizationModelWarmupIfNeeded()
-    }
-
     func updateAudioInputSelection(_ selection: AudioInputSelection) {
         do {
             try settingsStore.updateAudioInputSelection(selection)
@@ -1731,9 +1727,7 @@ final class AppController: ObservableObject {
     func updateMeetingDiarizationEnabled(_ isEnabled: Bool) -> Task<Void, Never>? {
         do {
             try settingsStore.updateMeetingDiarizationEnabled(isEnabled)
-            if isEnabled {
-                return modelRuntimeStore.scheduleMeetingDiarizationModelWarmupIfNeeded()
-            } else {
+            if !isEnabled {
                 modelRuntimeStore.cancelMeetingDiarizationModelWarmup()
                 meetingDiarizationModelRuntimeState = .notLoaded
             }
@@ -1961,6 +1955,7 @@ final class AppController: ObservableObject {
             timings: result.timings,
             modelMetadata: result.modelMetadata,
             diagnosticNotes: result.diagnosticNotes,
+            reviewHints: result.reviewHints,
             id: id
         )
     }
@@ -1974,6 +1969,7 @@ final class AppController: ObservableObject {
         timings: VoicePipelineTimings?,
         modelMetadata: VoiceTranscriptionModelMetadata? = nil,
         diagnosticNotes: [String] = [],
+        reviewHints: [WordConfidence] = [],
         id: VoiceHistoryEntry.ID = UUID()
     ) {
         let trimmedRawText = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1992,7 +1988,8 @@ final class AppController: ObservableObject {
             timings: timings,
             modelMetadata: (modelMetadata ?? VoiceTranscriptionModelMetadata(model: selectedModel))
                 .withAppVersion(appVersionProvider()),
-            diagnosticNotes: diagnosticNotes
+            diagnosticNotes: diagnosticNotes,
+            reviewHints: reviewHints.isEmpty ? nil : reviewHints
         )
 
         do {

@@ -4,7 +4,7 @@ Date: 2026-05-07
 
 ## Status
 
-Accepted
+Superseded for backend selection by [Nemotron offline](2026-10-22-nemotron-offline-diarization.md). The full-timeline boundary remains in force.
 
 ## Context
 

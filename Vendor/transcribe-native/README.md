@@ -24,7 +24,7 @@ Obtain the upstream archive for commit
 `1dc22facfc931e2f8adb43924b0e38b9c46f83c7` from
 `https://codeload.github.com/handy-computer/transcribe.cpp/tar.gz/1dc22facfc931e2f8adb43924b0e38b9c46f83c7`.
 `prepare.py` rejects archives whose digest differs from `pins.json`, extracts
-safely, and applies both checked-in patches in order. It refuses an existing
+safely, and applies the checked-in patch series in order. It refuses an existing
 output directory.
 
 ```sh
@@ -198,3 +198,26 @@ alone does not close that distribution gate. The static GGUF's content and
 quality verdict is recorded independently. Neither verdict authorizes
 publication, and the canonical candidate manifest remains byte-immutable.
 No script here publishes, commits, rewires VoicePen, or changes its defaults.
+
+## CTC confidence candidate
+
+Candidate 3 adds normalized CTC symbol probabilities without changing greedy
+token selection or model weights. It retains the maximum winning posterior
+within each consecutive nonblank run, keeps blank-separated repetitions and
+the original token frame positions, and reports invalid score evidence as NaN.
+The supported host head reuses its existing log-softmax output. The optional
+raw-logit diagnostic path normalizes scores before exposing probabilities.
+
+`0003-ctc-confidence.patch` includes the native CTC unit test, registered with
+CTest and built with assertions enabled in Release. The public C ABI is
+unchanged. `tests/confidence-client.c` and
+`tools/compile-confidence-client.sh FRAMEWORK OUTPUT` provide a paired native
+text/token/score/timing client for the same input PCM and existing model.
+The input list contains `sample-id<TAB>absolute-float32-pcm-path` per line;
+the client takes `MODEL INPUTS.tsv REPEATS`, uses four threads and Metal,
+performs one excluded warmup per input, and requests no timestamps.
+
+The distinct package identity prevents clients from treating the previous
+candidate's unpopulated token probabilities as real confidence. Local package
+verification does not close the existing distribution or numerical acceptance
+gates, and the weights and publication URL remain unchanged.
