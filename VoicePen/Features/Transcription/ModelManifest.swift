@@ -39,7 +39,7 @@ nonisolated struct ModelManifestModel: Codable, Equatable, Identifiable, Sendabl
         switch backendKind {
         case .whisperCpp:
             return true
-        case .gigaAM:
+        case .gigaAM, .nemotron:
             return false
         case .unsupported:
             return capabilities?.timestamps ?? false
@@ -118,6 +118,9 @@ nonisolated struct ModelManifestModel: Codable, Equatable, Identifiable, Sendabl
         if backendKind == .gigaAM {
             return GigaAMInstallationIdentity(model: self).isInstalled(paths: paths, model: self)
         }
+        if backendKind == .nemotron {
+            return NemotronInstallationIdentity(model: self).isInstalled(paths: paths)
+        }
         return paths.existingModelFile(for: id, fileName: localArtifactFileName) != nil
             && requiredCompanionArtifacts.allSatisfy { artifact in
                 paths.existingModelArtifact(for: id, localPath: artifact.localPath) != nil
@@ -188,5 +191,6 @@ nonisolated enum ModelArtifactArchiveKind: String, Codable, Equatable, Sendable 
 nonisolated enum ModelBackend: String, Equatable, Sendable {
     case whisperCpp
     case gigaAM
+    case nemotron
     case unsupported
 }

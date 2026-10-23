@@ -9,7 +9,9 @@
     "sourceKind": "whisper.cpp GGML",
     "backend": "whisperCpp",
     "isQuantized": true,
-    "supportedLanguageCodes": ["multilingual"],
+    "supportedLanguageCodes": [
+      "multilingual"
+    ],
     "description": "Fastest bundled multilingual Whisper large-v3 turbo option. Q5_0 is smaller and a little faster, with a small quality tradeoff.",
     "downloadURL": "https://github.com/dot-sk/VoicePen/releases/download/model-assets-v1/ggml-large-v3-turbo-q5_0.bin",
     "artifactFileName": "ggml-large-v3-turbo-q5_0.bin",
@@ -30,7 +32,9 @@
       "sourceKind": "whisper.cpp GGML",
       "backend": "whisperCpp",
       "isQuantized": true,
-      "supportedLanguageCodes": ["multilingual"],
+      "supportedLanguageCodes": [
+        "multilingual"
+      ],
       "description": "Fastest bundled multilingual Whisper large-v3 turbo option. Q5_0 is smaller and a little faster, with a small quality tradeoff.",
       "downloadURL": "https://github.com/dot-sk/VoicePen/releases/download/model-assets-v1/ggml-large-v3-turbo-q5_0.bin",
       "artifactFileName": "ggml-large-v3-turbo-q5_0.bin",
@@ -50,7 +54,9 @@
       "sourceKind": "whisper.cpp GGML",
       "backend": "whisperCpp",
       "isQuantized": true,
-      "supportedLanguageCodes": ["multilingual"],
+      "supportedLanguageCodes": [
+        "multilingual"
+      ],
       "description": "Highest-quality bundled multilingual Whisper large-v3 turbo quantized option. Q8_0 is larger and heavier, with the safest quality margin.",
       "downloadURL": "https://github.com/dot-sk/VoicePen/releases/download/model-assets-v1/ggml-large-v3-turbo-q8_0.bin",
       "artifactFileName": "ggml-large-v3-turbo-q8_0.bin",
@@ -87,6 +93,200 @@
       },
       "companionArtifacts": [],
       "runtimePackageID": "voicepen-gigaam-600m-0.1.0-candidate.3"
+    },
+    {
+      "id": "nemotron-speech-english-0.6b",
+      "displayName": "Nemotron English 0.6B",
+      "version": "speech-en-0.6b-coreml-2240ms-e673531caa6d",
+      "sizeLabel": "627 MB",
+      "sourceRepo": "FluidInference/nemotron-speech-streaming-en-0.6b-coreml",
+      "sourceKind": "Nemotron Core ML",
+      "backend": "nemotron",
+      "isQuantized": true,
+      "supportedLanguageCodes": [
+        "en"
+      ],
+      "description": "English-only recognition. Runs locally on Apple Silicon.",
+      "downloadURL": "https://huggingface.co/FluidInference/nemotron-speech-streaming-en-0.6b-coreml/resolve/e673531caa6d25ab7baf5a8c14c9b99ba1551838/nemotron_coreml_2240ms/metadata.json",
+      "artifactFileName": "metadata.json",
+      "byteSize": 441,
+      "sha256": "b1abb480bd6e5f4a59daf39c9340d50c89cb527e1e69ecb7070f5933efe0b7f3",
+      "capabilities": {
+        "timestamps": false
+      },
+      "companionArtifacts": [
+        {
+          "id": "decoder.mlmodelc_analytics_coremldata.bin",
+          "displayName": "decoder.mlmodelc/analytics/coremldata.bin",
+          "downloadURL": "https://huggingface.co/FluidInference/nemotron-speech-streaming-en-0.6b-coreml/resolve/e673531caa6d25ab7baf5a8c14c9b99ba1551838/nemotron_coreml_2240ms/decoder.mlmodelc/analytics/coremldata.bin",
+          "fileName": "decoder.mlmodelc/analytics/coremldata.bin",
+          "localPath": "decoder.mlmodelc/analytics/coremldata.bin",
+          "archiveKind": "none",
+          "byteSize": 243,
+          "sha256": "1e71eacbdeef85ec32ccb31c70670ce73f478fc3427e18c4a17506fcea69b6f6"
+        },
+        {
+          "id": "decoder.mlmodelc_coremldata.bin",
+          "displayName": "decoder.mlmodelc/coremldata.bin",
+          "downloadURL": "https://huggingface.co/FluidInference/nemotron-speech-streaming-en-0.6b-coreml/resolve/e673531caa6d25ab7baf5a8c14c9b99ba1551838/nemotron_coreml_2240ms/decoder.mlmodelc/coremldata.bin",
+          "fileName": "decoder.mlmodelc/coremldata.bin",
+          "localPath": "decoder.mlmodelc/coremldata.bin",
+          "archiveKind": "none",
+          "byteSize": 493,
+          "sha256": "403aa30321704087945383db8349fdce409215e0c7fb3fcaddb92656d6de88cb"
+        },
+        {
+          "id": "decoder.mlmodelc_model.mil",
+          "displayName": "decoder.mlmodelc/model.mil",
+          "downloadURL": "https://huggingface.co/FluidInference/nemotron-speech-streaming-en-0.6b-coreml/resolve/e673531caa6d25ab7baf5a8c14c9b99ba1551838/nemotron_coreml_2240ms/decoder.mlmodelc/model.mil",
+          "fileName": "decoder.mlmodelc/model.mil",
+          "localPath": "decoder.mlmodelc/model.mil",
+          "archiveKind": "none",
+          "byteSize": 13093,
+          "sha256": "8298f16d3926565b77732b549fa9c64fedebb2e5a29a76e33d0b2e970e93ae69"
+        },
+        {
+          "id": "decoder.mlmodelc_weights_weight.bin",
+          "displayName": "decoder.mlmodelc/weights/weight.bin",
+          "downloadURL": "https://huggingface.co/FluidInference/nemotron-speech-streaming-en-0.6b-coreml/resolve/e673531caa6d25ab7baf5a8c14c9b99ba1551838/nemotron_coreml_2240ms/decoder.mlmodelc/weights/weight.bin",
+          "fileName": "decoder.mlmodelc/weights/weight.bin",
+          "localPath": "decoder.mlmodelc/weights/weight.bin",
+          "archiveKind": "none",
+          "byteSize": 14429952,
+          "sha256": "d9758e49f9b2b9a0462c933256663d4174209739e62f0ddc14e4147bc50e7818"
+        },
+        {
+          "id": "decoder_joint.mlmodelc_analytics_coremldata.bin",
+          "displayName": "decoder_joint.mlmodelc/analytics/coremldata.bin",
+          "downloadURL": "https://huggingface.co/FluidInference/nemotron-speech-streaming-en-0.6b-coreml/resolve/e673531caa6d25ab7baf5a8c14c9b99ba1551838/nemotron_coreml_2240ms/decoder_joint.mlmodelc/analytics/coremldata.bin",
+          "fileName": "decoder_joint.mlmodelc/analytics/coremldata.bin",
+          "localPath": "decoder_joint.mlmodelc/analytics/coremldata.bin",
+          "archiveKind": "none",
+          "byteSize": 243,
+          "sha256": "d46ecf790a728d91b8962ec62e597980e288e66c775e45429bf734b54c658ffc"
+        },
+        {
+          "id": "decoder_joint.mlmodelc_coremldata.bin",
+          "displayName": "decoder_joint.mlmodelc/coremldata.bin",
+          "downloadURL": "https://huggingface.co/FluidInference/nemotron-speech-streaming-en-0.6b-coreml/resolve/e673531caa6d25ab7baf5a8c14c9b99ba1551838/nemotron_coreml_2240ms/decoder_joint.mlmodelc/coremldata.bin",
+          "fileName": "decoder_joint.mlmodelc/coremldata.bin",
+          "localPath": "decoder_joint.mlmodelc/coremldata.bin",
+          "archiveKind": "none",
+          "byteSize": 514,
+          "sha256": "0161ed3e81177d166e8c5fb29b0f2fef67e98a05111b1e173c73427f337f25c7"
+        },
+        {
+          "id": "decoder_joint.mlmodelc_model.mil",
+          "displayName": "decoder_joint.mlmodelc/model.mil",
+          "downloadURL": "https://huggingface.co/FluidInference/nemotron-speech-streaming-en-0.6b-coreml/resolve/e673531caa6d25ab7baf5a8c14c9b99ba1551838/nemotron_coreml_2240ms/decoder_joint.mlmodelc/model.mil",
+          "fileName": "decoder_joint.mlmodelc/model.mil",
+          "localPath": "decoder_joint.mlmodelc/model.mil",
+          "archiveKind": "none",
+          "byteSize": 17146,
+          "sha256": "517bb31cf87eb8aa80adaa8c3fee2df0fd7d7dd0c8791e615c5023886c39d572"
+        },
+        {
+          "id": "decoder_joint.mlmodelc_weights_weight.bin",
+          "displayName": "decoder_joint.mlmodelc/weights/weight.bin",
+          "downloadURL": "https://huggingface.co/FluidInference/nemotron-speech-streaming-en-0.6b-coreml/resolve/e673531caa6d25ab7baf5a8c14c9b99ba1551838/nemotron_coreml_2240ms/decoder_joint.mlmodelc/weights/weight.bin",
+          "fileName": "decoder_joint.mlmodelc/weights/weight.bin",
+          "localPath": "decoder_joint.mlmodelc/weights/weight.bin",
+          "archiveKind": "none",
+          "byteSize": 17876866,
+          "sha256": "96cac67a1352e45a2418284779dbd5efe5865159b7b92f328247e5ed31485f52"
+        },
+        {
+          "id": "encoder_encoder_int8.mlmodelc_analytics_coremldata.bin",
+          "displayName": "encoder/encoder_int8.mlmodelc/analytics/coremldata.bin",
+          "downloadURL": "https://huggingface.co/FluidInference/nemotron-speech-streaming-en-0.6b-coreml/resolve/e673531caa6d25ab7baf5a8c14c9b99ba1551838/nemotron_coreml_2240ms/encoder/encoder_int8.mlmodelc/analytics/coremldata.bin",
+          "fileName": "encoder/encoder_int8.mlmodelc/analytics/coremldata.bin",
+          "localPath": "encoder/encoder_int8.mlmodelc/analytics/coremldata.bin",
+          "archiveKind": "none",
+          "byteSize": 243,
+          "sha256": "4766055cb558dcc03983a56d5388af7a659efabb42f3316cda5a6b919decf223"
+        },
+        {
+          "id": "encoder_encoder_int8.mlmodelc_coremldata.bin",
+          "displayName": "encoder/encoder_int8.mlmodelc/coremldata.bin",
+          "downloadURL": "https://huggingface.co/FluidInference/nemotron-speech-streaming-en-0.6b-coreml/resolve/e673531caa6d25ab7baf5a8c14c9b99ba1551838/nemotron_coreml_2240ms/encoder/encoder_int8.mlmodelc/coremldata.bin",
+          "fileName": "encoder/encoder_int8.mlmodelc/coremldata.bin",
+          "localPath": "encoder/encoder_int8.mlmodelc/coremldata.bin",
+          "archiveKind": "none",
+          "byteSize": 609,
+          "sha256": "3f863b74a80d9db8b328e14ce4aeb31064a136c5faae5978d3f70dfec20b6349"
+        },
+        {
+          "id": "encoder_encoder_int8.mlmodelc_model.mil",
+          "displayName": "encoder/encoder_int8.mlmodelc/model.mil",
+          "downloadURL": "https://huggingface.co/FluidInference/nemotron-speech-streaming-en-0.6b-coreml/resolve/e673531caa6d25ab7baf5a8c14c9b99ba1551838/nemotron_coreml_2240ms/encoder/encoder_int8.mlmodelc/model.mil",
+          "fileName": "encoder/encoder_int8.mlmodelc/model.mil",
+          "localPath": "encoder/encoder_int8.mlmodelc/model.mil",
+          "archiveKind": "none",
+          "byteSize": 995836,
+          "sha256": "6d34f023ff66540299e569b81aedc3c0576a5fd71457d7cc4071bcbb28e7ac27"
+        },
+        {
+          "id": "encoder_encoder_int8.mlmodelc_weights_weight.bin",
+          "displayName": "encoder/encoder_int8.mlmodelc/weights/weight.bin",
+          "downloadURL": "https://huggingface.co/FluidInference/nemotron-speech-streaming-en-0.6b-coreml/resolve/e673531caa6d25ab7baf5a8c14c9b99ba1551838/nemotron_coreml_2240ms/encoder/encoder_int8.mlmodelc/weights/weight.bin",
+          "fileName": "encoder/encoder_int8.mlmodelc/weights/weight.bin",
+          "localPath": "encoder/encoder_int8.mlmodelc/weights/weight.bin",
+          "archiveKind": "none",
+          "byteSize": 590092992,
+          "sha256": "0c67d14d95f9172e8391147f65c568eb3b9f66b5daa819ae05ce0eac8713a7eb"
+        },
+        {
+          "id": "joint.mlmodelc_analytics_coremldata.bin",
+          "displayName": "joint.mlmodelc/analytics/coremldata.bin",
+          "downloadURL": "https://huggingface.co/FluidInference/nemotron-speech-streaming-en-0.6b-coreml/resolve/e673531caa6d25ab7baf5a8c14c9b99ba1551838/nemotron_coreml_2240ms/joint.mlmodelc/analytics/coremldata.bin",
+          "fileName": "joint.mlmodelc/analytics/coremldata.bin",
+          "localPath": "joint.mlmodelc/analytics/coremldata.bin",
+          "archiveKind": "none",
+          "byteSize": 243,
+          "sha256": "9191ce6547771319e0cefb4bb25c225102d62ffd22035f83bc64c91cae8c6076"
+        },
+        {
+          "id": "joint.mlmodelc_coremldata.bin",
+          "displayName": "joint.mlmodelc/coremldata.bin",
+          "downloadURL": "https://huggingface.co/FluidInference/nemotron-speech-streaming-en-0.6b-coreml/resolve/e673531caa6d25ab7baf5a8c14c9b99ba1551838/nemotron_coreml_2240ms/joint.mlmodelc/coremldata.bin",
+          "fileName": "joint.mlmodelc/coremldata.bin",
+          "localPath": "joint.mlmodelc/coremldata.bin",
+          "archiveKind": "none",
+          "byteSize": 401,
+          "sha256": "70798ae506920164d76c1095c0d6227a65965d4288894ce262e0e629356eea0d"
+        },
+        {
+          "id": "joint.mlmodelc_model.mil",
+          "displayName": "joint.mlmodelc/model.mil",
+          "downloadURL": "https://huggingface.co/FluidInference/nemotron-speech-streaming-en-0.6b-coreml/resolve/e673531caa6d25ab7baf5a8c14c9b99ba1551838/nemotron_coreml_2240ms/joint.mlmodelc/model.mil",
+          "fileName": "joint.mlmodelc/model.mil",
+          "localPath": "joint.mlmodelc/model.mil",
+          "archiveKind": "none",
+          "byteSize": 5064,
+          "sha256": "73bcc51b58ff73c7620e31a2c32dc5ef4939e8ec2a77ec22242303422bfafba4"
+        },
+        {
+          "id": "joint.mlmodelc_weights_weight.bin",
+          "displayName": "joint.mlmodelc/weights/weight.bin",
+          "downloadURL": "https://huggingface.co/FluidInference/nemotron-speech-streaming-en-0.6b-coreml/resolve/e673531caa6d25ab7baf5a8c14c9b99ba1551838/nemotron_coreml_2240ms/joint.mlmodelc/weights/weight.bin",
+          "fileName": "joint.mlmodelc/weights/weight.bin",
+          "localPath": "joint.mlmodelc/weights/weight.bin",
+          "archiveKind": "none",
+          "byteSize": 3446978,
+          "sha256": "d1d45514a91da39f24e264712a9f8b5a2a90e9cbce04bad3f3f74242bea106d5"
+        },
+        {
+          "id": "tokenizer.json",
+          "displayName": "tokenizer.json",
+          "downloadURL": "https://huggingface.co/FluidInference/nemotron-speech-streaming-en-0.6b-coreml/resolve/e673531caa6d25ab7baf5a8c14c9b99ba1551838/nemotron_coreml_2240ms/tokenizer.json",
+          "fileName": "tokenizer.json",
+          "localPath": "tokenizer.json",
+          "archiveKind": "none",
+          "byteSize": 18374,
+          "sha256": "a87b5b8a0e0a989fa7db3121f279ce6af70e337feb55ab553b8d0658db70b9d3"
+        }
+      ],
+      "runtimePackageID": "fluidaudio-0.17.7-nemotron-english-2240ms"
     }
   ]
 }

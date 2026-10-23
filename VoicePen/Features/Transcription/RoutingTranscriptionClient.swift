@@ -62,17 +62,20 @@ final class RoutingTranscriptionClient: TranscriptionClient, ModelWarmupClient {
     private let decodingProfileProvider: () -> LocalDecodingProfile
     private let whisperCppClient: WhisperCppTranscribing
     private let gigaAMClient: WhisperCppTranscribing?
+    private let nemotronClient: WhisperCppTranscribing?
 
     init(
         modelProvider: @escaping () -> ModelManifestModel,
         decodingProfileProvider: @escaping () -> LocalDecodingProfile = { .standard },
         whisperCppClient: WhisperCppTranscribing,
-        gigaAMClient: WhisperCppTranscribing? = nil
+        gigaAMClient: WhisperCppTranscribing? = nil,
+        nemotronClient: WhisperCppTranscribing? = nil
     ) {
         self.modelProvider = modelProvider
         self.decodingProfileProvider = decodingProfileProvider
         self.whisperCppClient = whisperCppClient
         self.gigaAMClient = gigaAMClient
+        self.nemotronClient = nemotronClient
     }
 
     func prepareTranscription() async throws -> PreparedTranscription {
@@ -89,6 +92,9 @@ final class RoutingTranscriptionClient: TranscriptionClient, ModelWarmupClient {
         case .gigaAM:
             guard let gigaAMClient else { throw TranscriptionError.unsupportedModel(model.id) }
             backend = gigaAMClient
+        case .nemotron:
+            guard let nemotronClient else { throw TranscriptionError.unsupportedModel(model.id) }
+            backend = nemotronClient
         case .unsupported: throw TranscriptionError.unsupportedModel(model.id)
         }
         let prepared = try await backend.prepareTranscription(
@@ -115,11 +121,13 @@ final class RoutingTranscriptionClient: TranscriptionClient, ModelWarmupClient {
     func releaseInactiveResources(selectedModelID: String?) async {
         await whisperCppClient.releaseResources(except: selectedModelID)
         await gigaAMClient?.releaseResources(except: selectedModelID)
+        await nemotronClient?.releaseResources(except: selectedModelID)
     }
 
     func releaseResourcesForDeletion(modelID: String) async -> Bool {
         guard await whisperCppClient.releaseResourcesForDeletion(modelID: modelID) else { return false }
-        return await gigaAMClient?.releaseResourcesForDeletion(modelID: modelID) ?? true
+        guard await gigaAMClient?.releaseResourcesForDeletion(modelID: modelID) ?? true else { return false }
+        return await nemotronClient?.releaseResourcesForDeletion(modelID: modelID) ?? true
     }
 
     func warmUp(model: ModelManifestModel, language: String) async throws {
@@ -133,6 +141,9 @@ final class RoutingTranscriptionClient: TranscriptionClient, ModelWarmupClient {
         case .gigaAM:
             guard let gigaAMClient else { throw TranscriptionError.unsupportedModel(model.id) }
             try await gigaAMClient.warmUp(model: model, language: "auto", decodingProfile: .standard)
+        case .nemotron:
+            guard let nemotronClient else { throw TranscriptionError.unsupportedModel(model.id) }
+            try await nemotronClient.warmUp(model: model, language: "en", decodingProfile: .standard)
         case .unsupported:
             throw TranscriptionError.unsupportedModel(model.id)
         }

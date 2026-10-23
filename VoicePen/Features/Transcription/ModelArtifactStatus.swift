@@ -24,6 +24,8 @@ nonisolated struct ModelAccelerationStatus: Equatable {
         switch backendKind {
         case .gigaAM:
             return "Metal required"
+        case .nemotron:
+            return "Core ML (CPU + Neural Engine policy)"
         case .whisperCpp:
             return actualWhisperAcceleration.map { "Encoder: \($0.encoder), decoder: \($0.decoder), \($0.device)" } ?? "Metal required"
         case .unsupported:
@@ -32,6 +34,15 @@ nonisolated struct ModelAccelerationStatus: Equatable {
     }
 
     static func inspect(model: ModelManifestModel, paths: AppPaths, fileManager: FileManager = .default) -> ModelAccelerationStatus {
+        if model.backendKind == .nemotron {
+            let present = model.isInstalled(paths: paths)
+            return ModelAccelerationStatus(
+                model: ModelArtifactStatus(id: model.id, displayName: "Core ML model", expectedURL: paths.userModelDirectory(for: model.id), isPresent: present),
+                companionArtifacts: [],
+                backendKind: .nemotron,
+                installationIsCompatible: present || !FileManager.default.fileExists(atPath: paths.userModelCompletionMarker(for: model.id).path)
+            )
+        }
         guard model.backendKind == .whisperCpp || model.backendKind == .gigaAM else {
             let modelDirectory = paths.existingModelDirectory(for: model.id)
             let expectedModelDirectory = modelDirectory ?? paths.userModelDirectory(for: model.id)

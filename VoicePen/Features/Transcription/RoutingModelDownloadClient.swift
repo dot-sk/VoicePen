@@ -3,10 +3,12 @@ import Foundation
 final class RoutingModelDownloadClient: ModelDownloadClient {
     private let whisperCppDownloader: ModelDownloadClient
     private let gigaAMDownloader: ModelDownloadClient?
+    private let nemotronDownloader: ModelDownloadClient?
 
-    init(whisperCppDownloader: ModelDownloadClient, gigaAMDownloader: ModelDownloadClient? = nil) {
+    init(whisperCppDownloader: ModelDownloadClient, gigaAMDownloader: ModelDownloadClient? = nil, nemotronDownloader: ModelDownloadClient? = nil) {
         self.whisperCppDownloader = whisperCppDownloader
         self.gigaAMDownloader = gigaAMDownloader
+        self.nemotronDownloader = nemotronDownloader
     }
 
     func downloadModel(
@@ -19,6 +21,9 @@ final class RoutingModelDownloadClient: ModelDownloadClient {
         case .gigaAM:
             guard let gigaAMDownloader else { throw ModelDownloadError.unsupportedBackend(model.backend) }
             return try await gigaAMDownloader.downloadModel(model, events: events)
+        case .nemotron:
+            guard let nemotronDownloader else { throw ModelDownloadError.unsupportedBackend(model.backend) }
+            return try await nemotronDownloader.downloadModel(model, events: events)
         case .unsupported:
             throw ModelDownloadError.unsupportedBackend(model.backend)
         }

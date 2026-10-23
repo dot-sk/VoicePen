@@ -223,7 +223,7 @@ final class DictationPipeline {
 
         try Task.checkCancellation()
         let capabilities = preparedTranscription.capabilities
-        let language = capabilities.forcedLanguage ? TranscriptionLanguageResolver.resolve(languageProvider()) : "auto"
+        let language = capabilities.effectiveLanguage(TranscriptionLanguageResolver.resolve(languageProvider()))
         let glossary = capabilities.decoderPrompt ? try glossaryPrompt(language: language) : ""
         let termNormalizer = dictionaryStore.makeNormalizer()
         return try await processPreparedTranscription(

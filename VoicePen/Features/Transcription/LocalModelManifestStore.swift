@@ -50,11 +50,11 @@ final class LocalModelManifestStore {
         }
 
         for model in [manifest.recommendedModel] + manifest.compatibleModels {
-            guard isGitHubReleaseAsset(model.remoteFile) else {
+            guard isAllowedAsset(model.remoteFile, model: model) else {
                 throw ModelManifestError.invalidModelAsset(model.id)
             }
             for artifact in model.requiredCompanionArtifacts {
-                guard isGitHubReleaseAsset(artifact.remoteFile) else {
+                guard isAllowedAsset(artifact.remoteFile, model: model) else {
                     throw ModelManifestError.invalidModelAsset("\(model.id)/\(artifact.id)")
                 }
                 if artifact.archiveKind == .zip,
@@ -66,8 +66,19 @@ final class LocalModelManifestStore {
         }
     }
 
-    private func isGitHubReleaseAsset(_ remoteFile: ModelAssetRemoteFile?) -> Bool {
+    private func isAllowedAsset(_ remoteFile: ModelAssetRemoteFile?, model: ModelManifestModel) -> Bool {
         guard let url = remoteFile?.url else { return false }
+        if model.backendKind == .nemotron {
+            let components = url.pathComponents
+            guard url.scheme == "https", url.host == "huggingface.co", components.count > 6,
+                components[1] == "FluidInference", components[2] == "nemotron-speech-streaming-en-0.6b-coreml",
+                components[3] == "resolve", components[4].count == 40,
+                components[4].allSatisfy({ $0.isHexDigit && !$0.isUppercase }),
+                components[5] == "nemotron_coreml_2240ms",
+                let mainURL = model.remoteFile?.url
+            else { return false }
+            return Array(components.prefix(6)) == Array(mainURL.pathComponents.prefix(6))
+        }
         return url.scheme == "https"
             && url.host == "github.com"
             && url.path.contains("/releases/download/model-assets-")
