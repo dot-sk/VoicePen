@@ -94,10 +94,10 @@ final class VoicePenAppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @MainActor
-private final class VoicePenStatusItemController: NSObject, NSMenuDelegate {
+final class VoicePenStatusItemController: NSObject, NSMenuDelegate {
     private let controller: AppController
     private let menu: NSMenu
-    private var state: VoicePenStatusMenuModel
+    private(set) var state: VoicePenStatusMenuModel
     private var statusItem: NSStatusItem?
     private var cancellables: Set<AnyCancellable> = []
     private var openMainWindow: () -> Void = {}
@@ -162,6 +162,7 @@ private final class VoicePenStatusItemController: NSObject, NSMenuDelegate {
     private func observeStateChange<P: Publisher>(_ publisher: P) where P.Failure == Never {
         publisher
             .dropFirst()
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.refreshState()
             }
