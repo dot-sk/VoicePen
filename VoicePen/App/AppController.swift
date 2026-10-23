@@ -870,11 +870,9 @@ final class AppController: ObservableObject {
     }
 
     private func reconcileSelectedModel() throws {
-        let compatibleModelIds = Set(modelManifest.compatibleModels.map(\.id))
-        guard compatibleModelIds.contains(settingsStore.selectedModelId) else {
-            try settingsStore.updateSelectedModelId(recommendedModel.id)
-            return
-        }
+        let model = modelManifest.compatibleModels.first { $0.id == settingsStore.selectedModelId } ?? recommendedModel
+        try settingsStore.updateRecognitionSelection(
+            settingsStore.recognitionSelection.selectingModel(model, models: modelManifest.compatibleModels))
     }
 
     private func refreshAudioInputDevices(_ snapshot: AudioInputDeviceSnapshot? = nil) {
@@ -1610,12 +1608,26 @@ final class AppController: ObservableObject {
         urls.filter { FileManager.default.fileExists(atPath: $0.path) }
     }
 
-    func updateTranscriptionLanguage(_ language: String) {
-        guard recognitionCapabilities.forcedLanguage else { return }
+    @discardableResult
+    func updateTranscriptionLanguage(_ language: String) -> Task<Void, Never>? {
         do {
-            try settingsStore.updateTranscriptionLanguage(language)
+            guard dictationRuntimeState == .idle,
+                AppSettingsStore.supportedLanguages.contains(where: { $0.code == language })
+            else { return nil }
+            let models = modelManifest.compatibleModels
+            guard
+                let selection = settingsStore.recognitionSelection.selectingLanguage(
+                    language, models: models, recommendedID: recommendedModel.id,
+                    installedIDs: Set(models.filter { $0.isInstalled(paths: paths) }.map(\.id)))
+            else {
+                throw TranscriptionError.modelLoadFailed("No available local model supports \(language).")
+            }
+            try settingsStore.updateRecognitionSelection(selection)
+            refreshPermissionState()
+            return modelRuntimeStore.scheduleModelWarmupIfInstalled()
         } catch {
             setError(error)
+            return nil
         }
     }
 
@@ -1633,10 +1645,12 @@ final class AppController: ObservableObject {
         do {
             guard dictationRuntimeState == .idle else { return nil }
 
-            guard modelManifest.compatibleModels.contains(where: { $0.id == modelId }) else {
+            guard let model = modelManifest.compatibleModels.first(where: { $0.id == modelId }) else {
                 throw TranscriptionError.unsupportedModel(modelId)
             }
-            try settingsStore.updateSelectedModelId(modelId)
+            try settingsStore.updateRecognitionSelection(
+                settingsStore.recognitionSelection.selectingModel(model, models: modelManifest.compatibleModels))
+            refreshPermissionState()
             return modelRuntimeStore.scheduleModelWarmupIfInstalled()
         } catch {
             setError(error)

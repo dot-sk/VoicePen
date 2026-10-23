@@ -188,8 +188,8 @@ final class VoicePenStatusItemController: NSObject, NSMenuDelegate {
             showsStopMeetingRecording: controller.appState.isMeetingCaptureActive,
             hasLatestTranscriptionText: controller.hasLatestTranscriptionText,
             pushToTalkHotkeyHint: controller.settingsStore.hotkeyPreference.menuBarHint(),
-            selectedTranscriptionLanguageCode: controller.recognitionCapabilities.effectiveLanguage(controller.settingsStore.transcriptionLanguage),
-            languageOptions: controller.recognitionCapabilities.languageMenuOptions(availableLanguageOptions),
+            selectedTranscriptionLanguageCode: controller.settingsStore.transcriptionLanguage,
+            languageOptions: availableLanguageOptions,
             isDictationStarting: controller.isDictationStarting,
             isDictationRecording: controller.isDictationRecording,
             isDictationTranscribing: controller.isDictationTranscribing

@@ -45,11 +45,6 @@ nonisolated struct RecognitionCapabilities: Equatable, Sendable {
         configurableDecoding ? saved : .standard
     }
 
-    func languageMenuOptions(_ options: [VoicePenMenuLanguageOption]) -> [VoicePenMenuLanguageOption] {
-        guard !forcedLanguage else { return options }
-        return options.filter { $0.code == effectiveLanguage("auto") }.map { VoicePenMenuLanguageOption(code: $0.code, name: $0.name, isEnabled: false) }
-    }
-
     func effectiveRequest(_ saved: TranscriptionRequest) -> TranscriptionRequest {
         var options = saved.options
         if !timestamps { options.remove(.timestamps) }
