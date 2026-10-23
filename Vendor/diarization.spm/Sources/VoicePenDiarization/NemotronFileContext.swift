@@ -42,9 +42,10 @@ public actor NemotronFileContext {
                 throw NemotronFileError.invalidAudio
             }
             var submitted = 0
+            let chunkFrames: AVAudioFrameCount = 35_840
             while file.framePosition < file.length {
                 try Task.checkCancellation()
-                let requested = AVAudioFrameCount(min(35_840, file.length - file.framePosition))
+                let requested = AVAudioFrameCount(min(AVAudioFramePosition(chunkFrames), file.length - file.framePosition))
                 guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: requested) else {
                     throw NemotronFileError.invalidAudio
                 }
@@ -56,6 +57,14 @@ public actor NemotronFileContext {
                 submitted += Int(buffer.frameLength)
                 _ = try await manager.process(audioBuffer: buffer)
             }
+            try Task.checkCancellation()
+            // finish() pads only the remainder; another chunk supplies context for trailing speech
+            guard let silence = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: chunkFrames),
+                let silentSamples = silence.floatChannelData?[0]
+            else { throw NemotronFileError.invalidAudio }
+            silence.frameLength = chunkFrames
+            silentSamples.initialize(repeating: 0, count: Int(chunkFrames))
+            _ = try await manager.process(audioBuffer: silence)
             try Task.checkCancellation()
             let text = try await manager.finish()
             await manager.reset()

@@ -675,8 +675,8 @@ struct ModelSettingsView: View {
 
     private var languageSelection: Binding<String> {
         Binding(
-            get: { controller.recognitionCapabilities.effectiveLanguage(settingsStore.transcriptionLanguage) },
-            set: { controller.updateTranscriptionLanguage($0) }
+            get: { settingsStore.transcriptionLanguage },
+            set: { _ = controller.updateTranscriptionLanguage($0) }
         )
     }
 
@@ -778,7 +778,6 @@ struct ModelSettingsView: View {
                     )
                 }
                 .pickerStyle(.menu)
-                .disabled(!controller.recognitionCapabilities.forcedLanguage)
 
                 Picker(selection: localDecodingProfileSelection) {
                     ForEach(AppSettingsStore.supportedLocalDecodingProfiles) { profile in
