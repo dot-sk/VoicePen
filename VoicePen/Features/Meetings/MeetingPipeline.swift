@@ -249,7 +249,7 @@ final class MeetingPipeline {
         try Task.checkCancellation()
         let capabilities = preparedTranscription.capabilities
         let meetingDiarizationEnabled = meetingDiarizationEnabled && capabilities.timestamps
-        let language = capabilities.forcedLanguage ? TranscriptionLanguageResolver.resolve(languageProvider()) : "auto"
+        let language = capabilities.effectiveLanguage(TranscriptionLanguageResolver.resolve(languageProvider()))
         let glossaryPrompt: String
         let termNormalizer: TermNormalizer
         if let dictionaryStore {

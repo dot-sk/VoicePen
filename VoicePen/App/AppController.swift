@@ -273,7 +273,7 @@ final class AppController: ObservableObject {
 
     var isModelInstalled: Bool {
         switch selectedModel.backendKind {
-        case .whisperCpp, .gigaAM:
+        case .whisperCpp, .gigaAM, .nemotron:
             selectedModel.isInstalled(paths: paths)
         case .unsupported:
             paths.existingModelDirectory(for: selectedModel.id) != nil
@@ -307,10 +307,13 @@ final class AppController: ObservableObject {
         }
         lines += [
             "Saved language: \(settingsStore.transcriptionLanguage)",
-            "Effective language: \(recognitionCapabilities.forcedLanguage ? settingsStore.transcriptionLanguage : "auto")",
+            "Effective language: \(recognitionCapabilities.effectiveLanguage(settingsStore.transcriptionLanguage))",
             "Saved decoding: \(settingsStore.localDecodingProfile.rawValue)",
-            "Effective decoding: \(recognitionCapabilities.configurableDecoding ? settingsStore.localDecodingProfile.rawValue : "greedy-ctc")"
+            "Effective decoding: \(recognitionCapabilities.effectiveDecoding(settingsStore.localDecodingProfile))"
         ]
+        if selectedModel.backendKind == .nemotron {
+            lines.append("Runtime package: \(selectedModel.runtimePackageID ?? "unknown")")
+        }
         if selectedModel.backendKind == .gigaAM {
             lines += [
                 "Package: \(selectedModel.runtimePackageID ?? "unaccepted")", "Required stages: host frontend, Metal encoder, host CTC",
@@ -625,7 +628,8 @@ final class AppController: ObservableObject {
             },
             decodingProfileProvider: { settingsStore.localDecodingProfile },
             whisperCppClient: whisperCppTranscriber,
-            gigaAMClient: gigaAMTranscriber
+            gigaAMClient: gigaAMTranscriber,
+            nemotronClient: NemotronTranscriptionClient(paths: paths)
         )
         let pipeline = DictationPipeline(
             recorder: recorder,
@@ -732,7 +736,8 @@ final class AppController: ObservableObject {
                         ModelDownloadProxyConfiguration.fromEnvironment()
                     }
                 ),
-                gigaAMDownloader: GigaAMModelDownloadClient(paths: paths)
+                gigaAMDownloader: GigaAMModelDownloadClient(paths: paths),
+                nemotronDownloader: NemotronModelDownloadClient(paths: paths)
             ),
             modelWarmupClient: transcriber,
             gigaAMDiagnosticsStore: gigaAMDiagnosticsStore,

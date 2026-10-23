@@ -675,7 +675,7 @@ struct ModelSettingsView: View {
 
     private var languageSelection: Binding<String> {
         Binding(
-            get: { settingsStore.transcriptionLanguage },
+            get: { controller.recognitionCapabilities.effectiveLanguage(settingsStore.transcriptionLanguage) },
             set: { controller.updateTranscriptionLanguage($0) }
         )
     }
@@ -794,7 +794,7 @@ struct ModelSettingsView: View {
                 .pickerStyle(.menu)
                 .disabled(!controller.recognitionCapabilities.configurableDecoding)
                 if !controller.recognitionCapabilities.configurableDecoding {
-                    LabeledContent("Effective recognition", value: "Automatic multilingual, greedy CTC, text only")
+                    LabeledContent("Effective recognition", value: controller.recognitionCapabilities.fixedRecognitionDescription)
                 }
 
             } header: {
