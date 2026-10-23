@@ -939,3 +939,29 @@ VoicePen SHALL use Nemotron-3 offline through a pinned native Core ML runtime as
 - **WHEN** one diarization operation finishes while another is still loading or processing
 - **THEN** completion of the first operation does not unload or invalidate the second operation's runtime
 - **AND** the runtime is released after the last active operation completes
+
+### Requirement: Meetings use the selected recognizer with supported features
+
+Meeting processing and retry SHALL capture the current model and effective options once and submit the complete mastered recording through the shared application recognizer routing service. The existing Whisper-specific shared-client contract SHALL apply to Whisper requests; GigaAM SHALL share its own serialized backend service with dictation. GigaAM internal windows SHALL remain runtime-owned, without application text-chunk merging or silent duration truncation.
+
+Meeting timing and diarization SHALL apply when the selected model provides the required effective timing capability. For GigaAM, VoicePen SHALL derive timing from valid aligned token positions, suppress unsupported native timestamp and VAD options, and preserve recognized text when alignment is unavailable. It SHALL preserve model/app metadata, recovery and retry behavior, never auto-paste Meeting output, and never invent timing from runtime window boundaries.
+
+#### Scenario: Process a complete Meeting with GigaAM
+
+- **WHEN** an installed GigaAM model is selected for a Meeting processing run
+- **THEN** one complete-master local request produces saved text with GigaAM/app metadata and supported requested timing or speaker labels, without app-owned ASR chunks, invented timecodes, or automatic insertion
+
+#### Scenario: GigaAM is selected with Meeting timing preferences enabled
+
+- **WHEN** saved Meeting timecodes or diarization preferences are enabled while GigaAM is selected
+- **THEN** VoicePen preserves and applies those preferences using valid aligned token positions without requesting unsupported native timestamps or VAD, and retains recognized text if alignment is unavailable
+
+#### Scenario: Retry a Meeting after selecting another recognizer
+
+- **WHEN** the user retries recoverable Meeting audio after changing between Whisper and GigaAM
+- **THEN** the retry captures the newly selected model and its effective capabilities, updates result metadata for that run, and preserves recovery audio and history rules
+
+#### Scenario: Cancel GigaAM Meeting processing while dictation is waiting
+
+- **WHEN** the user cancels a GigaAM Meeting request while dictation is queued on that backend
+- **THEN** only the canceled request aborts, recovery audio remains retryable, no late Meeting success is saved, and the queued dictation can proceed after native execution is released
